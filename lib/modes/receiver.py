@@ -13,7 +13,6 @@ lon_ref = 139.0
 
 fragment_list = []
 
-
 def receive_lines(sock):
     buffer = b""
 
