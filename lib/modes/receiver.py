@@ -59,8 +59,8 @@ def process_message(message):
         return
 
     icao = str(pyModeS.icao(message))
-
-    if pyModeS.df(message) == 17:
+    df = pyModeS.df(message)
+    if df == 17:
         logging.info("receive ADSB")
         code = pyModeS.typecode(message)
 
@@ -71,24 +71,24 @@ def process_message(message):
                 longitude = pyModeS.adsb.position_with_ref(message, lat_ref, lon_ref)[1]
 
                 reconstruct_data(icao, "adsb", (altitude, latitude, longitude))
+    elif df == 21:
+        if pyModeS.bds.bds50.is50(message):
+            logging.info("receive BDS50")
 
-    elif pyModeS.bds.bds50.is50(message):
-        logging.info("receive BDS50")
+            trackangle = pyModeS.commb.trk50(message)
+            roundspeed = pyModeS.commb.gs50(message)
+            trueair = pyModeS.commb.tas50(message)
 
-        trackangle = pyModeS.commb.trk50(message)
-        roundspeed = pyModeS.commb.gs50(message)
-        trueair = pyModeS.commb.tas50(message)
+            reconstruct_data(icao, "bsd50", (trackangle, roundspeed, trueair))
 
-        reconstruct_data(icao, "bsd50", (trackangle, roundspeed, trueair))
+        elif pyModeS.bds.bds60.is60(message):
+            logging.info("receive BDS60")
 
-    elif pyModeS.bds.bds60.is60(message):
-        logging.info("receive BDS60")
+            heading = pyModeS.commb.hdg60(message)
+            indicatedair = pyModeS.commb.ias60(message)
+            mach = pyModeS.commb.mach60(message)
 
-        heading = pyModeS.commb.hdg60(message)
-        indicatedair = pyModeS.commb.ias60(message)
-        mach = pyModeS.commb.mach60(message)
-
-        reconstruct_data(icao, "bsd60", (heading, indicatedair, mach))
+            reconstruct_data(icao, "bsd60", (heading, indicatedair, mach))
 
 
 def process_modes(host, port):
