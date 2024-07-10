@@ -1,0 +1,15 @@
+modes:
+  decoder:
+    host: 192.168.2.45
+    port: 30002
+
+
+filter:
+  area:
+    lat:
+      ref: 35.1706474
+    lon:
+      ref: 136.8818643
+      
+    distance: 150
+

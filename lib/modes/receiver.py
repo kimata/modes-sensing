@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+"""
+Mode S のメッセージを解析し，上空の温度と風速を算出して出力します．
+
+Usage:
+  receiver.py [-c CONFIG]
+
+Options:
+  -c CONFIG     : CONFIG を設定ファイルとして読み込んで実行します．[default: config.yaml]
+"""
 # 参考: https://www.ishikawa-lab.com/RasPi_ModeS.html
 
 import socket
@@ -10,9 +19,6 @@ import threading
 import queue
 
 FRAGMENT_BUF_SIZE = 100
-
-lat_ref = 35.0
-lon_ref = 139.0
 
 fragment_list = []
 
@@ -105,10 +111,36 @@ def calc_meteorological_data(
                 mach=mach,
             )
         )
-    return {"temperature": temperature, "wind": wind}
+    return {
+        "altitude": altitude,
+        "latitude": latitude,
+        "longitude": longitude,
+        "temperature": temperature,
+        "wind": wind,
+    }
 
 
-def message_pairing(icao, packet_type, data, queue):
+def calc_distance(lat1, lon1, lat2, lon2):
+    R = 6371.0
+
+    lat1 = math.radians(lat1)
+    lon1 = math.radians(lon1)
+    lat2 = math.radians(lat2)
+    lon2 = math.radians(lon2)
+
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+
+    # NOTE: ハバースインの公式
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    c = 2 * math.asin(math.sqrt(a))
+
+    distance = R * c
+
+    return distance
+
+
+def message_pairing(icao, packet_type, data, queue, area_info):
     global fragment_list
 
     if not all(value is not None for value in data):
@@ -128,17 +160,25 @@ def message_pairing(icao, packet_type, data, queue):
         fragment[packet_type] = data
 
         if ("adsb" in fragment) and ("bsd50" in fragment) and ("bsd60" in fragment):
-            queue.put(calc_meteorological_data(*fragment["adsb"], *fragment["bsd50"], *fragment["bsd60"]))
+            meteorological_data = calc_meteorological_data(
+                *fragment["adsb"], *fragment["bsd50"], *fragment["bsd60"]
+            )
+            distance = calc_distance(
+                area_info["lat"]["ref"], area_info["lon"]["ref"], fragment["adsb"][1], fragment["adsb"][2]
+            )
+            if distance < area_info["distance"]:
+                queue.put(meteorological_data)
+            else:
+                logging.debug(
+                    "範囲外なので無視されます (latitude: {latitude:.2f}, longitude: {longitude:.2f}, distance: {distance})".format(
+                        latitude=fragment["adsb"][1], longitude=fragment["adsb"][2], distance=distance
+                    )
+                )
+
             fragment_list.remove(fragment)
 
 
-# 35.870738 / 136.932025
-# 34.428068 / 136.961025
-# 35.126815 / 136.067154
-# 35.206268/137.826040
-
-
-def process_message(message, queue):
+def process_message(message, queue, area_info):
     logging.debug("receive: {message}".format(message=message))
 
     if len(message) < 2:
@@ -159,9 +199,11 @@ def process_message(message, queue):
         if code is not None and ((code >= 5 and code <= 18) or (code >= 20 and code <= 22)):
             altitude = pyModeS.adsb.altitude(message)
             if altitude != 0:
-                latitude, longitude = pyModeS.adsb.position_with_ref(message, lat_ref, lon_ref)
+                latitude, longitude = pyModeS.adsb.position_with_ref(
+                    message, area_info["lat"]["ref"], area_info["lon"]["ref"]
+                )
 
-                message_pairing(icao, "adsb", (altitude, latitude, longitude), queue)
+                message_pairing(icao, "adsb", (altitude, latitude, longitude), queue, area_info)
 
     elif (df == 20) or (df == 21):
         if pyModeS.bds.bds50.is50(message):
@@ -171,7 +213,7 @@ def process_message(message, queue):
             groundspeed = pyModeS.commb.gs50(message)
             trueair = pyModeS.commb.tas50(message)
 
-            message_pairing(icao, "bsd50", (trackangle, groundspeed, trueair), queue)
+            message_pairing(icao, "bsd50", (trackangle, groundspeed, trueair), queue, area_info)
 
         elif pyModeS.bds.bds60.is60(message):
             logging.debug("receive BDS60")
@@ -180,38 +222,48 @@ def process_message(message, queue):
             indicatedair = pyModeS.commb.ias60(message)
             mach = pyModeS.commb.mach60(message)
 
-            message_pairing(icao, "bsd60", (heading, indicatedair, mach), queue)
+            message_pairing(icao, "bsd60", (heading, indicatedair, mach), queue, area_info)
 
 
-def watch_message(host, port, queue):
+def watch_message(host, port, queue, area_info):
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.connect((host, port))
 
             for line in receive_lines(sock):
-                process_message(line, queue)
+                process_message(line, queue, area_info)
     except Exception:
         logging.error(traceback.format_exc())
 
 
-def start(host, port, queue):
-    thread = threading.Thread(target=watch_message, args=(host, port, queue))
+def start(host, port, queue, area_info):
+    thread = threading.Thread(target=watch_message, args=(host, port, queue, area_info))
     thread.start()
 
     return thread
 
 
 if __name__ == "__main__":
+    from docopt import docopt
+
+    import local_lib.config
     import local_lib.logger
 
-    host = "192.168.2.45"
-    port = 30002
+    args = docopt(__doc__)
 
     local_lib.logger.init("ModeS sensing", level=logging.INFO)
 
+    config_file = args["-c"]
+    config = local_lib.config.load(args["-c"])
+
     measurement_queue = queue.Queue()
 
-    start(host, port, measurement_queue)
+    start(
+        config["modes"]["decoder"]["host"],
+        config["modes"]["decoder"]["port"],
+        measurement_queue,
+        config["filter"]["area"],
+    )
 
     while True:
         logging.info(measurement_queue.get())
