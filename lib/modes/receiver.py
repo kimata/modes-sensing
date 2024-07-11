@@ -90,7 +90,7 @@ def calc_wind(latitude, longitude, trackangle, groundspeed, heading, trueair):
 
 
 def calc_meteorological_data(
-    altitude, latitude, longitude, trackangle, groundspeed, trueair, heading, indicatedair, mach
+    callsign, altitude, latitude, longitude, trackangle, groundspeed, trueair, heading, indicatedair, mach
 ):
     altitude *= 0.3048  # 単位換算: feet →  mete
     groundspeed *= 0.514  # 単位換算: knot → m/s
@@ -103,8 +103,9 @@ def calc_meteorological_data(
         logging.warning(
             (
                 "温度が異常なので捨てます．"
-                + "(temperature: {temperature:.1f}, altitude: {altitude}, trueair: {trueair}, mach: {mach})"
+                + "(callsign: {callsign}, temperature: {temperature:.1f}, altitude: {altitude}, trueair: {trueair}, mach: {mach})"
             ).format(
+                callsign=callsign,
                 temperature=temperature,
                 altitude=altitude,
                 trueair=trueair,
@@ -112,6 +113,7 @@ def calc_meteorological_data(
             )
         )
     return {
+        "callsign": callsign,
         "altitude": altitude,
         "latitude": latitude,
         "longitude": longitude,
@@ -159,19 +161,25 @@ def message_pairing(icao, packet_type, data, queue, area_info):
     else:
         fragment[packet_type] = data
 
-        if ("adsb" in fragment) and ("bsd50" in fragment) and ("bsd60" in fragment):
+        if all(packet_type in fragment for packet_type in ["adsb_pos", "adsb_sign", "bsd50", "bsd60"]):
             meteorological_data = calc_meteorological_data(
-                *fragment["adsb"], *fragment["bsd50"], *fragment["bsd60"]
+                *fragment["adsb_sign"], *fragment["adsb_pos"], *fragment["bsd50"], *fragment["bsd60"]
             )
             distance = calc_distance(
-                area_info["lat"]["ref"], area_info["lon"]["ref"], fragment["adsb"][1], fragment["adsb"][2]
+                area_info["lat"]["ref"],
+                area_info["lon"]["ref"],
+                fragment["adsb_pos"][1],
+                fragment["adsb_pos"][2],
             )
             if distance < area_info["distance"]:
                 queue.put(meteorological_data)
             else:
-                logging.debug(
-                    "範囲外なので無視されます (latitude: {latitude:.2f}, longitude: {longitude:.2f}, distance: {distance})".format(
-                        latitude=fragment["adsb"][1], longitude=fragment["adsb"][2], distance=distance
+                logging.info(
+                    "範囲外なので無視されます (callsign: {callsign}, latitude: {latitude:.2f}, longitude: {longitude:.2f}, distance: {distance})".format(
+                        callsign=fragment["adsb_sign"][0],
+                        latitude=fragment["adsb_pos"][1],
+                        longitude=fragment["adsb_pos"][2],
+                        distance=distance,
                     )
                 )
 
@@ -196,14 +204,18 @@ def process_message(message, queue, area_info):
         logging.debug("receive ADSB")
         code = pyModeS.typecode(message)
 
-        if code is not None and ((code >= 5 and code <= 18) or (code >= 20 and code <= 22)):
-            altitude = pyModeS.adsb.altitude(message)
-            if altitude != 0:
-                latitude, longitude = pyModeS.adsb.position_with_ref(
-                    message, area_info["lat"]["ref"], area_info["lon"]["ref"]
-                )
+        if code is not None:
+            if (5 <= code <= 18) or (20 <= code <= 22):
+                altitude = pyModeS.adsb.altitude(message)
+                if altitude != 0:
+                    latitude, longitude = pyModeS.adsb.position_with_ref(
+                        message, area_info["lat"]["ref"], area_info["lon"]["ref"]
+                    )
 
-                message_pairing(icao, "adsb", (altitude, latitude, longitude), queue, area_info)
+                    message_pairing(icao, "adsb_pos", (altitude, latitude, longitude), queue, area_info)
+            elif 1 <= code <= 4:
+                callsign = pyModeS.adsb.callsign(message).rstrip("_")
+                message_pairing(icao, "adsb_sign", (callsign,), queue, area_info)
 
     elif (df == 20) or (df == 21):
         if pyModeS.bds.bds50.is50(message):
