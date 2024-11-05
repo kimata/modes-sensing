@@ -232,7 +232,8 @@ def warmup(driver, keyword, url_pattern):
     time.sleep(3)
 
     driver.find_element(
-        By.XPATH, '//a[contains(@href, "{url_pattern}")]'.format(url_pattern=url_pattern)
+        By.XPATH,
+        '//a[contains(@href, "{url_pattern}")]'.format(url_pattern=url_pattern),
     ).click()
 
     time.sleep(3)

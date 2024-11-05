@@ -9,24 +9,24 @@ Options:
   -c CONFIG     : CONFIG を設定ファイルとして読み込んで実行します．[default: config.yaml]
 """
 
-import sqlite3
+import datetime
 import logging
 import queue
+import sqlite3
 import traceback
-
-import modes.receiver
 
 
 def open(log_db_path):
     sqlite = sqlite3.connect(log_db_path)
     sqlite.execute(
-        "CREATE TABLE IF NOT EXISTS meteorological_data("
-        + "id INTEGER primary key autoincrement, time TEXT NOT NULL, "
+        "CREATE TABLE IF NOT EXISTS meteorological_data ("
+        + "id INTEGER primary key autoincrement, time INTEGER NOT NULL, "
         + "callsign TEXT NOT NULL, altitude REAL, latitude REAL, longitude REAL, "
         + "temperature REAL, wind_x REAL, wind_y REAL, "
         + "wind_angle REAL, wind_speed REAL"
-        + ")"
+        + ");"
     )
+    sqlite.execute("CREATE INDEX IF NOT EXISTS idx_tim ON meteorological_data (time);")
     sqlite.commit()
     sqlite.row_factory = lambda c, r: dict(zip([col[0] for col in c.description], r))
 
@@ -35,8 +35,8 @@ def open(log_db_path):
 
 def insert(sqlite, data):
     sqlite.execute(
-        'INSERT INTO meteorological_data VALUES (NULL, DATETIME("now"), ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [
+        'INSERT INTO meteorological_data VALUES (NULL, strftime("%s", "now"), ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        (
             data["callsign"],
             data["altitude"],
             data["latitude"],
@@ -46,37 +46,58 @@ def insert(sqlite, data):
             data["wind"]["y"],
             data["wind"]["angle"],
             data["wind"]["speed"],
-        ],
+        ),
     )
+    sqlite.commit()
 
 
-def store(queue):
-    log_db_path = "meteorological_data.db"
-    sqlite = open(log_db_path)
-
+def store_queue(sqlite, queue):
     try:
         while True:
             data = queue.get()
             logging.info(data)
             insert(sqlite, data)
-            sqlite.commit()
     except Exception:
         sqlite.close()
         logging.error(traceback.format_exc())
 
 
-if __name__ == "__main__":
-    from docopt import docopt
+def fetch_by_time(sqlite, time_start, time_end):
+    cur = sqlite.cursor()
 
-    import local_lib.config
-    import local_lib.logger
+    cur.execute(
+        "SELECT * FROM meteorological_data WHERE time BETWEEN ? AND ?",
+        (
+            time_start.astimezone(datetime.timezone.utc),
+            time_end.astimezone(datetime.timezone.utc),
+        ),
+    )
+
+    data_list = [
+        {
+            **data,
+            "time": (
+                datetime.datetime.strptime(data["time"], "%Y-%m-%d %H:%M:%S") + datetime.timedelta(hours=9)
+            ),
+        }
+        for data in cur.fetchall()
+    ]
+
+    return data_list
+
+
+if __name__ == "__main__":
+    import modes.receiver
+    import my_lib.config
+    import my_lib.logger
+    from docopt import docopt
 
     args = docopt(__doc__)
 
-    local_lib.logger.init("ModeS sensing", level=logging.INFO)
+    my_lib.logger.init("ModeS sensing", level=logging.INFO)
 
     config_file = args["-c"]
-    config = local_lib.config.load(args["-c"])
+    config = my_lib.config.load(args["-c"])
 
     measurement_queue = queue.Queue()
 
@@ -87,4 +108,6 @@ if __name__ == "__main__":
         config["filter"]["area"],
     )
 
-    store(measurement_queue)
+    sqlite = open(config["database"]["path"])
+
+    store_queue(sqlite, measurement_queue)

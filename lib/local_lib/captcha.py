@@ -60,7 +60,9 @@ def resolve_mp3(driver, wait):
     driver.switch_to.default_content()
 
     wait.until(
-        EC.frame_to_be_available_and_switch_to_it((By.XPATH, '//iframe[contains(@title, "reCAPTCHA による確認")]'))
+        EC.frame_to_be_available_and_switch_to_it(
+            (By.XPATH, '//iframe[contains(@title, "reCAPTCHA による確認")]')
+        )
     )
 
     wait.until(EC.element_to_be_clickable((By.XPATH, '//div[@id="rc-imageselect"]')))
@@ -69,7 +71,8 @@ def resolve_mp3(driver, wait):
     time.sleep(0.5)
 
     if local_lib.selenium_util.xpath_exists(
-        driver, '//div[contains(@class, "rc-doscaptcha-header-text") and contains(text(), "しばらくしてから")]'
+        driver,
+        '//div[contains(@class, "rc-doscaptcha-header-text") and contains(text(), "しばらくしてから")]',
     ):
         logging.warning("Could not switch to autio authentication because it was assumed to be a bot.")
         return False
@@ -92,7 +95,9 @@ def resolve_img_console(driver, wait, captcha_img_path):
     local_lib.selenium_util.click_xpath(driver, '//span[contains(@class, "recaptcha-checkbox")]')
     driver.switch_to.default_content()
     wait.until(
-        EC.frame_to_be_available_and_switch_to_it((By.XPATH, '//iframe[contains(@title, "reCAPTCHA による確認")]'))
+        EC.frame_to_be_available_and_switch_to_it(
+            (By.XPATH, '//iframe[contains(@title, "reCAPTCHA による確認")]')
+        )
     )
     wait.until(EC.element_to_be_clickable((By.XPATH, '//div[@id="rc-imageselect-target"]')))
     while True:
@@ -115,7 +120,9 @@ def resolve_img_console(driver, wait, captcha_img_path):
         # 0 は入力の完了を意味する．
         select_str = input(
             (
-                "「{img_file}」を参照して，選択すべきタイルを指定してください．\n".format(img_file=captcha_img_path)
+                "「{img_file}」を参照して，選択すべきタイルを指定してください．\n".format(
+                    img_file=captcha_img_path
+                )
                 + "(左上を 1 として横方向に 1, 2, 3, ... として指定．0 は追加選択無し．): "
             )
         ).strip()
@@ -138,7 +145,9 @@ def resolve_img_console(driver, wait, captcha_img_path):
                 else:
                     break
             else:
-                local_lib.selenium_util.click_xpath(driver, '//button[contains(text(), "次へ")]', is_warn=False)
+                local_lib.selenium_util.click_xpath(
+                    driver, '//button[contains(text(), "次へ")]', is_warn=False
+                )
                 time.sleep(0.5)
                 continue
 
@@ -168,7 +177,9 @@ def resolve_img_mail(driver, wait, config):
     local_lib.selenium_util.click_xpath(driver, '//span[contains(@class, "recaptcha-checkbox")]')
     driver.switch_to.default_content()
     wait.until(
-        EC.frame_to_be_available_and_switch_to_it((By.XPATH, '//iframe[contains(@title, "reCAPTCHA による確認")]'))
+        EC.frame_to_be_available_and_switch_to_it(
+            (By.XPATH, '//iframe[contains(@title, "reCAPTCHA による確認")]')
+        )
     )
     wait.until(EC.element_to_be_clickable((By.XPATH, '//div[@id="rc-imageselect-target"]')))
     while True:
@@ -209,7 +220,9 @@ def resolve_img_mail(driver, wait, config):
                 else:
                     break
             else:
-                local_lib.selenium_util.click_xpath(driver, '//button[contains(text(), "次へ")]', is_warn=False)
+                local_lib.selenium_util.click_xpath(
+                    driver, '//button[contains(text(), "次へ")]', is_warn=False
+                )
                 time.sleep(0.5)
                 continue
 

@@ -42,7 +42,12 @@ def insert_table_header(sheet, row, sheet_def, base_style):
                 )
         else:
             set_header_cell_style(
-                sheet, row, col, sheet_def["TABLE_HEADER"]["col"][key]["label"], width, base_style
+                sheet,
+                row,
+                col,
+                sheet_def["TABLE_HEADER"]["col"][key]["label"],
+                width,
+                base_style,
             )
 
 
@@ -187,7 +192,10 @@ def setting_table_view(sheet, sheet_def, row_last, is_hidden):
             sheet_def["TABLE_HEADER"]["row"]["pos"],
             min(map(lambda x: x["pos"], sheet_def["TABLE_HEADER"]["col"].values())),
         ),
-        end=gen_text_pos(row_last, max(map(lambda x: x["pos"], sheet_def["TABLE_HEADER"]["col"].values()))),
+        end=gen_text_pos(
+            row_last,
+            max(map(lambda x: x["pos"], sheet_def["TABLE_HEADER"]["col"].values())),
+        ),
     )
     sheet.sheet_view.showGridLines = False
 
@@ -228,7 +236,15 @@ def generate_list_sheet(
     row += 1
     for item in item_list:
         sheet.row_dimensions[row].height = cell_height
-        insert_table_item(sheet, row, item, is_need_thumb, thumb_path_func(item), sheet_def, base_style)
+        insert_table_item(
+            sheet,
+            row,
+            item,
+            is_need_thumb,
+            thumb_path_func(item),
+            sheet_def,
+            base_style,
+        )
         update_item_func()
 
         row += 1

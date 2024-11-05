@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 """
-Mode S のメッセージを解析し，上空の温度と風速を算出して出力します．
+ModeS のメッセージを解析し，上空の温度と風速を算出して出力します．
 
 Usage:
-  receiver.py [-c CONFIG]
+  receiver.py [-c CONFIG] [-d]
 
 Options:
-  -c CONFIG     : CONFIG を設定ファイルとして読み込んで実行します．[default: config.yaml]
+  -c CONFIG         : CONFIG を設定ファイルとして読み込んで実行します．[default: config.yaml]
+  -d                : デバッグモードで動作します．
 """
 # 参考: https://www.ishikawa-lab.com/RasPi_ModeS.html
 
-import socket
-import pyModeS
 import logging
 import math
-import traceback
-import threading
 import queue
+import socket
+import threading
+
+import pyModeS
 
 FRAGMENT_BUF_SIZE = 100
 
@@ -50,7 +51,7 @@ def cacl_temperature(trueair, mach):
 
 def calc_magnetic_declination(latitude, longitude):
     # NOTE:
-    # 地磁気値(2020.0年値）を求める
+    # 地磁気値(2020.0年値)を求める
     # https://vldb.gsi.go.jp/sokuchi/geomag/menu_04/
     delta_latitude = latitude - 37
     delta_longitude = longitude - 138
@@ -99,11 +100,11 @@ def calc_meteorological_data(
     temperature = cacl_temperature(trueair, mach)
     wind = calc_wind(latitude, longitude, trackangle, groundspeed, heading, trueair)
 
-    if temperature < -200:
+    if temperature < -100:
         logging.warning(
             (
                 "温度が異常なので捨てます．"
-                + "(callsign: {callsign}, temperature: {temperature:.1f}, altitude: {altitude}, trueair: {trueair}, mach: {mach})"
+                "(callsign: {callsign}, temperature: {temperature:.1f}, altitude: {altitude}, trueair: {trueair}, mach: {mach})"
             ).format(
                 callsign=callsign,
                 temperature=temperature,
@@ -137,9 +138,7 @@ def calc_distance(lat1, lon1, lat2, lon2):
     a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
     c = 2 * math.asin(math.sqrt(a))
 
-    distance = R * c
-
-    return distance
+    return R * c
 
 
 def message_pairing(icao, packet_type, data, queue, area_info):
@@ -163,7 +162,10 @@ def message_pairing(icao, packet_type, data, queue, area_info):
 
         if all(packet_type in fragment for packet_type in ["adsb_pos", "adsb_sign", "bsd50", "bsd60"]):
             meteorological_data = calc_meteorological_data(
-                *fragment["adsb_sign"], *fragment["adsb_pos"], *fragment["bsd50"], *fragment["bsd60"]
+                *fragment["adsb_sign"],
+                *fragment["adsb_pos"],
+                *fragment["bsd50"],
+                *fragment["bsd60"],
             )
             distance = calc_distance(
                 area_info["lat"]["ref"],
@@ -187,7 +189,7 @@ def message_pairing(icao, packet_type, data, queue, area_info):
 
 
 def process_message(message, queue, area_info):
-    logging.debug("receive: {message}".format(message=message))
+    logging.debug("receive: %s", message)
 
     if len(message) < 2:
         return
@@ -199,8 +201,8 @@ def process_message(message, queue, area_info):
         return
 
     icao = str(pyModeS.icao(message))
-    df = pyModeS.df(message)
-    if df == 17:
+    dformat = pyModeS.df(message)
+    if dformat == 17:
         logging.debug("receive ADSB")
         code = pyModeS.typecode(message)
 
@@ -212,12 +214,18 @@ def process_message(message, queue, area_info):
                         message, area_info["lat"]["ref"], area_info["lon"]["ref"]
                     )
 
-                    message_pairing(icao, "adsb_pos", (altitude, latitude, longitude), queue, area_info)
+                    message_pairing(
+                        icao,
+                        "adsb_pos",
+                        (altitude, latitude, longitude),
+                        queue,
+                        area_info,
+                    )
             elif 1 <= code <= 4:
                 callsign = pyModeS.adsb.callsign(message).rstrip("_")
                 message_pairing(icao, "adsb_sign", (callsign,), queue, area_info)
 
-    elif (df == 20) or (df == 21):
+    elif dformat in (20, 21):
         if pyModeS.bds.bds50.is50(message):
             logging.debug("receive BDS50")
 
@@ -245,7 +253,7 @@ def watch_message(host, port, queue, area_info):
             for line in receive_lines(sock):
                 process_message(line, queue, area_info)
     except Exception:
-        logging.error(traceback.format_exc())
+        logging.exception("メッセージ受信でエラーが発生しました．")
 
 
 def start(host, port, queue, area_info):
@@ -256,17 +264,18 @@ def start(host, port, queue, area_info):
 
 
 if __name__ == "__main__":
-    from docopt import docopt
+    import docopt
+    import my_lib.config
+    import my_lib.logger
 
-    import local_lib.config
-    import local_lib.logger
-
-    args = docopt(__doc__)
-
-    local_lib.logger.init("ModeS sensing", level=logging.INFO)
+    args = docopt.docopt(__doc__)
 
     config_file = args["-c"]
-    config = local_lib.config.load(args["-c"])
+    debug_mode = args["-d"]
+
+    my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
+
+    config = my_lib.config.load(config_file)
 
     measurement_queue = queue.Queue()
 
