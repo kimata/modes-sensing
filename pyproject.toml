@@ -13,6 +13,10 @@ dependencies = [
     "pymodes @ git+https://github.com/junzis/pyModeS@v2.17",
     "my-lib @ git+https://github.com/kimata/my-py-lib@5ebcc0d575980c55bdc1fd06c833f20688565b4f",
     "psycopg2-binary>=2.9.0",
+    "numpy>=1.24.0",
+    "scikit-learn>=1.3.0",
+    "matplotlib>=3.10.5",
+    "pandas>=2.3.1",
 ]
 
 

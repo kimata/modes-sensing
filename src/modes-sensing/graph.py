@@ -12,7 +12,7 @@ Options:
 import datetime
 import logging
 
-import matplotlib.pyplot
+import matplotlib.pyplot  # noqa: ICN001
 import numpy as np
 import pandas as pd
 from matplotlib import dates as mdates
@@ -22,56 +22,11 @@ from sklearn.preprocessing import StandardScaler
 # NOTE: 温度がこれより高いデータのみ残す
 TEMPERATURE_THRESHOLD = -100
 
-# def prep_time_alt_temp(data_list):
-#     data_list = [d for d in data_list if d["temperature"] > TEMPERATURE_THRESHOLD]
 
-#     data_map = {key: [d[key] for d in data_list] for key in ["temperature", "altitude", "time"]}
-#     data_map["timestamp"] = map(lambda x: x.timestamp(), data_map["time"])
-
-#     period_day = (data_map["time"][-1] - data_map["time"][0]).total_seconds() / (60 * 60 * 24)
-
-#     df = pd.DataFrame(data_map)
-
-#     scaler = StandardScaler()
-#     df[["altitude_scaled", "time_scaled"]] = scaler.fit_transform(df[["altitude", "timestamp"]])
-#     knn = KNeighborsRegressor(n_neighbors=20)
-#     x = df[["altitude_scaled", "time_scaled"]]
-#     y = df["temperature"]
-#     knn.fit(x, y)
-#     df["temperature_predicted"] = knn.predict(x)
-
-#     df["temperature_diff"] = df["temperature"] - df["temperature_predicted"]
-#     sigma = 3  # 標準偏差の閾値
-#     df["outliers"] = np.abs(df["temperature_diff"]) > sigma * df["temperature_diff"].std()
-
-#     # 外れ値フラグが立っているデータを表示
-#     # print(df[df["外れ値"]])
-
-#     # # 外れ値を除去したデータフレーム
-#     clean_df = df[~df["outliers"]].drop(
-#         columns=["altitude_scaled", "time_scaled", "temperature_predicted", "temperature_diff", "outliers"]
-#     )
-
-#     return clean_df
-
-
-def weighted_distance(X1, X2, altitude_weight=1.0, time_weight=1.0):
+def weighted_distance(x1, x2, altitude_weight=1.0, time_weight=1.0):  # noqa: ARG001
     weight = np.array([1.0, 2.0])  # feature1の重みは1.0, feature2の重みは2.0
 
-    return np.sqrt(np.sum(weight * (X1 - X2) ** 2))
-
-
-#     # if X2.ndim == 1:
-#     #     X2 = X2.reshape(1, -1)
-#     # # 重み付きユークリッド距離の計算
-#     # return np.sqrt(np.sum(weight * (X1 - X2) ** 2, axis=1))
-
-
-# カスタム距離関数の定義
-# def weighted_distance(X, Y, altitude_weight=1.0, time_weight=1.0):
-#     d_altitude = np.abs(X[:, 0] - Y[:, 0]) * altitude_weight
-#     d_time = np.abs(X[:, 1] - Y[:, 1]) * time_weight
-#     return np.sqrt(d_altitude**2 + d_time**2)
+    return np.sqrt(np.sum(weight * (x1 - x2) ** 2))
 
 
 # KNeighborsRegressorを使用して外れ値を除去する関数
@@ -79,7 +34,7 @@ def remove_outliers(data_list, n_neighbors=20, threshold=3, altitude_weight=1.0,
     data_list = [d for d in data_list if d["temperature"] > TEMPERATURE_THRESHOLD]
 
     data_map = {key: [d[key] for d in data_list] for key in ["temperature", "altitude", "time"]}
-    data_map["timestamp"] = map(lambda x: x.timestamp(), data_map["time"])
+    data_map["timestamp"] = [x.timestamp() for x in data_map["time"]]
 
     df = pd.DataFrame(data_map)
 
@@ -94,12 +49,12 @@ def remove_outliers(data_list, n_neighbors=20, threshold=3, altitude_weight=1.0,
         metric_params={"altitude_weight": altitude_weight, "time_weight": time_weight},
         weights="distance",
     )
-    logging.info("A")
+
     knn.fit(X, y)
-    logging.info("B")
+
     # 全データポイントに対して予測を実行
     df["predicted_temp"] = knn.predict(X)
-    logging.info("C")
+
     # 温度の差がしきい値を超える場合に外れ値とする
     df["temp_diff"] = np.abs(df["temperature"] - df["predicted_temp"])
     clean_df = df[df["temp_diff"] <= threshold]
@@ -111,7 +66,7 @@ def prep_time_alt_temp2(data_list, altitude_window=500, time_window=12 * 3600, t
     data_list = [d for d in data_list if d["temperature"] > TEMPERATURE_THRESHOLD]
 
     data_map = {key: [d[key] for d in data_list] for key in ["temperature", "altitude", "time"]}
-    data_map["timestamp"] = map(lambda x: x.timestamp(), data_map["time"])
+    data_map["timestamp"] = [x.timestamp() for x in data_map["time"]]
 
     df = pd.DataFrame(data_map)
 
@@ -132,17 +87,10 @@ def prep_time_alt_temp2(data_list, altitude_window=500, time_window=12 * 3600, t
             x_local = local_data[["altitude", "timestamp"]]
             y_local = local_data["temperature"]
 
-            # knn = KNeighborsRegressor(n_neighbors=10, weights='distance')
-            # knn.fit(X_local, y_local)
-
             scaler = StandardScaler()
             df[["altitude_scaled", "time_scaled"]] = scaler.fit_transform(df[["altitude", "timestamp"]])
             knn = KNeighborsRegressor(n_neighbors=min(20, len(local_data)))
-            # x = df[["altitude_scaled", "time_scaled"]]
-            # y = df["temperature"]
             knn.fit(x_local, y_local)
-
-            # df["temperature_predicted"] = knn.predict(x)
 
             predicted_temp = knn.predict([current_point[["altitude", "timestamp"]]])
             temp_diff = abs(current_point["temperature"] - predicted_temp[0])
@@ -150,21 +98,13 @@ def prep_time_alt_temp2(data_list, altitude_window=500, time_window=12 * 3600, t
             if temp_diff <= threshold:
                 clean_data.append(current_point)
 
-    # clean_df = pd.DataFrame(clean_data).reset_index(drop=True)
     return clean_data
 
 
-# # 外れ値の除去を実行
-# clean_df = remove_outliers(df)
-
-
-#     return clean_df
-
-
 def plot(data_list):
-    time_list = []
-    altitude_list = []
-    temperature_list = []
+    # time_list = []
+    # altitude_list = []
+    # temperature_list = []
 
     # clean_df = prep_time_alt_temp2(data_list)
 
@@ -204,11 +144,6 @@ def plot(data_list):
 
     ax.yaxis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))
 
-    # for label in ax.get_xticklabels():
-    #     label.set_fontproperties(face_map["axis_major"])
-    # for label in ax.get_xminorticklabels():
-    #     label.set_fontproperties(face_map["axis_minor"])
-
     # グリッドとレイアウトの調整
     matplotlib.pyplot.grid()
     # fig.autofmt_xdate()
@@ -218,21 +153,28 @@ def plot(data_list):
 
 
 if __name__ == "__main__":
-    import local_lib.config
-    import local_lib.logger
-    from docopt import docopt
+    import docopt
+    import my_lib.config
+    import my_lib.logger
+    import my_lib.time
 
-    import modes.database
+    import modes.database_postgresql
 
-    args = docopt(__doc__)
+    args = docopt.docopt(__doc__)
 
-    local_lib.logger.init("ModeS sensing", level=logging.INFO)
+    my_lib.logger.init("ModeS sensing", level=logging.INFO)
 
     config_file = args["-c"]
-    config = local_lib.config.load(args["-c"])
+    config = my_lib.config.load(args["-c"])
 
-    sqlite = modes.database.open(config["database"]["path"])
-    time_end = datetime.datetime.now()
+    sqlite = modes.database_postgresql.open(
+        config["database"]["host"],
+        config["database"]["port"],
+        config["database"]["name"],
+        config["database"]["user"],
+        config["database"]["pass"],
+    )
+    time_end = my_lib.time.now()
     time_start = time_end - datetime.timedelta(hours=600)
 
-    plot(modes.database.fetch_by_time(sqlite, time_start, time_end))
+    plot(modes.database_postgresql.fetch_by_time(sqlite, time_start, time_end))
