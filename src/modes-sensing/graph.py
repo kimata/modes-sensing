@@ -123,23 +123,32 @@ def plot_3d(data_list, filename="3d_plot.png"):
         logging.warning("プロット用のデータがありません")
         return
 
-    # 時間を数値に変換（matplotlibの日付形式）
-    time_numeric = [mdates.date2num(t) for t in clean_df["time"]]
+    # NumPy配列への変換で高速化
+    time_numeric = np.array([mdates.date2num(t) for t in clean_df["time"]])
+    altitudes = clean_df["altitude"].to_numpy()
+    temperatures = clean_df["temperature"].to_numpy()
 
     # 3D図の作成（サイズを大きくしてラベル用の余白を確保）
+    # rcParamsで高速化設定
+    matplotlib.pyplot.rcParams["path.simplify"] = True
+    matplotlib.pyplot.rcParams["path.simplify_threshold"] = 0.1
+    matplotlib.pyplot.rcParams["agg.path.chunksize"] = 10000
+
     fig = matplotlib.pyplot.figure(figsize=(14, 10))
     ax = fig.add_subplot(111, projection="3d")
 
-    # 3D散布図の作成
+    # 3D散布図の作成（rasterizedで高速化）
     scatter = ax.scatter(
         time_numeric,
-        list(clean_df["altitude"]),
-        list(clean_df["temperature"]),
-        c=list(clean_df["temperature"]),
+        altitudes,
+        temperatures,
+        c=temperatures,
         cmap="plasma",
         marker="o",
-        s=20,
-        alpha=0.7,
+        s=15,  # マーカーサイズを少し小さく
+        alpha=0.8,  # 透明度を少し上げて描画を軽く
+        rasterized=True,  # ベクター描画を無効にして高速化
+        edgecolors="none",  # エッジを無効にして高速化
     )
 
     # 軸ラベルの設定（altitudeラベルを少し離す、フォントサイズを大きく）
@@ -203,16 +212,28 @@ def plot_2d(data_list, filename="a.png"):
         logging.warning("2Dプロット用のデータがありません")
         return
 
+    # NumPy配列への変換で高速化
+    times = clean_df["time"].to_numpy()
+    altitudes = clean_df["altitude"].to_numpy()
+    temperatures = clean_df["temperature"].to_numpy()
+
+    # 高速化設定
+    matplotlib.pyplot.rcParams["path.simplify"] = True
+    matplotlib.pyplot.rcParams["path.simplify_threshold"] = 0.1
+    matplotlib.pyplot.rcParams["agg.path.chunksize"] = 10000
+
     fig, ax = matplotlib.pyplot.subplots()
 
-    # 散布図の作成
+    # 散布図の作成（rasterizedで高速化）
     sc = ax.scatter(
-        list(clean_df["time"]),
-        list(clean_df["altitude"]),
-        c=list(clean_df["temperature"]),
+        times,
+        altitudes,
+        c=temperatures,
         cmap="plasma",
         marker="o",
-        s=10,
+        s=8,  # マーカーサイズを少し小さく
+        rasterized=True,  # ベクター描画を無効にして高速化
+        edgecolors="none",  # エッジを無効にして高速化
     )
     sc.set_clim(-80, 30)
     ax.set_ylim(0, 14000)
@@ -246,11 +267,19 @@ def plot_2d(data_list, filename="a.png"):
 def plot(data_list):
     import concurrent.futures
 
-    # 2つのプロット生成を並列実行
+    # データの前処理を一度だけ実行してキャッシュ
+    logging.info("データクリーニングを開始...")
+    clean_df = remove_outliers(data_list)
+
+    if len(clean_df) == 0:
+        logging.warning("プロット用のデータがありません")
+        return
+
+    # 2つのプロット生成を並列実行（前処理済みデータを使用）
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        # 2Dプロットと3Dプロットを並列で実行
-        future_2d = executor.submit(plot_2d, data_list, "a.png")
-        future_3d = executor.submit(plot_3d, data_list, "3d_plot.png")
+        # 前処理済みデータを直接渡すための専用関数を使用
+        future_2d = executor.submit(_plot_2d_from_clean_data, clean_df, "a.png")
+        future_3d = executor.submit(_plot_3d_from_clean_data, clean_df, "3d_plot.png")
 
         # 両方の処理が完了するまで待機
         concurrent.futures.wait([future_2d, future_3d])
@@ -258,6 +287,128 @@ def plot(data_list):
         # エラーがあった場合は例外を発生させる
         future_2d.result()
         future_3d.result()
+
+
+def _plot_2d_from_clean_data(clean_df, filename):
+    """前処理済みデータから2Dプロットを生成（内部使用）"""
+    # NumPy配列への変換で高速化
+    times = clean_df["time"].to_numpy()
+    altitudes = clean_df["altitude"].to_numpy()
+    temperatures = clean_df["temperature"].to_numpy()
+
+    # 高速化設定
+    matplotlib.pyplot.rcParams["path.simplify"] = True
+    matplotlib.pyplot.rcParams["path.simplify_threshold"] = 0.1
+    matplotlib.pyplot.rcParams["agg.path.chunksize"] = 10000
+
+    fig, ax = matplotlib.pyplot.subplots()
+
+    # 散布図の作成（rasterizedで高速化）
+    sc = ax.scatter(
+        times, altitudes, c=temperatures, cmap="plasma", marker="o", s=8, rasterized=True, edgecolors="none"
+    )
+    sc.set_clim(-80, 30)
+    ax.set_ylim(0, 14000)
+
+    # 軸ラベルの設定
+    ax.set_xlabel("Time")
+    ax.set_ylabel("Altitude (m)")
+
+    # カラーバーの追加
+    cbar = matplotlib.pyplot.colorbar(sc)
+    cbar.set_label("Temperature (°C)")
+
+    # 時刻軸のラベルを日付形式に設定
+    ax.xaxis.set_minor_locator(mdates.HourLocator(byhour=range(0, 24, 6)))
+    ax.xaxis.set_minor_formatter(mdates.DateFormatter("%-H"))
+    ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%-H\nDay %-d"))
+
+    from matplotlib.ticker import StrMethodFormatter
+
+    ax.yaxis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))
+
+    # グリッドとレイアウトの調整
+    matplotlib.pyplot.grid()
+    matplotlib.pyplot.tight_layout()
+
+    matplotlib.pyplot.savefig(filename, format="png", dpi=200, transparent=True)
+    matplotlib.pyplot.close(fig)  # メモリ解放
+    logging.info("2Dプロットを保存しました: %s", filename)
+
+
+def _plot_3d_from_clean_data(clean_df, filename):
+    """前処理済みデータから3Dプロットを生成（内部使用）"""
+    # NumPy配列への変換で高速化
+    time_numeric = np.array([mdates.date2num(t) for t in clean_df["time"]])
+    altitudes = clean_df["altitude"].to_numpy()
+    temperatures = clean_df["temperature"].to_numpy()
+
+    # 高速化設定
+    matplotlib.pyplot.rcParams["path.simplify"] = True
+    matplotlib.pyplot.rcParams["path.simplify_threshold"] = 0.1
+    matplotlib.pyplot.rcParams["agg.path.chunksize"] = 10000
+
+    fig = matplotlib.pyplot.figure(figsize=(14, 10))
+    ax = fig.add_subplot(111, projection="3d")
+
+    # 3D散布図の作成（rasterizedで高速化）
+    scatter = ax.scatter(
+        time_numeric,
+        altitudes,
+        temperatures,
+        c=temperatures,
+        cmap="plasma",
+        marker="o",
+        s=15,
+        alpha=0.8,
+        rasterized=True,
+        edgecolors="none",
+    )
+
+    # 軸ラベルの設定
+    ax.set_xlabel("Time", labelpad=5, fontsize=14)
+    ax.set_ylabel("Altitude (m)", labelpad=12, fontsize=14)
+    ax.set_zlabel("Temperature (°C)", labelpad=8, fontsize=14)
+
+    # 時間軸のフォーマット設定
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%-m/%-d\n%-H:00"))
+    ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+
+    # 高度軸にカンマ区切りフォーマッターを追加
+    from matplotlib.ticker import StrMethodFormatter
+
+    ax.yaxis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))
+
+    # 軸メモリのフォントサイズを大きく
+    ax.tick_params(axis="x", labelsize=12)
+    ax.tick_params(axis="y", labelsize=12)
+    ax.tick_params(axis="z", labelsize=12)
+
+    # 軸の範囲設定
+    ax.set_ylim(0, 14000)
+    ax.set_zlim(-80, 30)
+
+    # カラーバーの追加と範囲設定
+    scatter.set_clim(-80, 30)
+    cbar = matplotlib.pyplot.colorbar(scatter, shrink=0.8, pad=0.25)
+    cbar.set_label("Temperature (°C)", fontsize=16)
+    cbar.ax.tick_params(labelsize=14)
+
+    # 視点の設定
+    ax.view_init(elev=25, azim=35)
+
+    # レイアウト調整
+    matplotlib.pyplot.subplots_adjust(left=0.02, right=0.82, top=0.90, bottom=0.02)
+    ax.set_position([0.08, 0.02, 0.62, 0.85])
+
+    # タイトル設定
+    ax.set_title("3D Meteorological Data\n(Time vs Altitude vs Temperature)", pad=10, fontsize=18)
+
+    # ファイル保存
+    matplotlib.pyplot.savefig(filename, format="png", dpi=200, transparent=True, bbox_inches=None)
+    matplotlib.pyplot.close(fig)  # メモリ解放
+    logging.info("3Dプロットを保存しました: %s", filename)
 
 
 if __name__ == "__main__":
