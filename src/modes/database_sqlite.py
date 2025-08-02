@@ -3,7 +3,7 @@
 Mode S のメッセージを保管し，条件にマッチしたものを出力します．
 
 Usage:
-  database.py [-c CONFIG]
+  database_sqlite.py [-c CONFIG]
 
 Options:
   -c CONFIG     : CONFIG を設定ファイルとして読み込んで実行します．[default: config.yaml]
@@ -13,22 +13,20 @@ import datetime
 import logging
 import queue
 import sqlite3
-import traceback
 
 
-def open(log_db_path):
+def open(log_db_path):  # noqa: A001
     sqlite = sqlite3.connect(log_db_path)
     sqlite.execute(
         "CREATE TABLE IF NOT EXISTS meteorological_data ("
-        + "id INTEGER primary key autoincrement, time INTEGER NOT NULL, "
-        + "callsign TEXT NOT NULL, altitude REAL, latitude REAL, longitude REAL, "
-        + "temperature REAL, wind_x REAL, wind_y REAL, "
-        + "wind_angle REAL, wind_speed REAL"
-        + ");"
+        "id INTEGER primary key autoincrement, time INTEGER NOT NULL, "
+        "callsign TEXT NOT NULL, altitude REAL, latitude REAL, longitude REAL, "
+        "temperature REAL, wind_x REAL, wind_y REAL, "
+        "wind_angle REAL, wind_speed REAL);"
     )
     sqlite.execute("CREATE INDEX IF NOT EXISTS idx_tim ON meteorological_data (time);")
     sqlite.commit()
-    sqlite.row_factory = lambda c, r: dict(zip([col[0] for col in c.description], r))
+    sqlite.row_factory = lambda c, r: dict(zip([col[0] for col in c.description], r, strict=False))
 
     return sqlite
 
@@ -55,11 +53,10 @@ def store_queue(sqlite, queue):
     try:
         while True:
             data = queue.get()
-            logging.info(data)
             insert(sqlite, data)
     except Exception:
         sqlite.close()
-        logging.error(traceback.format_exc())
+        logging.exception("Database error occurred")
 
 
 def fetch_by_time(sqlite, time_start, time_end):
@@ -73,17 +70,18 @@ def fetch_by_time(sqlite, time_start, time_end):
         ),
     )
 
-    data_list = [
+    return [
         {
             **data,
             "time": (
-                datetime.datetime.strptime(data["time"], "%Y-%m-%d %H:%M:%S") + datetime.timedelta(hours=9)
+                datetime.datetime.strptime(data["time"], "%Y-%m-%d %H:%M:%S").replace(
+                    tzinfo=datetime.timezone.utc
+                )
+                + datetime.timedelta(hours=9)
             ),
         }
         for data in cur.fetchall()
     ]
-
-    return data_list
 
 
 if __name__ == "__main__":

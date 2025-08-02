@@ -3,7 +3,7 @@
 Mode S のメッセージを保管し，条件にマッチしたものを出力します．
 
 Usage:
-  database.py [-c CONFIG]
+  database_postgres.py [-c CONFIG]
 
 Options:
   -c CONFIG     : CONFIG を設定ファイルとして読み込んで実行します．[default: config.yaml]
@@ -17,7 +17,7 @@ import psycopg2
 import psycopg2.extras
 
 
-def connect(host, port, database, user, password):
+def open(host, port, database, user, password):  # noqa: A001
     connection_params = {
         "host": host,
         "port": port,
@@ -117,7 +117,6 @@ def store_queue(conn, queue):
     try:
         while True:
             data = queue.get()
-            logger.info(data)
             insert(conn, data)
     except Exception:
         conn.close()
@@ -134,100 +133,7 @@ def fetch_by_time(conn, time_start, time_end):
             ),
         )
 
-        return [
-            {
-                **dict(data),
-                "time": data["time"].replace(tzinfo=datetime.timezone.utc) + datetime.timedelta(hours=9),
-            }
-            for data in cur.fetchall()
-        ]
-
-
-def fetch_by_range(  # noqa: C901, PLR0913
-    conn,
-    time_start=None,
-    time_end=None,
-    lat_min=None,
-    lat_max=None,
-    lon_min=None,
-    lon_max=None,
-    alt_min=None,
-    alt_max=None,
-    limit=None,
-):
-    """
-    複数の条件で範囲検索を行う
-
-    Args:
-        conn: データベース接続
-        time_start: 開始時刻
-        time_end: 終了時刻
-        lat_min: 緯度の最小値
-        lat_max: 緯度の最大値
-        lon_min: 経度の最小値
-        lon_max: 経度の最大値
-        alt_min: 高度の最小値
-        alt_max: 高度の最大値
-        limit: 取得件数の上限
-
-    """
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        # WHERE句の条件を動的に構築
-        conditions = []
-        params = []
-
-        if time_start is not None:
-            conditions.append("time >= %s")
-            params.append(time_start.astimezone(datetime.timezone.utc))
-
-        if time_end is not None:
-            conditions.append("time <= %s")
-            params.append(time_end.astimezone(datetime.timezone.utc))
-
-        if lat_min is not None:
-            conditions.append("latitude >= %s")
-            params.append(lat_min)
-
-        if lat_max is not None:
-            conditions.append("latitude <= %s")
-            params.append(lat_max)
-
-        if lon_min is not None:
-            conditions.append("longitude >= %s")
-            params.append(lon_min)
-
-        if lon_max is not None:
-            conditions.append("longitude <= %s")
-            params.append(lon_max)
-
-        if alt_min is not None:
-            conditions.append("altitude >= %s")
-            params.append(alt_min)
-
-        if alt_max is not None:
-            conditions.append("altitude <= %s")
-            params.append(alt_max)
-
-        # SQL文の構築
-        sql = "SELECT * FROM meteorological_data"
-        if conditions:
-            sql += " WHERE " + " AND ".join(conditions)
-
-        sql += " ORDER BY time"
-
-        if limit is not None:
-            sql += " LIMIT %s"
-            params.append(limit)
-
-        cur.execute(sql, params)
-
-        return [
-            {
-                **dict(data),
-                "time": data["time"].replace(tzinfo=datetime.timezone.utc) + datetime.timedelta(hours=9),
-            }
-            for data in cur.fetchall()
-        ]
+        return cur.fetchall()
 
 
 if __name__ == "__main__":
@@ -253,7 +159,7 @@ if __name__ == "__main__":
         config["filter"]["area"],
     )
 
-    conn = connect(
+    conn = open(
         config["database"]["host"],
         config["database"]["port"],
         config["database"]["name"],

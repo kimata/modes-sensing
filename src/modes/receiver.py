@@ -16,14 +16,21 @@ import math
 import queue
 import socket
 import threading
+from collections import deque
 
+import numpy as np
 import pyModeS
+from sklearn.ensemble import IsolationForest
 
 FRAGMENT_BUF_SIZE = 100
 
 fragment_list = []
 
 is_running = False
+
+# Isolation Forest用のデータ蓄積
+meteorological_history = deque(maxlen=500)  # 最大500件のデータを保持
+OUTLIER_DETECTION_MIN_SAMPLES = 100  # 外れ値検出を開始する最小サンプル数
 
 
 def receive_lines(sock):
@@ -68,7 +75,7 @@ def calc_magnetic_declination(latitude, longitude):
     )
 
 
-def calc_wind(latitude, longitude, trackangle, groundspeed, heading, trueair):
+def calc_wind(latitude, longitude, trackangle, groundspeed, heading, trueair):  # noqa: PLR0913
     magnetic_declination = calc_magnetic_declination(latitude, longitude)
 
     ground_dir = math.pi / 2 - math.radians(trackangle)
@@ -92,8 +99,17 @@ def calc_wind(latitude, longitude, trackangle, groundspeed, heading, trueair):
     }
 
 
-def calc_meteorological_data(
-    callsign, altitude, latitude, longitude, trackangle, groundspeed, trueair, heading, indicatedair, mach
+def calc_meteorological_data(  # noqa: PLR0913
+    callsign,
+    altitude,
+    latitude,
+    longitude,
+    trackangle,
+    groundspeed,
+    trueair,
+    heading,
+    indicatedair,  # noqa: ARG001
+    mach,
 ):
     altitude *= 0.3048  # 単位換算: feet →  mete
     groundspeed *= 0.514  # 単位換算: knot → m/s
@@ -104,16 +120,13 @@ def calc_meteorological_data(
 
     if temperature < -100:
         logging.warning(
-            (
-                "温度が異常なので捨てます．"
-                "(callsign: {callsign}, temperature: {temperature:.1f}, altitude: {altitude}, trueair: {trueair}, mach: {mach})"
-            ).format(
-                callsign=callsign,
-                temperature=temperature,
-                altitude=altitude,
-                trueair=trueair,
-                mach=mach,
-            )
+            "温度が異常なので捨てます．(callsign: %s, temperature: %.1f, "
+            "altitude: %s, trueair: %s, mach: %s)",
+            callsign,
+            temperature,
+            altitude,
+            trueair,
+            mach,
         )
     return {
         "callsign": callsign,
@@ -123,6 +136,51 @@ def calc_meteorological_data(
         "temperature": temperature,
         "wind": wind,
     }
+
+
+def is_outlier_data(temperature, altitude):
+    """
+    Isolation Forestを使用してaltitudeとtemperatureのペアが外れ値かどうかを判定
+
+    Args:
+        temperature (float): 気温
+        altitude (float): 高度
+
+    Returns:
+        bool: 外れ値の場合True、正常値の場合False
+
+    """
+    global meteorological_history
+
+    # データが十分蓄積されていない場合は外れ値として扱わない
+    if len(meteorological_history) < OUTLIER_DETECTION_MIN_SAMPLES:
+        return False
+
+    try:
+        # 履歴データから特徴量を抽出（altitude, temperature）
+        features = np.array(
+            [
+                [data["altitude"], data["temperature"]]
+                for data in meteorological_history
+                if data["altitude"] is not None and data["temperature"] is not None
+            ]
+        )
+
+        # Isolation Forestモデルを構築
+        # contamination=0.003は約3σに相当（99.7%の信頼区間外を外れ値とする）
+        isolation_forest = IsolationForest(contamination=0.003, random_state=42)
+        isolation_forest.fit(features)
+
+        # 新しいデータポイントを検査
+        new_data = np.array([[altitude, temperature]])
+        prediction = isolation_forest.predict(new_data)
+
+        # -1が外れ値、1が正常値
+        return prediction[0] == -1
+
+    except Exception as e:
+        logging.warning("外れ値検出でエラーが発生しました: %s", e)
+        return False
 
 
 def calc_distance(lat1, lon1, lat2, lon2):
@@ -143,13 +201,24 @@ def calc_distance(lat1, lon1, lat2, lon2):
     return R * c
 
 
+def round_floats(obj, ndigits=1):
+    if isinstance(obj, float):
+        return round(obj, ndigits)
+    elif isinstance(obj, dict):
+        return {k: round_floats(v, ndigits) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [round_floats(elem, ndigits) for elem in obj]
+    elif isinstance(obj, tuple):
+        return tuple(round_floats(elem, ndigits) for elem in obj)
+    else:
+        return obj
+
+
 def message_pairing(icao, packet_type, data, queue, area_info):
-    global fragment_list
+    global fragment_list, meteorological_history
 
     if not all(value is not None for value in data):
-        logging.warning(
-            "データに欠損があるので捨てます．(type: {type}, data: {data})".format(type=packet_type, data=data)
-        )
+        logging.warning("データに欠損があるので捨てます．(type: %s, data: %s)", packet_type, data)
         return
 
     fragment = next((fragment for fragment in fragment_list if fragment["icao"] == icao), None)
@@ -176,21 +245,49 @@ def message_pairing(icao, packet_type, data, queue, area_info):
                 fragment["adsb_pos"][2],
             )
             if distance < area_info["distance"]:
-                queue.put(meteorological_data)
+                # 温度が異常値でない場合のみ外れ値検出を実行
+                if meteorological_data["temperature"] >= -100:
+                    # 外れ値検出
+                    is_outlier = is_outlier_data(
+                        meteorological_data["temperature"], meteorological_data["altitude"]
+                    )
+
+                    if not is_outlier:
+                        # 正常値の場合、queueに送信し履歴に追加
+                        logging.info(round_floats(meteorological_data))
+
+                        queue.put(meteorological_data)
+
+                        meteorological_history.append(
+                            {
+                                "altitude": meteorological_data["altitude"],
+                                "temperature": meteorological_data["temperature"],
+                            }
+                        )
+                    else:
+                        logging.warning(
+                            "外れ値として除外されました (callsign: %s, altitude: %.1fm, temperature: %.1f°C)",
+                            fragment["adsb_sign"][0],
+                            meteorological_data["altitude"],
+                            meteorological_data["temperature"],
+                        )
+                        # 外れ値でも履歴には追加しない（統計モデルを汚染しないため）
+                else:
+                    # 温度異常値は外れ値検出の対象外（従来通りの処理）
+                    logging.debug("温度異常値のため外れ値検出をスキップ")
             else:
                 logging.info(
-                    "範囲外なので無視されます (callsign: {callsign}, latitude: {latitude:.2f}, longitude: {longitude:.2f}, distance: {distance})".format(
-                        callsign=fragment["adsb_sign"][0],
-                        latitude=fragment["adsb_pos"][1],
-                        longitude=fragment["adsb_pos"][2],
-                        distance=distance,
-                    )
+                    "範囲外なので無視されます (callsign: %s, latitude: %.2f, longitude: %.2f, distance: %s)",
+                    fragment["adsb_sign"][0],
+                    fragment["adsb_pos"][1],
+                    fragment["adsb_pos"][2],
+                    distance,
                 )
 
             fragment_list.remove(fragment)
 
 
-def process_message(message, queue, area_info):
+def process_message(message, queue, area_info):  # noqa: C901
     logging.debug("receive: %s", message)
 
     if len(message) < 2:
@@ -248,7 +345,7 @@ def process_message(message, queue, area_info):
 
 
 def watch_message(host, port, queue, area_info):
-    global is_running
+    global is_running  # noqa: PLW0603
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.connect((host, port))
@@ -257,9 +354,8 @@ def watch_message(host, port, queue, area_info):
             for line in receive_lines(sock):
                 try:
                     process_message(line, queue, area_info)
-                except Exception:
+                except Exception:  # noqa: PERF203
                     logging.exception("Failed to process message")
-                    pass
     except Exception:
         logging.exception("メッセージ受信でエラーが発生しました．")
         is_running = False
