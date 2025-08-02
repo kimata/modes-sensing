@@ -11,8 +11,27 @@ requires-python = ">= 3.10"
 
 dependencies = [
     "pymodes @ git+https://github.com/junzis/pyModeS@v2.17",
-    "my-lib @ git+https://github.com/kimata/my-py-lib@67d510dbe0acc3e598edab1893c56442973c1b8d",
+    "my-lib @ git+https://github.com/kimata/my-py-lib@5ebcc0d575980c55bdc1fd06c833f20688565b4f",
+    "psycopg2-binary>=2.9.0",
 ]
+
+
+[dependency-groups]
+dev = [
+    "playwright>=1.48.0",
+    "pre-commit>=4.0.1",
+    "pytest-cov>=5.0.0",
+    "pytest-html>=4.1.1",
+    "pytest-mock>=3.14.0",
+    "pytest-playwright>=0.5.2",
+    "pytest-timeout>=2.4.0",
+    "pytest-xdist>=3.6.1",
+    "pytest>=8.3.4",
+    "time-machine>=2.16.0",
+]
+
+[tool.uv]
+default-groups = ["dev"]
 
 [build-system]
 requires = ["hatchling"]
@@ -24,49 +43,43 @@ packages = ["src/modes"]
 [tool.hatch.metadata]
 allow-direct-references = true
 
-[tool.rye]
-managed = true
-dev-dependencies = [
-    "flaky>=3.8.1",
-    "playwright>=1.45.1",
-    "pytest-cov>=5.0.0",
-    "pytest-html>=4.1.1",
-    "pytest-mock>=3.14.0",
-    "pytest-playwright>=0.5.1",
-    "pytest-xdist>=3.6.1",
-    "pytest>=8.3.2",
-    "time-machine>=2.15.0",
-]
-
 [tool.pytest.ini_options]
 minversion = "6.0"
 
-# addopts = "--verbose --log-cli-level=DEBUG --log-file-level=DEBUG --log-format=\"%(asctime)s %(levelname)s %(message)s\" --log-format=\"%(asctime)s %(levelname)s [%(filename)s:%(lineno)s %(funcName)s] %(message)s\" --capture=sys  --html=tests/evidence/index.htm --self-contained-html --cov=src --cov-report=html -vv"
-
-addopts = "--verbose --log-file-level=DEBUG --log-format=\"%(asctime)s %(levelname)s %(message)s\" --log-format=\"%(asctime)s %(levelname)s [%(filename)s:%(lineno)s %(funcName)s] %(message)s\" --capture=sys  --html=tests/evidence/index.htm --self-contained-html --cov=src --cov-report=html -vv"
-
+addopts = "--verbose --timeout=300 --durations=10 --log-file-level=DEBUG --log-format=\"%(asctime)s %(levelname)s %(message)s\" --log-format=\"%(asctime)s %(levelname)s [%(filename)s:%(lineno)s %(funcName)s] %(message)s\" --capture=sys --html=tests/evidence/index.htm --self-contained-html --cov=src --cov-report=html"
 
 testpaths = [
     "tests",
 ]
 filterwarnings = [
-    "ignore:The hookimpl CovPlugin.pytest_configure_node uses",
-    "ignore:The hookimpl CovPlugin.pytest_testnodedown uses",
+    "ignore:datetime\\.datetime\\.utcfromtimestamp\\(\\) is deprecated:DeprecationWarning",
+    "ignore::DeprecationWarning:multiprocessing\\.popen_fork",
+    "ignore:unclosed database.*:ResourceWarning:rich.*",
+    "ignore:unclosed database.*:ResourceWarning:influxdb_client.*",
+    "ignore:unclosed database.*:ResourceWarning:coverage.*",
+    "ignore:unclosed database.*:ResourceWarning:time_machine.*",
+    "ignore:unclosed database.*:ResourceWarning:werkzeug.*",
+    "ignore:unclosed database.*:ResourceWarning:_pytest.*",
+    "ignore:unclosed database.*:ResourceWarning:typing.*",
+    "ignore:unclosed database.*:ResourceWarning:multiprocessing.*",
+    "ignore:unclosed database.*:ResourceWarning:logging.*",
+    "ignore::ResourceWarning:_pytest.unraisableexception",
+    "ignore::ResourceWarning:coverage.sqldata",
+    "ignore::ResourceWarning:coverage.collector"
 ]
 
 [tool.coverage.run]
 branch = true
+parallel = true
+concurrency = ["multiprocessing"]
 
 [tool.coverage.report]
 exclude_lines = [
   "pragma: no cover",
   "if __name__ == .__main__.:",
 
-  # 以下，未使用関数
-  # webapp/log.py
-  "if sqlite is not None:",
+  # 以下、未使用関数
 ]
 
 [tool.coverage.html]
 directory = "tests/evidence/coverage"
-
