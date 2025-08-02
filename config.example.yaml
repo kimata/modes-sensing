@@ -1,15 +1,18 @@
 modes:
-  decoder:
-    host: 192.168.2.45
-    port: 30002
+    decoder:
+        host: proxy.green-rabbit.net
+        port: 30002
 
+database:
+    server: proxy.green-rabbit.net
+    port: 5432
+    name: modes
 
 filter:
-  area:
-    lat:
-      ref: 35.1706474
-    lon:
-      ref: 136.8818643
-      
-    distance: 150
+    area:
+        lat:
+            ref: 35.682677
+        lon:
+            ref: 139.762230
 
+        distance: 150
