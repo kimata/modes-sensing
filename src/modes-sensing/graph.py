@@ -16,6 +16,7 @@ import matplotlib.pyplot  # noqa: ICN001
 import numpy as np
 import pandas as pd
 from matplotlib import dates as mdates
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.preprocessing import StandardScaler
 
@@ -101,6 +102,74 @@ def prep_time_alt_temp2(data_list, altitude_window=500, time_window=12 * 3600, t
     return clean_data
 
 
+def plot_3d(data_list, filename="3d_plot.png"):
+    """
+    時間(x軸)、高度(y軸)、温度(z軸)の3次元プロットを生成
+
+    Args:
+        data_list: 気象データのリスト
+        filename (str): 保存するファイル名
+
+    """
+    clean_df = remove_outliers(data_list)
+
+    if len(clean_df) == 0:
+        logging.warning("プロット用のデータがありません")
+        return
+
+    # 時間を数値に変換（matplotlibの日付形式）
+    time_numeric = [mdates.date2num(t) for t in clean_df["time"]]
+
+    # 3D図の作成
+    fig = matplotlib.pyplot.figure(figsize=(12, 9))
+    ax = fig.add_subplot(111, projection="3d")
+
+    # 3D散布図の作成
+    scatter = ax.scatter(
+        time_numeric,
+        list(clean_df["altitude"]),
+        list(clean_df["temperature"]),
+        c=list(clean_df["temperature"]),
+        cmap="plasma",
+        marker="o",
+        s=20,
+        alpha=0.7,
+    )
+
+    # 軸ラベルの設定（パディングを追加）
+    ax.set_xlabel("Time", labelpad=10)
+    ax.set_ylabel("Altitude (m)", labelpad=10)
+    ax.set_zlabel("Temperature (°C)", labelpad=10)
+
+    # 時間軸のフォーマット設定
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%-m/%-d\n%-H:00"))
+    ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+
+    # 軸の範囲設定
+    ax.set_ylim(0, 14000)
+    ax.set_zlim(-70, 20)
+
+    # カラーバーの追加
+    cbar = matplotlib.pyplot.colorbar(scatter, shrink=0.8)
+    cbar.set_label("Temperature (°C)")
+
+    # 視点の設定（斜め上から見下ろす角度）
+    ax.view_init(elev=20, azim=45)
+
+    # タイトルとレイアウト調整
+    ax.set_title("3D Meteorological Data\n(Time vs Altitude vs Temperature)")
+    matplotlib.pyplot.tight_layout()
+
+    # 余白を調整してラベルが切れないようにする
+    matplotlib.pyplot.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+
+    # ファイル保存
+    matplotlib.pyplot.savefig(
+        filename, format="png", dpi=200, transparent=True, bbox_inches="tight", pad_inches=0.2
+    )
+    logging.info("3Dプロットを保存しました: %s", filename)
+
+
 def plot(data_list):
     # time_list = []
     # altitude_list = []
@@ -150,6 +219,9 @@ def plot(data_list):
     matplotlib.pyplot.tight_layout()
 
     matplotlib.pyplot.savefig("a.png", format="png", dpi=200, transparent=True)
+
+    # 3Dプロットも生成
+    plot_3d(data_list, "3d_plot.png")
 
 
 if __name__ == "__main__":
