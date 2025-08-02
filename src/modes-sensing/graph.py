@@ -220,8 +220,9 @@ def plot(data_list):
 if __name__ == "__main__":
     import local_lib.config
     import local_lib.logger
-    import modes.database
     from docopt import docopt
+
+    import modes.database
 
     args = docopt(__doc__)
 

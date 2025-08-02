@@ -23,6 +23,8 @@ FRAGMENT_BUF_SIZE = 100
 
 fragment_list = []
 
+is_running = False
+
 
 def receive_lines(sock):
     buffer = b""
@@ -39,7 +41,7 @@ def receive_lines(sock):
             yield line.decode()
 
 
-def cacl_temperature(trueair, mach):
+def calc_temperature(trueair, mach):
     k = 1.403  # 比熱比(空気)
     M = 28.966e-3  # 分子量(空気) [kg/mol]
     R = 8.314472  # 気体定数
@@ -97,7 +99,7 @@ def calc_meteorological_data(
     groundspeed *= 0.514  # 単位換算: knot → m/s
     trueair *= 0.514
 
-    temperature = cacl_temperature(trueair, mach)
+    temperature = calc_temperature(trueair, mach)
     wind = calc_wind(latitude, longitude, trackangle, groundspeed, heading, trueair)
 
     if temperature < -100:
@@ -246,14 +248,21 @@ def process_message(message, queue, area_info):
 
 
 def watch_message(host, port, queue, area_info):
+    global is_running
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.connect((host, port))
+            is_running = True
 
             for line in receive_lines(sock):
-                process_message(line, queue, area_info)
+                try:
+                    process_message(line, queue, area_info)
+                except Exception:
+                    logging.exception("Failed to process message")
+                    pass
     except Exception:
         logging.exception("メッセージ受信でエラーが発生しました．")
+        is_running = False
 
 
 def start(host, port, queue, area_info):
@@ -288,3 +297,6 @@ if __name__ == "__main__":
 
     while True:
         logging.info(measurement_queue.get())
+
+        if not is_running:
+            break

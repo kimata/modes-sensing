@@ -87,10 +87,11 @@ def fetch_by_time(sqlite, time_start, time_end):
 
 
 if __name__ == "__main__":
-    import modes.receiver
     import my_lib.config
     import my_lib.logger
     from docopt import docopt
+
+    import modes.receiver
 
     args = docopt(__doc__)
 
