@@ -16,9 +16,15 @@ import matplotlib.pyplot  # noqa: ICN001
 import numpy as np
 import pandas as pd
 from matplotlib import dates as mdates
+from matplotlib import font_manager
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.preprocessing import StandardScaler
+
+# カスタムフォントの設定
+font_path = "font/FuturaStd-Medium.otf"
+font_manager.fontManager.addfont(font_path)
+matplotlib.pyplot.rcParams["font.family"] = "Futura Std"
 
 # NOTE: 温度がこれより高いデータのみ残す
 TEMPERATURE_THRESHOLD = -100
