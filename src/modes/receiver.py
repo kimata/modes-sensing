@@ -233,7 +233,7 @@ def is_outlier_data(temperature, altitude):
 
         # 残差に対してIsolation Forestを適用
         residuals_2d = residuals.reshape(-1, 1)
-        isolation_forest = IsolationForest(contamination=0.003, random_state=42)
+        isolation_forest = IsolationForest(contamination=0.001, random_state=42)
         isolation_forest.fit(residuals_2d)
 
         # 新データの残差を検査

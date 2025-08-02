@@ -42,6 +42,8 @@ testem.log
 /tests/evidence/
 .venv/
 *.db
+/font/
+*.png
 
 # Configuration
 config.yaml
