@@ -21,6 +21,7 @@ from collections import deque
 import numpy as np
 import pyModeS
 from sklearn.ensemble import IsolationForest
+from sklearn.linear_model import LinearRegression
 
 FRAGMENT_BUF_SIZE = 100
 
@@ -138,9 +139,46 @@ def calc_meteorological_data(  # noqa: PLR0913
     }
 
 
+def is_physically_reasonable(altitude, temperature, regression_model, tolerance_factor=2.0):
+    """
+    高度-温度の物理的相関が妥当かどうかを判定
+
+    Args:
+        altitude (float): 高度
+        temperature (float): 気温
+        regression_model: 学習済み線形回帰モデル
+        tolerance_factor (float): 許容範囲の倍率
+
+    Returns:
+        bool: 物理的に妥当な場合True
+
+    """
+    try:
+        # 予測温度を計算
+        predicted_temp = regression_model.predict([[altitude]])[0]
+
+        # 高度-温度の一般的な関係：高度が1000m上がると約6.5°C下がる
+        # 標準大気での温度減率を考慮した許容範囲を設定
+        standard_lapse_rate = 0.0065  # °C/m
+        altitude_diff_threshold = 1500  # m（許容する高度差）
+        temp_tolerance = standard_lapse_rate * altitude_diff_threshold * tolerance_factor
+
+        # 予測値との差が許容範囲内かチェック
+        temp_diff = abs(temperature - predicted_temp)
+
+        return temp_diff <= temp_tolerance
+
+    except Exception:
+        return True  # エラー時は保守的に妥当とみなす
+
+
 def is_outlier_data(temperature, altitude):
     """
-    Isolation Forestを使用してaltitudeとtemperatureのペアが外れ値かどうかを判定
+    高度-温度相関を考慮してaltitudeとtemperatureのペアが外れ値かどうかを判定
+
+    二段階アプローチ：
+    1. 物理的相関チェック（高度が低い→温度が高い関係を保護）
+    2. 残差ベースの異常検知
 
     Args:
         temperature (float): 気温
@@ -157,26 +195,61 @@ def is_outlier_data(temperature, altitude):
         return False
 
     try:
-        # 履歴データから特徴量を抽出（altitude, temperature）
-        features = np.array(
-            [
-                [data["altitude"], data["temperature"]]
-                for data in meteorological_history
-                if data["altitude"] is not None and data["temperature"] is not None
-            ]
-        )
+        # 履歴データから特徴量を抽出
+        valid_data = [
+            data
+            for data in meteorological_history
+            if data["altitude"] is not None and data["temperature"] is not None
+        ]
 
-        # Isolation Forestモデルを構築
-        # contamination=0.003は約3σに相当（99.7%の信頼区間外を外れ値とする）
+        if len(valid_data) < OUTLIER_DETECTION_MIN_SAMPLES:
+            return False
+
+        altitudes = np.array([[data["altitude"]] for data in valid_data])
+        temperatures = np.array([data["temperature"] for data in valid_data])
+
+        # 第一段階：線形回帰で高度-温度関係を学習
+        regression_model = LinearRegression()
+        regression_model.fit(altitudes, temperatures)
+
+        # 物理的相関チェック
+        if is_physically_reasonable(altitude, temperature, regression_model):
+            logging.debug(
+                "物理的に妥当な高度-温度相関のため正常値として扱います "
+                "(altitude: %.1fm, temperature: %.1f°C)",
+                altitude,
+                temperature,
+            )
+            return False  # 物理的に妥当なので外れ値ではない
+
+        # 第二段階：残差ベースの異常検知
+        # 全データの残差を計算
+        predicted_temps = regression_model.predict(altitudes)
+        residuals = temperatures - predicted_temps
+
+        # 新データの残差を計算
+        new_predicted_temp = regression_model.predict([[altitude]])[0]
+        new_residual = temperature - new_predicted_temp
+
+        # 残差に対してIsolation Forestを適用
+        residuals_2d = residuals.reshape(-1, 1)
         isolation_forest = IsolationForest(contamination=0.003, random_state=42)
-        isolation_forest.fit(features)
+        isolation_forest.fit(residuals_2d)
 
-        # 新しいデータポイントを検査
-        new_data = np.array([[altitude, temperature]])
-        prediction = isolation_forest.predict(new_data)
+        # 新データの残差を検査
+        prediction = isolation_forest.predict([[new_residual]])
 
-        # -1が外れ値、1が正常値
-        return prediction[0] == -1
+        is_outlier = prediction[0] == -1
+
+        if is_outlier:
+            logging.debug(
+                "残差ベース異常検知で外れ値を検出 (altitude: %.1fm, temperature: %.1f°C, residual: %.1f°C)",
+                altitude,
+                temperature,
+                new_residual,
+            )
+
+        return is_outlier
 
     except Exception as e:
         logging.warning("外れ値検出でエラーが発生しました: %s", e)
