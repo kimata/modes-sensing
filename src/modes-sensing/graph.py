@@ -120,8 +120,8 @@ def plot_3d(data_list, filename="3d_plot.png"):
     # 時間を数値に変換（matplotlibの日付形式）
     time_numeric = [mdates.date2num(t) for t in clean_df["time"]]
 
-    # 3D図の作成
-    fig = matplotlib.pyplot.figure(figsize=(12, 9))
+    # 3D図の作成（サイズを大きくしてラベル用の余白を確保）
+    fig = matplotlib.pyplot.figure(figsize=(14, 10))
     ax = fig.add_subplot(111, projection="3d")
 
     # 3D散布図の作成
@@ -136,10 +136,10 @@ def plot_3d(data_list, filename="3d_plot.png"):
         alpha=0.7,
     )
 
-    # 軸ラベルの設定（パディングを追加、z軸は特に大きく）
+    # 軸ラベルの設定（z軸のパディングをさらに大きく）
     ax.set_xlabel("Time", labelpad=15)
     ax.set_ylabel("Altitude (m)", labelpad=15)
-    ax.set_zlabel("Temperature (°C)", labelpad=20)
+    ax.set_zlabel("Temperature (°C)", labelpad=40)
 
     # 時間軸のフォーマット設定
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%-m/%-d\n%-H:00"))
@@ -160,12 +160,12 @@ def plot_3d(data_list, filename="3d_plot.png"):
     # タイトルとレイアウト調整
     ax.set_title("3D Meteorological Data\n(Time vs Altitude vs Temperature)")
 
-    # 余白を大幅に調整してラベルが切れないようにする
-    matplotlib.pyplot.subplots_adjust(left=0.15, right=0.85, top=0.9, bottom=0.15)
+    # 余白をさらに大幅に調整してz軸ラベルが完全に表示されるように
+    matplotlib.pyplot.subplots_adjust(left=0.05, right=0.75, top=0.9, bottom=0.1)
 
-    # ファイル保存
+    # ファイル保存（pad_inchesを大きくしてz軸ラベルが切れないよう確保）
     matplotlib.pyplot.savefig(
-        filename, format="png", dpi=200, transparent=True, bbox_inches="tight", pad_inches=0.2
+        filename, format="png", dpi=200, transparent=True, bbox_inches="tight", pad_inches=0.5
     )
     logging.info("3Dプロットを保存しました: %s", filename)
 
