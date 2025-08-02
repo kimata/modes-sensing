@@ -142,9 +142,9 @@ def plot_3d(data_list, filename="3d_plot.png"):
         alpha=0.7,
     )
 
-    # 軸ラベルの設定（軸にさらに近づける、フォントサイズを大きく）
+    # 軸ラベルの設定（altitudeラベルを少し離す、フォントサイズを大きく）
     ax.set_xlabel("Time", labelpad=5, fontsize=14)
-    ax.set_ylabel("Altitude (m)", labelpad=5, fontsize=14)
+    ax.set_ylabel("Altitude (m)", labelpad=12, fontsize=14)
     ax.set_zlabel("Temperature (°C)", labelpad=8, fontsize=14)
 
     # 時間軸のフォーマット設定
@@ -165,23 +165,23 @@ def plot_3d(data_list, filename="3d_plot.png"):
     ax.set_ylim(0, 14000)
     ax.set_zlim(-80, 30)
 
-    # カラーバーの追加と範囲設定（間隔をさらに確保）
+    # カラーバーの追加と範囲設定（間隔をさらに確保、フォントサイズを大きく）
     scatter.set_clim(-80, 30)
-    cbar = matplotlib.pyplot.colorbar(scatter, shrink=0.8, pad=0.2)
-    cbar.set_label("Temperature (°C)", fontsize=14)
-    cbar.ax.tick_params(labelsize=12)
+    cbar = matplotlib.pyplot.colorbar(scatter, shrink=0.8, pad=0.25)
+    cbar.set_label("Temperature (°C)", fontsize=16)
+    cbar.ax.tick_params(labelsize=14)
 
     # 視点の設定（z軸ラベルが見えやすい角度に調整）
     ax.view_init(elev=25, azim=35)
 
-    # 外側余白を削減してプロットエリアを拡大
-    matplotlib.pyplot.subplots_adjust(left=0.02, right=0.85, top=0.95, bottom=0.02)
+    # 外側余白を削減してプロットエリアを拡大（タイトル用の上余白を確保）
+    matplotlib.pyplot.subplots_adjust(left=0.02, right=0.82, top=0.90, bottom=0.02)
 
-    # プロットエリアを調整（カラーバーとの間隔を確保）
-    ax.set_position([0.08, 0.02, 0.65, 0.9])
+    # プロットエリアを調整（カラーバーとの間隔を確保、高さを増やす）
+    ax.set_position([0.08, 0.02, 0.62, 0.85])
 
-    # タイトルを上部に配置（フォントサイズを大きく）
-    ax.set_title("3D Meteorological Data\n(Time vs Altitude vs Temperature)", pad=20, fontsize=16)
+    # タイトルを上部に配置（フォントサイズをさらに大きく、位置を下に）
+    ax.set_title("3D Meteorological Data\n(Time vs Altitude vs Temperature)", pad=10, fontsize=18)
 
     # ファイル保存（bbox_inchesをNoneにして図全体を保存）
     matplotlib.pyplot.savefig(filename, format="png", dpi=200, transparent=True, bbox_inches=None)
