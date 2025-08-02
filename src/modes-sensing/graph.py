@@ -142,14 +142,24 @@ def plot_3d(data_list, filename="3d_plot.png"):
         alpha=0.7,
     )
 
-    # 軸ラベルの設定（軸にさらに近づける）
-    ax.set_xlabel("Time", labelpad=5)
-    ax.set_ylabel("Altitude (m)", labelpad=5)
-    ax.set_zlabel("Temperature (°C)", labelpad=8)
+    # 軸ラベルの設定（軸にさらに近づける、フォントサイズを大きく）
+    ax.set_xlabel("Time", labelpad=5, fontsize=14)
+    ax.set_ylabel("Altitude (m)", labelpad=5, fontsize=14)
+    ax.set_zlabel("Temperature (°C)", labelpad=8, fontsize=14)
 
     # 時間軸のフォーマット設定
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%-m/%-d\n%-H:00"))
     ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+
+    # 高度軸にカンマ区切りフォーマッターを追加
+    from matplotlib.ticker import StrMethodFormatter
+
+    ax.yaxis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))
+
+    # 軸メモリのフォントサイズを大きく
+    ax.tick_params(axis="x", labelsize=12)
+    ax.tick_params(axis="y", labelsize=12)
+    ax.tick_params(axis="z", labelsize=12)
 
     # 軸の範囲設定
     ax.set_ylim(0, 14000)
@@ -158,7 +168,8 @@ def plot_3d(data_list, filename="3d_plot.png"):
     # カラーバーの追加と範囲設定（間隔をさらに確保）
     scatter.set_clim(-80, 30)
     cbar = matplotlib.pyplot.colorbar(scatter, shrink=0.8, pad=0.2)
-    cbar.set_label("Temperature (°C)")
+    cbar.set_label("Temperature (°C)", fontsize=14)
+    cbar.ax.tick_params(labelsize=12)
 
     # 視点の設定（z軸ラベルが見えやすい角度に調整）
     ax.view_init(elev=25, azim=35)
@@ -169,24 +180,28 @@ def plot_3d(data_list, filename="3d_plot.png"):
     # プロットエリアを調整（カラーバーとの間隔を確保）
     ax.set_position([0.08, 0.02, 0.65, 0.9])
 
-    # タイトルを上部に配置
-    ax.set_title("3D Meteorological Data\n(Time vs Altitude vs Temperature)", pad=20)
+    # タイトルを上部に配置（フォントサイズを大きく）
+    ax.set_title("3D Meteorological Data\n(Time vs Altitude vs Temperature)", pad=20, fontsize=16)
 
     # ファイル保存（bbox_inchesをNoneにして図全体を保存）
     matplotlib.pyplot.savefig(filename, format="png", dpi=200, transparent=True, bbox_inches=None)
     logging.info("3Dプロットを保存しました: %s", filename)
 
 
-def plot(data_list):
-    # time_list = []
-    # altitude_list = []
-    # temperature_list = []
+def plot_2d(data_list, filename="a.png"):
+    """
+    2次元プロット（時間 vs 高度、温度を色で表現）を生成
 
-    # clean_df = prep_time_alt_temp2(data_list)
+    Args:
+        data_list: 気象データのリスト
+        filename (str): 保存するファイル名
 
+    """
     clean_df = remove_outliers(data_list)
 
-    fig = matplotlib.pyplot.figure()
+    if len(clean_df) == 0:
+        logging.warning("2Dプロット用のデータがありません")
+        return
 
     fig, ax = matplotlib.pyplot.subplots()
 
@@ -222,13 +237,27 @@ def plot(data_list):
 
     # グリッドとレイアウトの調整
     matplotlib.pyplot.grid()
-    # fig.autofmt_xdate()
     matplotlib.pyplot.tight_layout()
 
-    matplotlib.pyplot.savefig("a.png", format="png", dpi=200, transparent=True)
+    matplotlib.pyplot.savefig(filename, format="png", dpi=200, transparent=True)
+    logging.info("2Dプロットを保存しました: %s", filename)
 
-    # 3Dプロットも生成
-    plot_3d(data_list, "3d_plot.png")
+
+def plot(data_list):
+    import concurrent.futures
+
+    # 2つのプロット生成を並列実行
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        # 2Dプロットと3Dプロットを並列で実行
+        future_2d = executor.submit(plot_2d, data_list, "a.png")
+        future_3d = executor.submit(plot_3d, data_list, "3d_plot.png")
+
+        # 両方の処理が完了するまで待機
+        concurrent.futures.wait([future_2d, future_3d])
+
+        # エラーがあった場合は例外を発生させる
+        future_2d.result()
+        future_3d.result()
 
 
 if __name__ == "__main__":
