@@ -136,10 +136,10 @@ def plot_3d(data_list, filename="3d_plot.png"):
         alpha=0.7,
     )
 
-    # 軸ラベルの設定（パディングを追加）
-    ax.set_xlabel("Time", labelpad=10)
-    ax.set_ylabel("Altitude (m)", labelpad=10)
-    ax.set_zlabel("Temperature (°C)", labelpad=10)
+    # 軸ラベルの設定（パディングを追加、z軸は特に大きく）
+    ax.set_xlabel("Time", labelpad=15)
+    ax.set_ylabel("Altitude (m)", labelpad=15)
+    ax.set_zlabel("Temperature (°C)", labelpad=20)
 
     # 時間軸のフォーマット設定
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%-m/%-d\n%-H:00"))
@@ -147,10 +147,11 @@ def plot_3d(data_list, filename="3d_plot.png"):
 
     # 軸の範囲設定
     ax.set_ylim(0, 14000)
-    ax.set_zlim(-70, 20)
+    ax.set_zlim(-80, 30)
 
-    # カラーバーの追加
-    cbar = matplotlib.pyplot.colorbar(scatter, shrink=0.8)
+    # カラーバーの追加と範囲設定
+    scatter.set_clim(-80, 30)
+    cbar = matplotlib.pyplot.colorbar(scatter, shrink=0.8, pad=0.1)
     cbar.set_label("Temperature (°C)")
 
     # 視点の設定（斜め上から見下ろす角度）
@@ -158,10 +159,9 @@ def plot_3d(data_list, filename="3d_plot.png"):
 
     # タイトルとレイアウト調整
     ax.set_title("3D Meteorological Data\n(Time vs Altitude vs Temperature)")
-    matplotlib.pyplot.tight_layout()
 
-    # 余白を調整してラベルが切れないようにする
-    matplotlib.pyplot.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+    # 余白を大幅に調整してラベルが切れないようにする
+    matplotlib.pyplot.subplots_adjust(left=0.15, right=0.85, top=0.9, bottom=0.15)
 
     # ファイル保存
     matplotlib.pyplot.savefig(
@@ -192,7 +192,7 @@ def plot(data_list):
         marker="o",
         s=10,
     )
-    sc.set_clim(-70, 20)
+    sc.set_clim(-80, 30)
     ax.set_ylim(0, 14000)
 
     # 軸ラベルの設定
