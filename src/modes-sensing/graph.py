@@ -22,9 +22,25 @@ from sklearn.neighbors import KNeighborsRegressor
 from sklearn.preprocessing import StandardScaler
 
 # カスタムフォントの設定
-font_path = "font/FuturaStd-Medium.otf"
-font_manager.fontManager.addfont(font_path)
-matplotlib.pyplot.rcParams["font.family"] = "Futura Std"
+medium_font_path = "font/A-OTF-ShinGoPro-Medium.otf"
+bold_font_path = "font/A-OTF-ShinGoPro-Bold.otf"
+
+try:
+    font_manager.fontManager.addfont(medium_font_path)
+    font_manager.fontManager.addfont(bold_font_path)
+
+    # フォント名を確認して設定
+    prop = font_manager.FontProperties(fname=medium_font_path)
+    font_name = prop.get_name()
+    # フォント名にスペースが含まれる場合の処理
+    matplotlib.pyplot.rcParams["font.family"] = [font_name, "sans-serif"]
+    matplotlib.pyplot.rcParams["font.sans-serif"] = [font_name] + matplotlib.pyplot.rcParams[
+        "font.sans-serif"
+    ]
+    logging.info("フォントを設定しました: %s", font_name)
+except Exception as e:
+    logging.warning("カスタムフォントの読み込みに失敗しました: %s", e)
+    logging.info("デフォルトフォントを使用します")
 
 # NOTE: 温度がこれより高いデータのみ残す
 TEMPERATURE_THRESHOLD = -100
@@ -151,13 +167,13 @@ def plot_3d(data_list, filename="3d_plot.png"):
         edgecolors="none",  # エッジを無効にして高速化
     )
 
-    # 軸ラベルの設定（altitudeラベルを少し離す、フォントサイズを大きく）
-    ax.set_xlabel("Time", labelpad=5, fontsize=14)
-    ax.set_ylabel("Altitude (m)", labelpad=12, fontsize=14)
-    ax.set_zlabel("Temperature (°C)", labelpad=8, fontsize=14)
+    # 軸ラベルの設定（日本語ラベル、altitudeラベルを少し離す、フォントサイズを大きく）
+    ax.set_xlabel("日時", labelpad=5, fontsize=14)
+    ax.set_ylabel("高度 (m)", labelpad=12, fontsize=14)
+    ax.set_zlabel("温度 (°C)", labelpad=8, fontsize=14)
 
-    # 時間軸のフォーマット設定
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%-m/%-d\n%-H:00"))
+    # 時間軸のフォーマット設定（日本語フォーマット）
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%-m月%-d日\n%-H時"))
     ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
 
     # 高度軸にカンマ区切りフォーマッターを追加
@@ -177,7 +193,7 @@ def plot_3d(data_list, filename="3d_plot.png"):
     # カラーバーの追加と範囲設定（間隔をさらに確保、フォントサイズを大きく）
     scatter.set_clim(-80, 30)
     cbar = matplotlib.pyplot.colorbar(scatter, shrink=0.8, pad=0.25)
-    cbar.set_label("Temperature (°C)", fontsize=16)
+    cbar.set_label("温度 (°C)", fontsize=16)
     cbar.ax.tick_params(labelsize=14)
 
     # 視点の設定（z軸ラベルが見えやすい角度に調整）
@@ -189,8 +205,12 @@ def plot_3d(data_list, filename="3d_plot.png"):
     # プロットエリアを調整（カラーバーとの間隔を確保、高さを増やす）
     ax.set_position([0.08, 0.02, 0.62, 0.85])
 
-    # タイトルを上部に配置（フォントサイズをさらに大きく、位置を下に）
-    ax.set_title("3D Meteorological Data\n(Time vs Altitude vs Temperature)", pad=10, fontsize=18)
+    # タイトルを上部に配置（日本語タイトル、Boldフォント、フォントサイズをさらに大きく、位置を下に）
+    try:
+        bold_prop = font_manager.FontProperties(fname=bold_font_path)
+        ax.set_title("3次元気象データ\n(日時 vs 高度 vs 温度)", pad=10, fontsize=18, fontproperties=bold_prop)
+    except Exception:
+        ax.set_title("3次元気象データ\n(日時 vs 高度 vs 温度)", pad=10, fontsize=18, fontweight="bold")
 
     # ファイル保存（bbox_inchesをNoneにして図全体を保存）
     matplotlib.pyplot.savefig(filename, format="png", dpi=200, transparent=True, bbox_inches=None)
@@ -238,19 +258,19 @@ def plot_2d(data_list, filename="a.png"):
     sc.set_clim(-80, 30)
     ax.set_ylim(0, 14000)
 
-    # 軸ラベルの設定
-    ax.set_xlabel("Time")
-    ax.set_ylabel("Altitude (m)")
+    # 軸ラベルの設定（日本語ラベル）
+    ax.set_xlabel("日時")
+    ax.set_ylabel("高度 (m)")
 
     # カラーバーの追加
     cbar = matplotlib.pyplot.colorbar(sc)
-    cbar.set_label("Temperature (°C)")
+    cbar.set_label("温度 (°C)")
 
-    # 時刻軸のラベルを日付形式に設定
+    # 時刻軸のラベルを日付形式に設定（日本語フォーマット）
     ax.xaxis.set_minor_locator(mdates.HourLocator(byhour=range(0, 24, 6)))
-    ax.xaxis.set_minor_formatter(mdates.DateFormatter("%-H"))
+    ax.xaxis.set_minor_formatter(mdates.DateFormatter("%-H時"))
     ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%-H\nDay %-d"))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%-H時\n%-d日"))
 
     from matplotlib.ticker import StrMethodFormatter
 
@@ -310,19 +330,19 @@ def _plot_2d_from_clean_data(clean_df, filename):
     sc.set_clim(-80, 30)
     ax.set_ylim(0, 14000)
 
-    # 軸ラベルの設定
-    ax.set_xlabel("Time")
-    ax.set_ylabel("Altitude (m)")
+    # 軸ラベルの設定（日本語ラベル）
+    ax.set_xlabel("日時")
+    ax.set_ylabel("高度 (m)")
 
     # カラーバーの追加
     cbar = matplotlib.pyplot.colorbar(sc)
-    cbar.set_label("Temperature (°C)")
+    cbar.set_label("温度 (°C)")
 
-    # 時刻軸のラベルを日付形式に設定
+    # 時刻軸のラベルを日付形式に設定（日本語フォーマット）
     ax.xaxis.set_minor_locator(mdates.HourLocator(byhour=range(0, 24, 6)))
-    ax.xaxis.set_minor_formatter(mdates.DateFormatter("%-H"))
+    ax.xaxis.set_minor_formatter(mdates.DateFormatter("%-H時"))
     ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%-H\nDay %-d"))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%-H時\n%-d日"))
 
     from matplotlib.ticker import StrMethodFormatter
 
@@ -366,13 +386,13 @@ def _plot_3d_from_clean_data(clean_df, filename):
         edgecolors="none",
     )
 
-    # 軸ラベルの設定
-    ax.set_xlabel("Time", labelpad=5, fontsize=14)
-    ax.set_ylabel("Altitude (m)", labelpad=12, fontsize=14)
-    ax.set_zlabel("Temperature (°C)", labelpad=8, fontsize=14)
+    # 軸ラベルの設定（日本語ラベル）
+    ax.set_xlabel("日時", labelpad=5, fontsize=14)
+    ax.set_ylabel("高度 (m)", labelpad=12, fontsize=14)
+    ax.set_zlabel("温度 (°C)", labelpad=8, fontsize=14)
 
-    # 時間軸のフォーマット設定
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%-m/%-d\n%-H:00"))
+    # 時間軸のフォーマット設定（日本語フォーマット）
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%-m月%-d日\n%-H時"))
     ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
 
     # 高度軸にカンマ区切りフォーマッターを追加
@@ -392,7 +412,7 @@ def _plot_3d_from_clean_data(clean_df, filename):
     # カラーバーの追加と範囲設定
     scatter.set_clim(-80, 30)
     cbar = matplotlib.pyplot.colorbar(scatter, shrink=0.8, pad=0.25)
-    cbar.set_label("Temperature (°C)", fontsize=16)
+    cbar.set_label("温度 (°C)", fontsize=16)
     cbar.ax.tick_params(labelsize=14)
 
     # 視点の設定
