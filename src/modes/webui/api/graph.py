@@ -213,7 +213,14 @@ def prepare_data(raw_data):
     filtered_data = [d for d in raw_data if d["temperature"] > TEMPERATURE_THRESHOLD]
 
     if not filtered_data:
-        return None
+        return {
+            "count": 0,
+            "times": [],
+            "time_numeric": [],
+            "altitudes": [],
+            "temperatures": [],
+            "dataframe": [],
+        }
 
     clean_df = pandas.DataFrame(filtered_data)
     clean_df["time"] = pandas.to_datetime(clean_df["time"])
@@ -225,6 +232,7 @@ def prepare_data(raw_data):
     time_numeric = numpy.array([matplotlib.dates.date2num(t) for t in times])
 
     return {
+        "count": len(times),
         "times": times,
         "time_numeric": time_numeric,
         "altitudes": altitudes,
@@ -533,7 +541,7 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize):
     # データ準備（変換不要、直接処理）
     data = prepare_data(raw_data)
 
-    if data is None:
+    if data["count"] < 10:
         # データがない場合の画像を生成
         try:
             img = create_no_data_image(config, graph_name)
