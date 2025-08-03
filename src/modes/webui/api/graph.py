@@ -190,7 +190,7 @@ def conver_to_img(fig):
     return img
 
 
-def create_no_data_image(config, graph_name):
+def create_no_data_image(config, graph_name, text="データがありません"):
     """データがない場合の画像を生成する"""
     # グラフサイズを取得
     size = GRAPH_DEF_MAP[graph_name]["size"]
@@ -203,9 +203,6 @@ def create_no_data_image(config, graph_name):
 
     # my_lib.pil_utilを使用してフォントを取得
     font = my_lib.pil_util.get_font(config["font"], "jp_bold", font_size)
-
-    # テキスト
-    text = "データがありません"
 
     pos = (size[0] // 2, size[1] // 2)
 
@@ -546,8 +543,7 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize):
             return bytes_io.getvalue(), 0
         except Exception:
             logging.exception("Failed to create no data image")
-            size = GRAPH_DEF_MAP[graph_name]["size"]
-            img = PIL.Image.new("RGB", size, color="white")
+            img = create_no_data_image(config, graph_name, "グラフの作成に失敗しました")
             bytes_io = io.BytesIO()
             img.save(bytes_io, "PNG")
             bytes_io.seek(0)
