@@ -14,6 +14,8 @@ import logging
 import queue
 import sqlite3
 
+import my_lib.footprint
+
 
 def open(log_db_path):  # noqa: A001
     sqlite = sqlite3.connect(log_db_path)
@@ -52,11 +54,17 @@ def insert(sqlite, data):
     sqlite.commit()
 
 
-def store_queue(sqlite, queue):
+def store_queue(sqlite, queue, liveness_file, count):
+    i = 0
     try:
         while True:
             data = queue.get()
             insert(sqlite, data)
+            my_lib.footprint.update(liveness_file)
+
+            i += 1
+            if (count != 0) and (i == count):
+                break
     except Exception:
         sqlite.close()
         logging.exception("Database error occurred")
@@ -134,18 +142,20 @@ def fetch_by_time(sqlite, time_start, time_end, distance, columns=None):
 
 
 if __name__ == "__main__":
+    import docopt
     import my_lib.config
     import my_lib.logger
-    from docopt import docopt
 
     import modes.receiver
 
-    args = docopt(__doc__)
-
-    my_lib.logger.init("ModeS sensing", level=logging.INFO)
+    args = docopt.docopt(__doc__)
 
     config_file = args["-c"]
-    config = my_lib.config.load(args["-c"])
+    debug_mode = args["-d"]
+
+    my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
+
+    config = my_lib.config.load(config_file)
 
     measurement_queue = queue.Queue()
 
@@ -158,4 +168,4 @@ if __name__ == "__main__":
 
     sqlite = open(config["database"]["path"])
 
-    store_queue(sqlite, measurement_queue)
+    store_queue(sqlite, measurement_queue, config["liveness"]["file"]["collector"])

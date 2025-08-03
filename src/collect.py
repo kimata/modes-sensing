@@ -3,10 +3,11 @@
 ModeS のメッセージを PostgreSQL に保存します
 
 Usage:
-  collect.py [-c CONFIG] [-D]
+  collect.py [-c CONFIG] [-n COUNT] [-D]
 
 Options:
   -c CONFIG         : CONFIG を設定ファイルとして読み込んで実行します．[default: config.yaml]
+  -n COUNT          : n 回計測データを受信したら終了します。0 は制限なし。 [default: 0]
   -D                : デバッグモードで動作します．
 """
 
@@ -31,7 +32,7 @@ def sig_handler(num, _):
         modes.receiver.term()
 
 
-def execute(config):
+def execute(config, liveness_file, count=0):
     signal.signal(signal.SIGTERM, sig_handler)
 
     measurement_queue = multiprocessing.Queue()
@@ -52,9 +53,11 @@ def execute(config):
     )
 
     try:
-        modes.database_postgresql.store_queue(conn, measurement_queue)
+        modes.database_postgresql.store_queue(conn, measurement_queue, liveness_file, count)
     except Exception:
         logging.exception("Failed to store data")
+
+    modes.receiver.term()
 
 
 ######################################################################
@@ -66,10 +69,11 @@ if __name__ == "__main__":
     args = docopt.docopt(__doc__)
 
     config_file = args["-c"]
+    count = int(args["-n"])
     debug_mode = args["-D"]
 
-    my_lib.logger.init("modes sensing", level=logging.DEBUG if debug_mode else logging.INFO)
+    my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
     config = my_lib.config.load(config_file, pathlib.Path(SCHEMA_CONFIG))
 
-    execute(config)
+    execute(config, config["liveness"]["file"]["collector"], count)
