@@ -1,0 +1,394 @@
+image: gitlab.green-rabbit.net:5050/kimata/local-ubuntu:250706_043ea01d
+
+variables:
+    UV_LINK_MODE: copy
+    UV_CACHE_DIR: .uv-cache
+
+default:
+    before_script:
+        - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+
+stages:
+    - generate-tag
+    - build
+    - test
+    - tag-latest
+    - deploy
+    - renovate
+
+generate-tag:
+    stage: generate-tag
+    script:
+        - echo "TAG=$(date +%y%m%d)_${CI_COMMIT_SHORT_SHA}" > tag.env
+    artifacts:
+        reports:
+            dotenv: tag.env
+        expire_in: 1 hour
+
+build-react:
+    stage: build
+
+    needs: []
+
+    image: node:22.15
+
+    before_script: []
+
+    script:
+        - cd react
+        - npm ci --cache .npm --prefer-offline
+        - npm run build
+    artifacts:
+        paths:
+            - react/dist/
+    cache:
+        key: "${CI_JOB_NAME}"
+        paths:
+            - .npm/
+
+build-image:
+    stage: build
+
+    needs:
+        - generate-tag
+        - build-react
+
+    variables:
+        BUILDER: builder-${CI_PROJECT_NAME}
+
+    script:
+        - 'echo "Building: ${CI_REGISTRY_IMAGE}:${TAG}"'
+
+        - git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.green-rabbit.net/kimata/sense-config.git
+        - mv sense-config/sense-modes.yaml config.yaml
+
+        - |
+            docker buildx create \
+                --name ${BUILDER} \
+                --use \
+                --config /etc/buildkitd.toml
+
+        - docker buildx use ${BUILDER}
+        - docker buildx inspect --bootstrap
+        - >
+            docker buildx build --provenance=false --progress=plain --platform linux/amd64,linux/arm64/v8
+            --cache-from type=registry,ref=${CI_REGISTRY_IMAGE}:cache
+            --cache-from type=registry,ref=${CI_REGISTRY_IMAGE}:latest
+            --cache-to type=inline --cache-to type=registry,ref=${CI_REGISTRY_IMAGE}:cache,mode=max
+            --build-arg IMAGE_BUILD_DATE=$(date --iso-8601=seconds)
+            --tag ${CI_REGISTRY_IMAGE}:${TAG} --push .
+    # after_script:
+    #     - docker buildx rm ${BUILDER} || true
+
+test-prepare:
+    stage: build
+
+    needs: []
+
+    script:
+        - uv sync --locked --no-editable
+
+        - |
+            now=$(date +%s)
+            threshold=$((60*60*24))  # 24時間
+
+            for net in $(docker network ls --format '{{.Name}}'); do
+                if [[ "$net" == "bridge" || "$net" == "host" || "$net" == "none" ]]; then
+                    continue
+                fi
+
+                attached=$(docker network inspect "$net" --format '{{json .Containers}}')
+                if [[ "$attached" != "{}" ]]; then
+                    continue
+                fi
+
+                created=$(docker network inspect "$net" --format '{{.Created}}')
+                created_fixed=$(echo "$created" | sed -E 's/\.[0-9]+//; s/ [A-Z]+$//')
+                created_ts=$(date --date="$created_fixed" +%s)
+
+                if [[ -n "$created_ts" && $((now - created_ts)) -gt $threshold ]]; then
+                    echo "Removing unused network: $net (created at $created)"
+                    docker network rm "$net" || true
+                fi
+            done
+
+    artifacts:
+        paths:
+            - ${UV_CACHE_DIR}
+        expire_in: 1 hour
+
+    cache:
+        - key:
+              files:
+                  - uv.lock
+          paths:
+              - ${UV_CACHE_DIR}
+
+test-walk-through:
+    stage: test
+
+    needs:
+        - test-prepare
+
+    script:
+        - echo "OK"
+        # - uv run pytest --numprocesses=auto --junit-xml=tests/evidence/junit-report.xml tests/test_basic.py
+
+    artifacts:
+        when: always
+        paths:
+            - tests/evidence/**
+        reports:
+            junit: tests/evidence/junit-report.xml
+
+test-playwright:
+    stage: test
+
+    needs:
+        - build-react
+        - test-prepare
+
+    script:
+        - echo "OK"
+
+        # - git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.green-rabbit.net/kimata/wattmeter-config.git
+        # - mv wattmeter-config/sharp_config.yaml config.yaml
+        # - mv wattmeter-config/sharp_device.yaml device.yaml
+        # - mv wattmeter-config/sharp_dev_id.dat data/dev_id.dat
+
+        # # Flaskを起動（エラー出力も記録、明示的にポート指定）
+        # - uv run python ./src/webui.py -p 5000 > flask_log.txt 2>&1 &
+        # - "sleep 10"
+
+        # - uv run playwright install --with-deps chromium
+
+        # - >
+        #     APP_URL="http://127.0.0.1:5000/wattmeter-sharp/"
+        # - >
+        #     echo "APP_URL: ${APP_URL}"
+        # - >
+        #     timeout 60 bash -c "until curl --fail --connect-timeout 10 --max-time 15 \"${APP_URL}\" > /dev/null 2>&1;
+        #     do echo 'Retrying in 5 seconds...'; sleep 5; done" || ACCESS_FAILED=1
+
+        # - |
+        #     if [ "$ACCESS_FAILED" = "1" ]; then
+        #         echo "Failed to access App"
+        #         exit 1
+        #     fi
+
+        # - >
+        #     uv run pytest tests/test_playwright.py
+        #     --junit-xml=tests/evidence/playwright-junit.xml
+    artifacts:
+        when: always
+        paths:
+            - flask_log.txt
+            - tests/evidence/**
+        reports:
+            junit: tests/evidence/playwright-junit.xml
+
+test-docker:
+    stage: test
+    needs:
+        - generate-tag
+        - build-image
+        - test-prepare
+
+    variables:
+        HEMS_SERVER_HOST: proxy.green-rabbit.net
+
+    script:
+        # クリーンアップ: 古いコンテナを停止
+        - >
+            for id in $(docker ps --filter "label=job=${CI_PROJECT_NAME}-${CI_JOB_NAME}" --format "{{.ID}}"); do
+                started_at=$(docker inspect --format '{{.State.StartedAt}}' "$id")
+                started_epoch=$(date --date="$started_at" +%s)
+                now_epoch=$(date +%s)
+                diff=$(( now_epoch - started_epoch ))
+
+                if [ "$diff" -ge 600 ]; then
+                    echo "Stopping container $id (running for $diff seconds)"
+                    docker stop -t 10 "$id" || true
+                fi
+            done
+        - echo "OK"
+        # - >
+        #     docker run --tty
+        #     --name ${CI_JOB_NAME}-${CI_JOB_ID} --label job=${CI_PROJECT_NAME}-${CI_JOB_NAME}
+        #     ${CI_REGISTRY_IMAGE}:${TAG}
+        #     ./src/sharp_hems_logger.py -s ${HEMS_SERVER_HOST} -d -n 2
+
+test-playwright-docker:
+    stage: test
+
+    # 同一ジョブの並行実行を防止してリソース競合を回避
+    resource_group: ${CI_JOB_NAME}
+
+    needs:
+        - generate-tag
+        - build-image
+        - test-prepare
+
+    script:
+        # クリーンアップ: 古いコンテナを停止
+        - >
+            for id in $(docker ps --filter "label=job=${CI_PROJECT_NAME}-${CI_JOB_NAME}" --format "{{.ID}}"); do
+                started_at=$(docker inspect --format '{{.State.StartedAt}}' "$id")
+                started_epoch=$(date --date="$started_at" +%s)
+                now_epoch=$(date +%s)
+                diff=$(( now_epoch - started_epoch ))
+
+                if [ "$diff" -ge 600 ]; then
+                    echo "Stopping container $id (running for $diff seconds)"
+                    docker stop -t 10 "$id" || true
+                fi
+            done
+
+        # - DOCKER_NETWORK=${CI_PROJECT_NAME}-${CI_JOB_NAME}-${CI_JOB_ID}-network
+
+        # # 専用ネットワーク作成（プロジェクト固有）
+        # - docker network create ${DOCKER_NETWORK}
+
+        # # テスト用に一時的なポート公開でコンテナ起動
+        # - >
+        #     docker run --rm --detach=true
+        #     --name ${CI_JOB_NAME}-${CI_JOB_ID} --label job=${CI_PROJECT_NAME}-${CI_JOB_NAME}
+        #     --network ${DOCKER_NETWORK} --publish :5000 --env TEST=true
+        #     ${CI_REGISTRY_IMAGE}:${TAG}
+        #     ./src/webui.py
+
+        # - echo "Container started, checking status..."
+        # - docker ps -a --filter name=${CI_JOB_NAME}-${CI_JOB_ID}
+
+        # - uv run playwright install --with-deps chromium
+
+        # # アプリケーションの起動を待つ（公開ポート経由）
+        # - >
+        #     APP_HOST=$(docker network inspect bridge --format="{{range .IPAM.Config}}{{.Gateway}}{{end}}")
+        # - >
+        #     APP_PORT=$(docker port ${CI_JOB_NAME}-${CI_JOB_ID} 5000 | cut -d: -f2)
+        # - >
+        #     echo "Testing at http://${APP_HOST}:${APP_PORT}/wattmeter-sharp/"
+        # - >
+        #     timeout 90 bash -c "until curl -f --connect-timeout 5 --max-time 10
+        #     http://${APP_HOST}:${APP_PORT}/wattmeter-sharp/ > /dev/null 2>&1;
+        #     do echo 'Waiting for app to start...'; sleep 3; done" || ACCESS_FAILED=1
+
+        # - |
+        #     if [ "$ACCESS_FAILED" = "1" ]; then
+        #         echo "Failed to access App"
+        #         docker logs ${CI_JOB_NAME}-${CI_JOB_ID} > flask_log.txt
+        #         docker stop ${CI_JOB_NAME}-${CI_JOB_ID} || true
+        #         docker network rm ${DOCKER_NETWORK} || true
+        #         exit 1
+        #     fi
+
+        # # Playwrightテストを実行（ホストからポート経由で接続）
+        # - >
+        #     uv run pytest --tracing on --output tests/evidence/playwright
+        #     --junit-xml=tests/evidence/playwright-docker-junit.xml
+        #     tests/test_playwright.py --host ${APP_HOST} --port ${APP_PORT}
+
+        # # ログ取得とクリーンアップ
+        # - docker logs ${CI_JOB_NAME}-${CI_JOB_ID} > flask_log.txt
+        # - docker stop ${CI_JOB_NAME}-${CI_JOB_ID} || true
+        # - docker network rm ${DOCKER_NETWORK} || true
+
+        - echo "OK"
+
+    cache:
+        key: playwright-cache
+        paths:
+            - .cache/ms-playwright/
+
+    artifacts:
+        when: always
+        paths:
+            - flask_log_*.txt
+            - tests/evidence/**
+        reports:
+            junit: tests/evidence/playwright-docker-junit.xml
+
+tag-latest:
+    stage: tag-latest
+
+    needs:
+        - generate-tag
+        - build-image
+        - job: test-walk-through
+          artifacts: false
+        - job: test-docker
+          artifacts: false
+        - job: test-playwright
+          artifacts: false
+        - job: test-playwright-docker
+          artifacts: false
+
+    script:
+        - 'echo "Tagging multi-arch image ${CI_REGISTRY_IMAGE}:${TAG} as latest"'
+        - docker buildx imagetools create -t ${CI_REGISTRY_IMAGE}:latest ${CI_REGISTRY_IMAGE}:${TAG}
+
+    rules:
+        - if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+          when: never
+        - when: on_success
+
+deploy:
+    stage: deploy
+
+    needs:
+        - generate-tag
+        - build-image
+        - job: test-walk-through
+          artifacts: false
+        - job: test-docker
+          artifacts: false
+        - job: test-playwright
+          artifacts: false
+        - job: test-playwright-docker
+          artifacts: false
+
+    image:
+        name: gitlab.green-rabbit.net:5050/kimata/local-kubectl:250715_c88f3965
+
+    before_script: []
+
+    script:
+        - 'IMAGE="${CI_REGISTRY_IMAGE}:${TAG}"'
+        - 'echo "Deploying image: $IMAGE"'
+
+        - kubectl config get-contexts
+        - kubectl config use-context kimata/modes-sensing:pod-rollout
+
+        - kubectl -n hems set image deployment/modes-sensing-collector modes-sensing-collector=${IMAGE}
+        - kubectl -n hems set image deployment/modes-sensing-webui modes-sensing-webui=${IMAGE}
+
+        - kubectl -n hems rollout status deployment/modes-sensing-collector --timeout=300s
+        - kubectl -n hems rollout status deployment/modes-sensing-webui --timeout=300s
+
+        - 'echo "✓ All deployments updated successfully to $TAG"'
+
+    rules:
+        # NOTE: 自動実行ではデプロイしない
+        - if: $CI_PIPELINE_SOURCE == "schedule"
+          when: never
+        - if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+          when: never
+        - when: on_success
+
+renovate:
+    stage: renovate
+    dependencies: []
+    image:
+        name: gitlab.green-rabbit.net:5050/kimata/local-renovate:250715_3b8866ff
+
+    before_script: []
+
+    script:
+        - renovate --platform gitlab --token ${RENOVATE_TOKEN} --endpoint ${CI_SERVER_URL}/api/v4 ${CI_PROJECT_PATH}
+    rules:
+        - if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+          when: never
+        - if: $CI_PIPELINE_SOURCE == "schedule"
+        - changes:
+              - renovate.json

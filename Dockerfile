@@ -41,4 +41,4 @@ COPY . .
 
 EXPOSE 5000
 
-CMD ["./src/app.py"]
+CMD ["./src/collect.py"]
