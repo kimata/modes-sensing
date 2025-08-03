@@ -15,6 +15,7 @@ import queue
 import threading
 import time
 
+import my_lib.footprint
 import psycopg2
 import psycopg2.extras
 
@@ -121,14 +122,20 @@ def insert(conn, data):
         )
 
 
-def store_queue(conn, measurement_queue):
+def store_queue(conn, measurement_queue, liveness_file, count):
     logging.info("Start store worker")
 
+    i = 0
     try:
         while True:
             try:
                 data = measurement_queue.get(timeout=1)
                 insert(conn, data)
+                my_lib.footprint.update(liveness_file)
+
+                i += 1
+                if (count != 0) and (i == count):
+                    break
             except queue.Empty:
                 pass
 
@@ -223,10 +230,12 @@ if __name__ == "__main__":
 
     args = docopt.docopt(__doc__)
 
-    my_lib.logger.init("ModeS sensing", level=logging.INFO)
-
     config_file = args["-c"]
-    config = my_lib.config.load(args["-c"])
+    debug_mode = args["-D"]
+
+    my_lib.logger.init("modes0sensing", level=logging.DEBUG if debug_mode else logging.INFO)
+
+    config = my_lib.config.load(config_file)
 
     measurement_queue = multiprocessing.Queue()
 
@@ -245,4 +254,4 @@ if __name__ == "__main__":
         config["database"]["pass"],
     )
 
-    store_queue(conn, measurement_queue)
+    store_queue(conn, measurement_queue, config["liveness"]["file"]["collector"])

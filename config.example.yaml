@@ -24,3 +24,10 @@ font:
     map:
         jp_medium: A-OTF-UDShinGoPr6N-Medium.otf
         jp_bold: A-OTF-UDShinGoPr6N-Bold.otf
+
+webapp:
+    static_dir_path: react/dist
+
+liveness:
+    file:
+        collector: /dev/shm/modes-sensing/liveness/collector

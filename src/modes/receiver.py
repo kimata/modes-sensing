@@ -414,6 +414,8 @@ def process_message(message, queue, area_info):  # noqa: C901
 def worker(host, port, queue, area_info):
     logging.info("Start receive worker")
 
+    should_terminate.clear()
+
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.connect((host, port))
