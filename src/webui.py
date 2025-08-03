@@ -12,9 +12,7 @@ Options:
 """
 
 import logging
-import os
 import pathlib
-import signal
 
 import flask
 import flask_cors
@@ -22,22 +20,6 @@ import my_lib.config
 import my_lib.logger
 
 SCHEMA_CONFIG = "config.schema"
-
-
-def term():
-    # 子プロセスを終了
-    my_lib.proc_util.kill_child()
-
-    # プロセス終了
-    logging.info("Graceful shutdown completed")
-    os._exit(0)
-
-
-def sig_handler(num, frame):  # noqa: ARG001
-    logging.warning("receive signal %d", num)
-
-    if num in (signal.SIGTERM, signal.SIGINT):
-        term()
 
 
 def create_app(config):
@@ -85,12 +67,9 @@ if __name__ == "__main__":
 
     app = create_app(config)
 
-    signal.signal(signal.SIGTERM, sig_handler)
-
     # Flaskアプリケーションを実行
     try:
         # NOTE: スクリプトの自動リロード停止したい場合は use_reloader=False にする
         app.run(host="0.0.0.0", port=port, threaded=True, use_reloader=True, debug=debug_mode)  # noqa: S104
     except KeyboardInterrupt:
         logging.info("Received KeyboardInterrupt, shutting down...")
-        sig_handler(signal.SIGINT, None)
