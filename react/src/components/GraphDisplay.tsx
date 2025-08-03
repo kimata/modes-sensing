@@ -52,7 +52,8 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   const getImageUrl = (graph: GraphInfo) => {
     const params = new URLSearchParams({
       start: formatDateForAPI(dateRange.start),
-      end: formatDateForAPI(dateRange.end)
+      end: formatDateForAPI(dateRange.end),
+      v: imageVersion.toString()  // キャッシュバスターを追加
     })
     return `${graph.endpoint}?${params}`
   }
