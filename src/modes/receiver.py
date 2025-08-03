@@ -11,26 +11,26 @@ Options:
 """
 # 参考: https://www.ishikawa-lab.com/RasPi_ModeS.html
 
+import collections
 import logging
 import math
 import queue
 import socket
 import threading
-from collections import deque
 
 import numpy as np
 import pyModeS
-from sklearn.ensemble import IsolationForest
-from sklearn.linear_model import LinearRegression
+import sklearn.ensemble
+import sklearn.linear_model
 
 FRAGMENT_BUF_SIZE = 100
 
 fragment_list = []
 
-is_running = False
+should_terminate = threading.Event()
 
 # Isolation Forest用のデータ蓄積
-meteorological_history = deque(maxlen=500)  # 最大500件のデータを保持
+meteorological_history = collections.deque(maxlen=500)  # 最大500件のデータを保持
 OUTLIER_DETECTION_MIN_SAMPLES = 100  # 外れ値検出を開始する最小サンプル数
 
 
@@ -160,7 +160,7 @@ def is_physically_reasonable(altitude, temperature, regression_model, tolerance_
         # 高度-温度の一般的な関係：高度が1000m上がると約6.5°C下がる
         # 標準大気での温度減率を考慮した許容範囲を設定
         standard_lapse_rate = 0.0065  # °C/m
-        altitude_diff_threshold = 1500  # m（許容する高度差）
+        altitude_diff_threshold = 100  # m（許容する高度差）
         temp_tolerance = standard_lapse_rate * altitude_diff_threshold * tolerance_factor
 
         # 予測値との差が許容範囲内かチェック
@@ -209,7 +209,7 @@ def is_outlier_data(temperature, altitude):
         temperatures = np.array([data["temperature"] for data in valid_data])
 
         # 第一段階：線形回帰で高度-温度関係を学習
-        regression_model = LinearRegression()
+        regression_model = sklearn.linear_model.LinearRegression()
         regression_model.fit(altitudes, temperatures)
 
         # 物理的相関チェック
@@ -233,7 +233,7 @@ def is_outlier_data(temperature, altitude):
 
         # 残差に対してIsolation Forestを適用
         residuals_2d = residuals.reshape(-1, 1)
-        isolation_forest = IsolationForest(contamination=0.001, random_state=42)
+        isolation_forest = sklearn.ensemble.IsolationForest(contamination=0.001, random_state=42)
         isolation_forest.fit(residuals_2d)
 
         # 新データの残差を検査
@@ -417,28 +417,35 @@ def process_message(message, queue, area_info):  # noqa: C901
             message_pairing(icao, "bsd60", (heading, indicatedair, mach), queue, area_info)
 
 
-def watch_message(host, port, queue, area_info):
-    global is_running  # noqa: PLW0603
+def worker(host, port, queue, area_info):
+    logging.info("Start receive worker")
+
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.connect((host, port))
-            is_running = True
-
             for line in receive_lines(sock):
+                if should_terminate.is_set():
+                    break
+
                 try:
                     process_message(line, queue, area_info)
-                except Exception:  # noqa: PERF203
+                except Exception:
                     logging.exception("Failed to process message")
     except Exception:
         logging.exception("メッセージ受信でエラーが発生しました．")
-        is_running = False
+
+    logging.warning("Stop receive worker")
 
 
 def start(host, port, queue, area_info):
-    thread = threading.Thread(target=watch_message, args=(host, port, queue, area_info))
+    thread = threading.Thread(target=worker, args=(host, port, queue, area_info))
     thread.start()
 
     return thread
+
+
+def term():
+    should_terminate.set()
 
 
 if __name__ == "__main__":
@@ -467,5 +474,5 @@ if __name__ == "__main__":
     while True:
         logging.info(measurement_queue.get())
 
-        if not is_running:
+        if should_terminate.is_set():
             break
