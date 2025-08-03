@@ -360,11 +360,11 @@ deploy:
         - kubectl config get-contexts
         - kubectl config use-context kimata/modes-sensing:pod-rollout
 
-        - kubectl -n hems set image deployment/modes-sensing-collector modes-sensing-collector=${IMAGE}
-        - kubectl -n hems set image deployment/modes-sensing-webui modes-sensing-webui=${IMAGE}
+        - kubectl -n sensor set image deployment/modes-sensing-collector modes-sensing-collector=${IMAGE}
+        - kubectl -n sensor set image deployment/modes-sensing-webui modes-sensing-webui=${IMAGE}
 
-        - kubectl -n hems rollout status deployment/modes-sensing-collector --timeout=300s
-        - kubectl -n hems rollout status deployment/modes-sensing-webui --timeout=300s
+        - kubectl -n sensor rollout status deployment/modes-sensing-collector --timeout=300s
+        - kubectl -n sensor rollout status deployment/modes-sensing-webui --timeout=300s
 
         - 'echo "✓ All deployments updated successfully to $TAG"'
 
