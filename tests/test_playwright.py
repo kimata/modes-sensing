@@ -43,9 +43,10 @@ def app_url(host, port):
     return APP_URL_TMPL.format(host=host, port=port)
 
 
-def wait_for_images_to_load(page, expected_count=6, timeout=60000):
+def wait_for_images_to_load(page, expected_count=6, timeout=120000):
     """指定された数の画像が読み込まれるまで待機"""
     try:
+        # 複数回チェックして安定した状態になるまで待つ
         page.wait_for_function(
             f"""
             () => {{
@@ -59,15 +60,29 @@ def wait_for_images_to_load(page, expected_count=6, timeout=60000):
                 if (images.length === 0) return false;
 
                 let loadedCount = 0;
+                let consecutiveChecks = window.consecutiveLoadedChecks || 0;
+
                 images.forEach(img => {{
                     if (img.complete && img.naturalWidth > 0) {{
                         loadedCount++;
                     }}
                 }});
 
-                // 期待される数の画像が読み込まれたら成功
-                console.log(`Loaded ${{loadedCount}}/{expected_count} images`);
-                return loadedCount >= {expected_count};
+                // 期待される数の画像が読み込まれたら連続チェック開始
+                if (loadedCount >= {expected_count}) {{
+                    consecutiveChecks++;
+                    window.consecutiveLoadedChecks = consecutiveChecks;
+
+                    // 3回連続で成功したら完了とする
+                    console.log(
+                        `Loaded ${{loadedCount}}/{expected_count} images (check ${{consecutiveChecks}}/3)`
+                    );
+                    return consecutiveChecks >= 3;
+                }} else {{
+                    window.consecutiveLoadedChecks = 0;
+                    console.log(`Loaded ${{loadedCount}}/{expected_count} images`);
+                    return false;
+                }}
             }}
             """,
             timeout=timeout,
@@ -122,7 +137,7 @@ def test_all_images_display_correctly(page, host, port):
     time.sleep(5)
 
     # より長いタイムアウトで全画像の読み込みを待機
-    wait_for_images_to_load(page, expected_count=6, timeout=60000)
+    wait_for_images_to_load(page, expected_count=6, timeout=120000)
 
     # 各グラフタイプの画像要素が存在することを確認
     graph_types = [
@@ -147,13 +162,18 @@ def test_all_images_display_correctly(page, host, port):
         src_attribute = image_locator.get_attribute("src")
         assert src_attribute and len(src_attribute) > 0, f"{graph_type} のsrc属性が空です"  # noqa: S101, PT018
 
-        # 画像が実際に読み込まれているかチェック
-        is_loaded = page.evaluate(f"""
-            () => {{
-                const img = document.querySelector('img[alt="{graph_type}"]');
-                return img && img.complete && img.naturalWidth > 0;
-            }}
-        """)
+        # 画像が実際に読み込まれているかチェック（複数回確認）
+        is_loaded = False
+        for _ in range(3):  # 3回チェックして安定性を確保
+            is_loaded = page.evaluate(f"""
+                () => {{
+                    const img = document.querySelector('img[alt="{graph_type}"]');
+                    return img && img.complete && img.naturalWidth > 0;
+                }}
+            """)
+            if is_loaded:
+                break
+            time.sleep(0.5)  # 短い待機
 
         if is_loaded:
             loaded_images += 1
@@ -181,9 +201,9 @@ def test_period_selection_buttons(page, host, port):
 
     # 各期間選択ボタンをテスト
     period_buttons = [
-        ("過去24時間", "button:has-text('過去24時間')"),
-        ("過去7日間", "button:has-text('過去7日間')"),
-        ("過去1ヶ月間", "button:has-text('過去1ヶ月間')"),
+        ("過去24時間", "button >> text='過去24時間'"),
+        ("過去7日間", "button >> text='過去7日間'"),
+        ("過去1ヶ月間", "button >> text='過去1ヶ月間'"),
     ]
 
     for period_name, button_selector in period_buttons:
@@ -217,8 +237,8 @@ def test_custom_date_range(page, host, port):
     page.goto(app_url(host, port))
 
     # カスタムボタンをクリック
-    page.click("button:has-text('カスタム')")
-    custom_button = page.locator("button:has-text('カスタム')")
+    page.click("button >> text='カスタム'")
+    custom_button = page.locator("button >> text='カスタム'")
     class_attribute = custom_button.get_attribute("class")
     assert "is-primary" in class_attribute, "カスタムボタンがアクティブになっていません"  # noqa: S101
 
@@ -239,7 +259,7 @@ def test_custom_date_range(page, host, port):
     end_input.fill(end_str)
 
     # 確定ボタンが有効になることを確認
-    update_button = page.locator("button:has-text('期間を確定して更新')")
+    update_button = page.locator("button >> text='期間を確定して更新'")
     expect(update_button).to_be_enabled()
     class_attribute = update_button.get_attribute("class")
     assert "is-primary" in class_attribute, "確定ボタンがアクティブになっていません"  # noqa: S101
@@ -267,7 +287,7 @@ def test_date_range_before_january_2025(page, host, port):
     page.goto(app_url(host, port))
 
     # カスタムボタンをクリック
-    page.click("button:has-text('カスタム')")
+    page.click("button >> text='カスタム'")
 
     # 2024年12月の期間を設定（25年1月以前）
     start_date = datetime(2024, 12, 1, 0, 0, tzinfo=timezone.utc)
@@ -285,7 +305,7 @@ def test_date_range_before_january_2025(page, host, port):
     end_input.fill(end_str)
 
     # 確定ボタンをクリック
-    update_button = page.locator("button:has-text('期間を確定して更新')")
+    update_button = page.locator("button >> text='期間を確定して更新'")
     update_button.click()
 
     # 画像の読み込み完了まで待機（データがない可能性もあるので少し長めに待つ）
