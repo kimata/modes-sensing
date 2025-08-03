@@ -122,11 +122,22 @@ def apply_time_axis_format(ax, time_range_days):
         ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%-m月%-d日"))
 
 
-def append_colorbar(scatter, shrink=1.0):
+def append_colorbar(scatter, shrink=0.8, pad=0.01, aspect=35, fraction=0.046):
+    """
+    カラーバーを追加（サイズを縮小してプロットエリアを拡大）
+
+    Args:
+        scatter: プロット要素
+        shrink: カラーバーの高さの縮小率 (デフォルト: 0.8)
+        pad: プロットエリアとカラーバーの間隔 (デフォルト: 0.01)
+        aspect: カラーバーの幅の比率 (デフォルト: 35、より細く)
+        fraction: カラーバーの幅の割合 (デフォルト: 0.046)
+
+    """
     scatter.set_clim(TEMP_MIN, TEMP_MAX)
 
-    cbar = matplotlib.pyplot.colorbar(scatter, shrink=shrink)
-    cbar.set_label(TEMP_AXIS_LABEL)
+    cbar = matplotlib.pyplot.colorbar(scatter, shrink=shrink, pad=pad, aspect=aspect, fraction=fraction)
+    cbar.set_label(TEMP_AXIS_LABEL, fontsize=AXIS_LABEL_SIZE)
     set_tick_label_size(cbar.ax)
 
     return cbar
@@ -155,7 +166,18 @@ def create_grid(time_numeric, altitudes, temperatures, grid_points=100):
 
 
 def create_figure(figsize=(12, 8)):
-    return matplotlib.pyplot.subplots(figsize=figsize)
+    """余白を最適化した図を作成"""
+    fig, ax = matplotlib.pyplot.subplots(figsize=figsize)
+
+    # 余白を削減してプロットエリアを拡大
+    fig.subplots_adjust(
+        left=0.08,  # 左余白
+        bottom=0.08,  # 下余白
+        right=0.94,  # 右余白（カラーバーの目盛テキスト用スペースを確保）
+        top=0.94,  # 上余白
+    )
+
+    return fig, ax
 
 
 def set_axis_2d_default(ax, time_range):
@@ -272,13 +294,28 @@ def set_axis_3d(ax, time_numeric):
     ax.set_zlim(TEMP_MIN, TEMP_MAX)
 
 
-def setup_3d_colorbar_and_layout(ax):
-    import matplotlib.pyplot  # noqa: ICN001
+def create_3d_figure(figsize=(12, 8)):
+    """余白を最適化した3D図を作成"""
+    fig = matplotlib.pyplot.figure(figsize=figsize)
+    ax = fig.add_subplot(111, projection="3d")
 
+    # 3D図の余白を削減してプロットエリアを拡大
+    fig.subplots_adjust(
+        left=0.02,  # 左余白
+        bottom=0.05,  # 下余白
+        right=0.94,  # 右余白（カラーバーをより右に、プロットエリアを拡大）
+        top=0.95,  # 上余白
+    )
+
+    return fig, ax
+
+
+def setup_3d_colorbar_and_layout(ax):
+    """3Dプロットの余白とレイアウトを最適化"""
     ax.view_init(elev=25, azim=35)
-    # プロットエリアを大きくするため余白を縮小
-    matplotlib.pyplot.subplots_adjust(left=0.02, right=0.95, top=0.92, bottom=0.08)
-    ax.set_position([0.02, 0.05, 0.80, 0.85])
+    # 3Dプロットの位置を調整（左、下、幅、高さ）
+    # プロットエリアを拡大（幅を0.82から0.86に）
+    ax.set_position([0.02, 0.05, 0.86, 0.88])
 
 
 def plot_scatter_3d(data, figsize):
@@ -286,9 +323,7 @@ def plot_scatter_3d(data, figsize):
 
     start = time.perf_counter()
 
-    fig = matplotlib.pyplot.figure(figsize=figsize)
-
-    ax = fig.add_subplot(111, projection="3d")
+    fig, ax = create_3d_figure(figsize)
     scatter = ax.scatter(
         data["time_numeric"],
         data["altitudes"],
@@ -303,7 +338,7 @@ def plot_scatter_3d(data, figsize):
     )
 
     set_axis_3d(ax, data["time_numeric"])
-    append_colorbar(scatter, 0.6)
+    append_colorbar(scatter, shrink=0.6, pad=0.01, aspect=35)
     setup_3d_colorbar_and_layout(ax)
 
     set_title("航空機の気象データ (3D)")
@@ -336,7 +371,7 @@ def plot_density(data, figsize):
     set_temperature_range(ax, axis="y")
     set_tick_label_size(ax)
 
-    append_colorbar(scatter)
+    append_colorbar(scatter, shrink=1.0, pad=0.01, aspect=35, fraction=0.03)
 
     ax.grid(True, alpha=0.7)
 
@@ -379,7 +414,7 @@ def plot_contour_2d(data, figsize):
         ],
     )
 
-    append_colorbar(contourf)
+    append_colorbar(contourf, shrink=1.0, pad=0.01, aspect=35, fraction=0.03)
 
     set_title("航空機の気象データ (等高線)")
 
@@ -416,7 +451,7 @@ def plot_heatmap(data, figsize):
         ],
     )
 
-    append_colorbar(im)
+    append_colorbar(im, shrink=1.0, pad=0.01, aspect=35, fraction=0.03)
 
     set_title("航空機の気象データ (ヒートマップ)")
 
@@ -451,7 +486,7 @@ def plot_scatter_2d(data, figsize):
         ],
     )
 
-    append_colorbar(sc)
+    append_colorbar(sc, shrink=1.0, pad=0.01, aspect=35, fraction=0.03)
 
     ax.grid(True, alpha=0.7)
 
@@ -470,8 +505,7 @@ def plot_contour_3d(data, figsize):
     # グリッドデータを作成
     grid = create_grid(data["time_numeric"], data["altitudes"], data["temperatures"], grid_points=60)
 
-    fig = matplotlib.pyplot.figure(figsize=figsize)
-    ax = fig.add_subplot(111, projection="3d")
+    fig, ax = create_3d_figure(figsize)
 
     # 3Dサーフェスプロットを作成
     surf = ax.plot_surface(
@@ -503,7 +537,7 @@ def plot_contour_3d(data, figsize):
     )
 
     set_axis_3d(ax, data["time_numeric"])
-    append_colorbar(surf, 0.6)
+    append_colorbar(surf, shrink=0.6, pad=0.01, aspect=35)
     setup_3d_colorbar_and_layout(ax)
 
     set_title("航空機の気象データ (3D)")
@@ -533,8 +567,13 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize):
 
     # データベース接続とデータ取得を子プロセス内で実行
     conn = connect_database(config)
+    # グラフ作成に必要な最小限のカラムのみ取得してパフォーマンス向上
     raw_data = modes.database_postgresql.fetch_by_time(
-        conn, time_start, time_end, config["filter"]["area"]["distance"]
+        conn,
+        time_start,
+        time_end,
+        config["filter"]["area"]["distance"],
+        columns=["time", "altitude", "temperature", "distance"],
     )
     conn.close()
 
@@ -693,6 +732,10 @@ if __name__ == "__main__":
 
     plot(
         modes.database_postgresql.fetch_by_time(
-            sqlite, time_start, time_end, config["filter"]["area"]["distance"]
+            sqlite,
+            time_start,
+            time_end,
+            config["filter"]["area"]["distance"],
+            columns=["time", "altitude", "temperature", "distance"],
         )
     )

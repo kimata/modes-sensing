@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import styles from './GraphDisplay.module.css'
 
 interface GraphDisplayProps {
   dateRange: {
@@ -30,6 +31,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   const [imageVersion, setImageVersion] = useState(0) // 画像の更新を強制するためのバージョン
   const [retryCount, setRetryCount] = useState<{ [key: string]: number }>({}) // リトライ回数
   const [loadingTimers, setLoadingTimers] = useState<{ [key: string]: number }>({}) // タイムアウトタイマー
+  const notificationRef = useRef<HTMLDivElement>(null)
 
   const formatDateForAPI = (date: Date): string => {
     // UTC時間として送信
@@ -53,6 +55,74 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       end: formatDateForAPI(dateRange.end)
     })
     return `${graph.endpoint}?${params}`
+  }
+
+  // ページ読み込み時にハッシュがあれば該当要素にスクロール
+  useEffect(() => {
+    if (window.location.hash === '#graph') {
+      const element = document.getElementById('graph')
+      if (element) {
+        setTimeout(() => {
+          element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }, 500)
+      }
+    }
+  }, [])
+
+  // パーマリンクコピー用の通知表示
+  const showCopyNotification = (message: string) => {
+    if (!notificationRef.current) return
+
+    notificationRef.current.textContent = message
+    notificationRef.current.classList.add(styles.show)
+
+    setTimeout(() => {
+      notificationRef.current?.classList.remove(styles.show)
+    }, 3000)
+  }
+
+  // パーマリンクをコピーする関数
+  const copyPermalink = (elementId: string) => {
+    const currentUrl = window.location.origin + window.location.pathname
+    const permalink = currentUrl + '#' + elementId
+
+    // Clipboard APIが利用可能かチェック
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      navigator.clipboard.writeText(permalink).then(() => {
+        showCopyNotification('パーマリンクをコピーしました')
+        window.history.pushState(null, '', '#' + elementId)
+      }).catch(() => {
+        // Clipboard APIが失敗した場合のフォールバック
+        fallbackCopyToClipboard(permalink, elementId)
+      })
+    } else {
+      // Clipboard APIが利用できない場合のフォールバック
+      fallbackCopyToClipboard(permalink, elementId)
+    }
+  }
+
+  // フォールバック用のコピー関数
+  const fallbackCopyToClipboard = (text: string, elementId: string) => {
+    try {
+      const textArea = document.createElement('textarea')
+      textArea.value = text
+      textArea.style.position = 'fixed'
+      textArea.style.left = '-9999px'
+      document.body.appendChild(textArea)
+      textArea.focus()
+      textArea.select()
+      const successful = document.execCommand('copy')
+      document.body.removeChild(textArea)
+
+      if (successful) {
+        showCopyNotification('パーマリンクをコピーしました')
+        window.history.pushState(null, '', '#' + elementId)
+      } else {
+        showCopyNotification('コピーに失敗しました')
+      }
+    } catch (err) {
+      showCopyNotification('コピーに失敗しました')
+    }
   }
 
   // 画像の読み込み状態を管理
@@ -154,16 +224,24 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   }, [loading, imageVersion])
 
   return (
-    <div className="box">
-      <h2 className="title is-4">
-        <span className="icon" style={{ marginRight: '0.5em' }}>
-          <i className="fas fa-chart-line"></i>
-        </span>
-        グラフ
-        <span className="subtitle is-6 ml-2">
-          ({formatDateForDisplay(dateRange.start)} ～ {formatDateForDisplay(dateRange.end)})
-        </span>
-      </h2>
+    <>
+      <div className="box" id="graph">
+        <div className={styles.sectionHeader}>
+          <h2 className="title is-4">
+            <span className="icon" style={{ marginRight: '0.5em' }}>
+              <i className="fas fa-chart-line"></i>
+            </span>
+            グラフ
+            <span className="subtitle is-6 ml-2">
+              ({formatDateForDisplay(dateRange.start)} ～ {formatDateForDisplay(dateRange.end)})
+            </span>
+            <i
+              className={`fas fa-link ${styles.permalinkIcon}`}
+              onClick={() => copyPermalink('graph')}
+              title="パーマリンクをコピー"
+            />
+          </h2>
+        </div>
 
       <div className="columns is-multiline">
         {graphs.map(graph => {
@@ -186,7 +264,21 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
 
                     {error && (
                       <div className="notification is-danger is-light">
-                        {error}
+                        <div>{error}</div>
+                        <button
+                          className="button is-small is-danger mt-2"
+                          onClick={() => {
+                            setErrors(prev => ({ ...prev, [key]: '' }))
+                            setRetryCount(prev => ({ ...prev, [key]: 0 }))
+                            setLoading(prev => ({ ...prev, [key]: true }))
+                            setImageVersion(prev => prev + 1)
+                          }}
+                        >
+                          <span className="icon">
+                            <i className="fas fa-redo"></i>
+                          </span>
+                          <span>リロード</span>
+                        </button>
                       </div>
                     )}
 
@@ -214,7 +306,9 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
           )
         })}
       </div>
-    </div>
+      </div>
+      <div ref={notificationRef} className={styles.copyNotification}></div>
+    </>
   )
 }
 

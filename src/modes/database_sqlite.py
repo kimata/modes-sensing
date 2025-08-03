@@ -62,11 +62,54 @@ def store_queue(sqlite, queue):
         logging.exception("Database error occurred")
 
 
-def fetch_by_time(sqlite, time_start, time_end, distance):
+def fetch_by_time(sqlite, time_start, time_end, distance, columns=None):
+    """
+    指定された時間範囲と距離でデータを取得する
+
+    Args:
+        sqlite: SQLite接続
+        time_start: 開始時刻
+        time_end: 終了時刻
+        distance: 距離フィルタ
+        columns: 取得するカラムのリスト。Noneの場合はデフォルト['time', 'altitude', 'temperature', 'distance']
+
+    Returns:
+        取得されたデータのリスト
+
+    """
+    if columns is None:
+        columns = ["time", "altitude", "temperature", "distance"]
+
+    # カラム名をサニタイズ（SQLインジェクション対策）
+    valid_columns = [
+        "time",
+        "callsign",
+        "distance",
+        "altitude",
+        "latitude",
+        "longitude",
+        "temperature",
+        "wind_x",
+        "wind_y",
+        "wind_angle",
+        "wind_speed",
+    ]
+    sanitized_columns = [col for col in columns if col in valid_columns]
+
+    if not sanitized_columns:
+        msg = "No valid columns specified"
+        raise ValueError(msg)
+
+    columns_str = ", ".join(sanitized_columns)
+
     cur = sqlite.cursor()
 
+    query = (
+        f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
+        f"WHERE time BETWEEN ? AND ? AND distance <= ? ORDER BY time"
+    )
     cur.execute(
-        "SELECT * FROM meteorological_data WHERE time BETWEEN ? AND ? AND distance <= ?",
+        query,
         (
             time_start.astimezone(datetime.timezone.utc),
             time_end.astimezone(datetime.timezone.utc),
@@ -82,7 +125,9 @@ def fetch_by_time(sqlite, time_start, time_end, distance):
                     tzinfo=datetime.timezone.utc
                 )
                 + datetime.timedelta(hours=9)
-            ),
+            )
+            if "time" in data
+            else None,
         }
         for data in cur.fetchall()
     ]
