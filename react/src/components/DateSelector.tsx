@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import styles from './GraphDisplay.module.css'
 
 interface DateSelectorProps {
   startDate: Date
@@ -20,6 +21,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
   const [customEnd, setCustomEnd] = useState(formatDateForInput(endDate))
   const [hasChanges, setHasChanges] = useState(false)
   const [focusedField, setFocusedField] = useState<'start' | 'end' | null>(null)
+  const notificationRef = useRef<HTMLDivElement>(null)
 
   // propsが変更されたときに入力フィールドを更新
   useEffect(() => {
@@ -34,6 +36,74 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
     const currentEndStr = formatDateForInput(endDate)
     setHasChanges(customStart !== currentStartStr || customEnd !== currentEndStr)
   }, [customStart, customEnd, startDate, endDate])
+
+  // ページ読み込み時にハッシュがあれば該当要素にスクロール
+  useEffect(() => {
+    if (window.location.hash === '#date-selector') {
+      const element = document.getElementById('date-selector')
+      if (element) {
+        setTimeout(() => {
+          element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }, 500)
+      }
+    }
+  }, [])
+
+  // パーマリンクコピー用の通知表示
+  const showCopyNotification = (message: string) => {
+    if (!notificationRef.current) return
+
+    notificationRef.current.textContent = message
+    notificationRef.current.classList.add(styles.show)
+
+    setTimeout(() => {
+      notificationRef.current?.classList.remove(styles.show)
+    }, 3000)
+  }
+
+  // パーマリンクをコピーする関数
+  const copyPermalink = (elementId: string) => {
+    const currentUrl = window.location.origin + window.location.pathname
+    const permalink = currentUrl + '#' + elementId
+
+    // Clipboard APIが利用可能かチェック
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      navigator.clipboard.writeText(permalink).then(() => {
+        showCopyNotification('パーマリンクをコピーしました')
+        window.history.pushState(null, '', '#' + elementId)
+      }).catch(() => {
+        // Clipboard APIが失敗した場合のフォールバック
+        fallbackCopyToClipboard(permalink, elementId)
+      })
+    } else {
+      // Clipboard APIが利用できない場合のフォールバック
+      fallbackCopyToClipboard(permalink, elementId)
+    }
+  }
+
+  // フォールバック用のコピー関数
+  const fallbackCopyToClipboard = (text: string, elementId: string) => {
+    try {
+      const textArea = document.createElement('textarea')
+      textArea.value = text
+      textArea.style.position = 'fixed'
+      textArea.style.left = '-9999px'
+      document.body.appendChild(textArea)
+      textArea.focus()
+      textArea.select()
+      const successful = document.execCommand('copy')
+      document.body.removeChild(textArea)
+
+      if (successful) {
+        showCopyNotification('パーマリンクをコピーしました')
+        window.history.pushState(null, '', '#' + elementId)
+      } else {
+        showCopyNotification('コピーに失敗しました')
+      }
+    } catch (err) {
+      showCopyNotification('コピーに失敗しました')
+    }
+  }
 
   const handleQuickSelect = (days: number) => {
     const end = new Date()
@@ -75,13 +145,21 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
   }
 
   return (
-    <div className="box">
-      <h2 className="title is-4">
-        <span className="icon" style={{ marginRight: '0.5em' }}>
-          <i className="fas fa-calendar-alt"></i>
-        </span>
-        期間選択
-      </h2>
+    <>
+      <div className="box" id="date-selector">
+        <div className={styles.sectionHeader}>
+          <h2 className="title is-4">
+            <span className="icon" style={{ marginRight: '0.5em' }}>
+              <i className="fas fa-calendar-alt"></i>
+            </span>
+            期間選択
+            <i
+              className={`fas fa-link ${styles.permalinkIcon}`}
+              onClick={() => copyPermalink('date-selector')}
+              title="パーマリンクをコピー"
+            />
+          </h2>
+        </div>
 
       <div className="field">
         <label className="label">クイック選択</label>
@@ -188,7 +266,9 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
           </button>
         </div>
       </div>
-    </div>
+      </div>
+      <div ref={notificationRef} className={styles.copyNotification}></div>
+    </>
   )
 }
 

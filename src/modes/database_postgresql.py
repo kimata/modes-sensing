@@ -146,11 +146,54 @@ def store_term():
     should_terminate.set()
 
 
-def fetch_by_time(conn, time_start, time_end, distance):
+def fetch_by_time(conn, time_start, time_end, distance, columns=None):
+    """
+    指定された時間範囲と距離でデータを取得する
+
+    Args:
+        conn: データベース接続
+        time_start: 開始時刻
+        time_end: 終了時刻
+        distance: 距離フィルタ
+        columns: 取得するカラムのリスト。Noneの場合はデフォルト['time', 'altitude', 'temperature', 'distance']
+
+    Returns:
+        取得されたデータのリスト
+
+    """
+    if columns is None:
+        columns = ["time", "altitude", "temperature", "distance"]
+
+    # カラム名をサニタイズ（SQLインジェクション対策）
+    valid_columns = [
+        "time",
+        "callsign",
+        "distance",
+        "altitude",
+        "latitude",
+        "longitude",
+        "temperature",
+        "wind_x",
+        "wind_y",
+        "wind_angle",
+        "wind_speed",
+    ]
+    sanitized_columns = [col for col in columns if col in valid_columns]
+
+    if not sanitized_columns:
+        msg = "No valid columns specified"
+        raise ValueError(msg)
+
+    columns_str = ", ".join(sanitized_columns)
+
     start = time.perf_counter()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        query = (
+            f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
+            f"WHERE time BETWEEN %s AND %s AND distance <= %s ORDER BY time"
+        )
         cur.execute(
-            "SELECT * FROM meteorological_data WHERE time BETWEEN %s AND %s AND distance <= %s",
+            query,
             (
                 time_start.astimezone(datetime.timezone.utc),
                 time_end.astimezone(datetime.timezone.utc),
@@ -159,7 +202,12 @@ def fetch_by_time(conn, time_start, time_end, distance):
         )
         data = cur.fetchall()
 
-        logging.info("Elapsed time: %.2f sec", time.perf_counter() - start)
+        logging.info(
+            "Elapsed time: %.2f sec (selected %d columns, %d rows)",
+            time.perf_counter() - start,
+            len(sanitized_columns),
+            len(data),
+        )
 
         return data
 
