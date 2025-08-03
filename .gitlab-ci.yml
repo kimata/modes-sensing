@@ -61,6 +61,8 @@ build-image:
 
         - git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.green-rabbit.net/kimata/sense-config.git
         - mv sense-config/sense-modes.yaml config.yaml
+        - git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.green-rabbit.net/kimata/font.git private_font
+        - mv private_font/* font
 
         - |
             docker buildx create \
