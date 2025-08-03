@@ -8,7 +8,7 @@ function App() {
   const getInitialDate = () => {
     const end = new Date()
     end.setSeconds(0, 0) // 秒とミリ秒を0に設定
-    const start = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000) // 1 day ago
+    const start = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) // 7 days ago
     start.setSeconds(0, 0) // 秒とミリ秒を0に設定
     return { start, end }
   }

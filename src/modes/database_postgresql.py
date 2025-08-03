@@ -233,7 +233,7 @@ if __name__ == "__main__":
     config_file = args["-c"]
     debug_mode = args["-D"]
 
-    my_lib.logger.init("modes0sensing", level=logging.DEBUG if debug_mode else logging.INFO)
+    my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
     config = my_lib.config.load(config_file)
 
