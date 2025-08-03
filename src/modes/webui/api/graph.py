@@ -22,6 +22,9 @@ import pathlib
 import time
 
 import flask
+import matplotlib  # noqa: ICN001
+
+matplotlib.use("Agg")  # pyplotのimport前に設定する必要がある
 import matplotlib.dates
 import matplotlib.font_manager
 import matplotlib.pyplot  # noqa: ICN001
@@ -39,7 +42,6 @@ import scipy.interpolate
 
 import modes.database_postgresql
 
-matplotlib.use("Agg")
 IMAGE_DPI = 200.0
 
 TEMPERATURE_THRESHOLD = -100
@@ -683,25 +685,18 @@ if __name__ == "__main__":
             logging.warning("プロット用のデータがありません")
             return
 
-        plot_def_list = [
-            {"name": "scatter_2d", "func": plot_scatter_2d, "file": "scatter_2d.png"},
-            {"name": "scatter_3d", "func": plot_scatter_3d, "file": "scatter_3d.png"},
-            {"name": "density", "func": plot_density, "file": "density.png"},
-            {"name": "contour", "func": plot_contour_2d, "file": "contour.png"},
-            {"name": "heatmap", "func": plot_heatmap, "file": "heatmap.png"},
-        ]
-
         set_font(config["font"])
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=5) as executor:
-            for plot_def in plot_def_list:
-                plot_def["future"] = executor.submit(plot_def["func"], data)
+            for graph_def in GRAPH_DEF_MAP.values():
+                figsize = tuple(x / IMAGE_DPI for x in graph_def["size"])
+                graph_def["future"] = executor.submit(graph_def["func"], data, figsize)
 
-            for plot_def in plot_def_list:
-                img, elapsed = plot_def["future"].result()
-                img.save(plot_def["file"])
+            for graph_name, graph_def in GRAPH_DEF_MAP.items():
+                img, elapsed = graph_def["future"].result()
+                img.save(graph_def["file"])
 
-                logging.info("elapsed time: %s = %.3f sec", plot_def["name"], elapsed)
+                logging.info("elapsed time: %s = %.3f sec", graph_name, elapsed)
 
     import docopt
     import my_lib.config
@@ -720,7 +715,7 @@ if __name__ == "__main__":
 
     config = my_lib.config.load(config_file)
 
-    sqlite = modes.database_postgresql.open(
+    conn = modes.database_postgresql.open(
         config["database"]["host"],
         config["database"]["port"],
         config["database"]["name"],
@@ -732,7 +727,7 @@ if __name__ == "__main__":
 
     plot(
         modes.database_postgresql.fetch_by_time(
-            sqlite,
+            conn,
             time_start,
             time_end,
             config["filter"]["area"]["distance"],
