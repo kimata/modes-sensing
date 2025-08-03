@@ -305,57 +305,51 @@ def message_pairing(icao, packet_type, data, queue, area_info):
         fragment[packet_type] = data
 
         if all(packet_type in fragment for packet_type in ["adsb_pos", "adsb_sign", "bsd50", "bsd60"]):
-            meteorological_data = calc_meteorological_data(
-                *fragment["adsb_sign"],
-                *fragment["adsb_pos"],
-                *fragment["bsd50"],
-                *fragment["bsd60"],
-            )
             distance = calc_distance(
                 area_info["lat"]["ref"],
                 area_info["lon"]["ref"],
                 fragment["adsb_pos"][1],
                 fragment["adsb_pos"][2],
             )
-            if distance < area_info["distance"]:
-                # 温度が異常値でない場合のみ外れ値検出を実行
-                if meteorological_data["temperature"] >= -100:
-                    # 外れ値検出
-                    is_outlier = is_outlier_data(
-                        meteorological_data["temperature"], meteorological_data["altitude"]
-                    )
+            meteorological_data = calc_meteorological_data(
+                *fragment["adsb_sign"],
+                *fragment["adsb_pos"],
+                *fragment["bsd50"],
+                *fragment["bsd60"],
+            )
+            # distanceをmeteorological_dataに追加
+            meteorological_data["distance"] = distance
 
-                    if not is_outlier:
-                        # 正常値の場合、queueに送信し履歴に追加
-                        logging.info(round_floats(meteorological_data))
-
-                        queue.put(meteorological_data)
-
-                        meteorological_history.append(
-                            {
-                                "altitude": meteorological_data["altitude"],
-                                "temperature": meteorological_data["temperature"],
-                            }
-                        )
-                    else:
-                        logging.warning(
-                            "外れ値として除外されました (callsign: %s, altitude: %.1fm, temperature: %.1f°C)",
-                            fragment["adsb_sign"][0],
-                            meteorological_data["altitude"],
-                            meteorological_data["temperature"],
-                        )
-                        # 外れ値でも履歴には追加しない（統計モデルを汚染しないため）
-                else:
-                    # 温度異常値は外れ値検出の対象外（従来通りの処理）
-                    logging.debug("温度異常値のため外れ値検出をスキップ")
-            else:
-                logging.info(
-                    "範囲外なので無視されます (callsign: %s, latitude: %.2f, longitude: %.2f, distance: %s)",
-                    fragment["adsb_sign"][0],
-                    fragment["adsb_pos"][1],
-                    fragment["adsb_pos"][2],
-                    distance,
+            # 温度が異常値でない場合のみ外れ値検出を実行
+            if meteorological_data["temperature"] >= -100:
+                # 外れ値検出
+                is_outlier = is_outlier_data(
+                    meteorological_data["temperature"], meteorological_data["altitude"]
                 )
+
+                if not is_outlier:
+                    # 正常値の場合、queueに送信し履歴に追加
+                    logging.info(round_floats(meteorological_data))
+
+                    queue.put(meteorological_data)
+
+                    meteorological_history.append(
+                        {
+                            "altitude": meteorological_data["altitude"],
+                            "temperature": meteorological_data["temperature"],
+                        }
+                    )
+                else:
+                    logging.warning(
+                        "外れ値として除外されました (callsign: %s, altitude: %.1fm, temperature: %.1f°C)",
+                        fragment["adsb_sign"][0],
+                        meteorological_data["altitude"],
+                        meteorological_data["temperature"],
+                    )
+                    # 外れ値でも履歴には追加しない（統計モデルを汚染しないため）
+            else:
+                # 温度異常値は外れ値検出の対象外（従来通りの処理）
+                logging.debug("温度異常値のため外れ値検出をスキップ")
 
             fragment_list.remove(fragment)
 

@@ -63,6 +63,7 @@ def open(host, port, database, user, password):  # noqa: A001
             "id SERIAL PRIMARY KEY, "
             "time TIMESTAMP NOT NULL, "
             "callsign TEXT NOT NULL, "
+            "distance REAL, "
             "altitude REAL, "
             "latitude REAL, "
             "longitude REAL, "
@@ -76,11 +77,14 @@ def open(host, port, database, user, password):  # noqa: A001
 
         # 個別インデックス（単一カラムでの範囲検索用）
         cur.execute("CREATE INDEX IF NOT EXISTS idx_time ON meteorological_data (time);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_distance ON meteorological_data (distance);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_altitude ON meteorological_data (altitude);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_latitude ON meteorological_data (latitude);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_longitude ON meteorological_data (longitude);")
 
         # 複合インデックス（よく使われる組み合わせ）
+        # 時刻と距離の組み合わせ（メインクエリ用）
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_time_distance ON meteorological_data (time, distance);")
         # 時刻と位置情報の組み合わせ
         cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_time_lat_lon ON meteorological_data (time, latitude, longitude);"
@@ -99,11 +103,12 @@ def open(host, port, database, user, password):  # noqa: A001
 def insert(conn, data):
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO meteorological_data (time, callsign, altitude, latitude, longitude, "
+            "INSERT INTO meteorological_data (time, callsign, distance, altitude, latitude, longitude, "
             "temperature, wind_x, wind_y, wind_angle, wind_speed) "
-            "VALUES (CURRENT_TIMESTAMP, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "VALUES (CURRENT_TIMESTAMP, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 data["callsign"],
+                data["distance"],
                 data["altitude"],
                 data["latitude"],
                 data["longitude"],
@@ -141,14 +146,15 @@ def store_term():
     should_terminate.set()
 
 
-def fetch_by_time(conn, time_start, time_end):
+def fetch_by_time(conn, time_start, time_end, distance):
     start = time.perf_counter()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            "SELECT * FROM meteorological_data WHERE time BETWEEN %s AND %s",
+            "SELECT * FROM meteorological_data WHERE time BETWEEN %s AND %s AND distance <= %s",
             (
                 time_start.astimezone(datetime.timezone.utc),
                 time_end.astimezone(datetime.timezone.utc),
+                distance,
             ),
         )
         data = cur.fetchall()
