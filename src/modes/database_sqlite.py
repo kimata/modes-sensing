@@ -13,6 +13,7 @@ import datetime
 import logging
 import queue
 import sqlite3
+import time
 
 import my_lib.footprint
 
@@ -110,6 +111,8 @@ def fetch_by_time(sqlite, time_start, time_end, distance, columns=None):
 
     columns_str = ", ".join(sanitized_columns)
 
+    start = time.perf_counter()
+
     cur = sqlite.cursor()
 
     query = (
@@ -125,7 +128,7 @@ def fetch_by_time(sqlite, time_start, time_end, distance, columns=None):
         ),
     )
 
-    return [
+    data = [
         {
             **data,
             "time": (
@@ -139,6 +142,12 @@ def fetch_by_time(sqlite, time_start, time_end, distance, columns=None):
         }
         for data in cur.fetchall()
     ]
+    logging.info(
+        "Elapsed time: %.2f sec (selected %d columns, %s rows)",
+        time.perf_counter() - start,
+        len(sanitized_columns),
+        f"{len(data):,}",
+    )
 
 
 if __name__ == "__main__":

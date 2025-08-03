@@ -30,7 +30,7 @@ fragment_list = []
 should_terminate = threading.Event()
 
 # Isolation Forest用のデータ蓄積
-meteorological_history = collections.deque(maxlen=500)  # 最大500件のデータを保持
+meteorological_history = collections.deque(maxlen=2000)  # 最大2000件のデータを保持
 OUTLIER_DETECTION_MIN_SAMPLES = 100  # 外れ値検出を開始する最小サンプル数
 
 

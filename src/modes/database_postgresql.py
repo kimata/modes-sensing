@@ -210,10 +210,10 @@ def fetch_by_time(conn, time_start, time_end, distance, columns=None):
         data = cur.fetchall()
 
         logging.info(
-            "Elapsed time: %.2f sec (selected %d columns, %d rows)",
+            "Elapsed time: %.2f sec (selected %d columns, %s rows)",
             time.perf_counter() - start,
             len(sanitized_columns),
-            len(data),
+            f"{len(data):,}",
         )
 
         return data
