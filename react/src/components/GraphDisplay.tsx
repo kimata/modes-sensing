@@ -167,7 +167,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       setImageVersion(prev => prev + 1) // バージョンを更新して再読み込みを強制
     } else {
       setLoading(prev => ({ ...prev, [key]: false }))
-      setErrors(prev => ({ ...prev, [key]: '画像の読み込みに失敗しました（30秒でタイムアウト）' }))
+      setErrors(prev => ({ ...prev, [key]: '画像の読み込みに失敗しました（90秒でタイムアウト）' }))
     }
   }
 
@@ -208,11 +208,11 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     graphs.forEach(graph => {
       const key = graph.endpoint
       if (loading[key]) {
-        // 10秒のタイムアウトを設定
+        // 画像生成に時間がかかる場合があるため、30秒のタイムアウトを設定
         newTimers[key] = window.setTimeout(() => {
           console.log(`Image loading timeout for ${key}`)
           retryImageLoad(key)
-        }, 10000)
+        }, 30000)
       }
     })
 
