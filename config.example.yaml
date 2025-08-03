@@ -17,7 +17,7 @@ filter:
         lon:
             ref: 139.762230
 
-        distance: 150
+        distance: 100
 
 font:
     path: ./font
