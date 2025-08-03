@@ -133,8 +133,7 @@ test-walk-through:
         - test-prepare
 
     script:
-        - echo "OK"
-        # - uv run pytest --numprocesses=auto --junit-xml=tests/evidence/junit-report.xml tests/test_basic.py
+        - uv run pytest --numprocesses=auto --junit-xml=tests/evidence/junit-report.xml tests/test_basic.py
 
     artifacts:
         when: always
@@ -151,36 +150,34 @@ test-playwright:
         - test-prepare
 
     script:
-        - echo "OK"
+        - git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.green-rabbit.net/kimata/sense-config.git
+        - mv sense-config/sense-modes.yaml config.yaml
+        - git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.green-rabbit.net/kimata/font.git private_font
+        - mv private_font/* font
 
-        # - git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.green-rabbit.net/kimata/wattmeter-config.git
-        # - mv wattmeter-config/sharp_config.yaml config.yaml
-        # - mv wattmeter-config/sharp_device.yaml device.yaml
-        # - mv wattmeter-config/sharp_dev_id.dat data/dev_id.dat
+        # Flaskを起動（エラー出力も記録、明示的にポート指定）
+        - uv run python ./src/webui.py -p 5000 > flask_log.txt 2>&1 &
+        - "sleep 10"
 
-        # # Flaskを起動（エラー出力も記録、明示的にポート指定）
-        # - uv run python ./src/webui.py -p 5000 > flask_log.txt 2>&1 &
-        # - "sleep 10"
+        - uv run playwright install --with-deps chromium
 
-        # - uv run playwright install --with-deps chromium
+        - >
+            APP_URL="http://127.0.0.1:5000/modes-sensing/"
+        - >
+            echo "APP_URL: ${APP_URL}"
+        - >
+            timeout 60 bash -c "until curl --fail --connect-timeout 10 --max-time 15 \"${APP_URL}\" > /dev/null 2>&1;
+            do echo 'Retrying in 5 seconds...'; sleep 5; done" || ACCESS_FAILED=1
 
-        # - >
-        #     APP_URL="http://127.0.0.1:5000/wattmeter-sharp/"
-        # - >
-        #     echo "APP_URL: ${APP_URL}"
-        # - >
-        #     timeout 60 bash -c "until curl --fail --connect-timeout 10 --max-time 15 \"${APP_URL}\" > /dev/null 2>&1;
-        #     do echo 'Retrying in 5 seconds...'; sleep 5; done" || ACCESS_FAILED=1
+        - |
+            if [ "$ACCESS_FAILED" = "1" ]; then
+                echo "Failed to access App"
+                exit 1
+            fi
 
-        # - |
-        #     if [ "$ACCESS_FAILED" = "1" ]; then
-        #         echo "Failed to access App"
-        #         exit 1
-        #     fi
-
-        # - >
-        #     uv run pytest tests/test_playwright.py
-        #     --junit-xml=tests/evidence/playwright-junit.xml
+        - >
+            uv run pytest tests/test_playwright.py
+            --junit-xml=tests/evidence/playwright-junit.xml
     artifacts:
         when: always
         paths:
@@ -196,9 +193,6 @@ test-docker:
         - build-image
         - test-prepare
 
-    variables:
-        HEMS_SERVER_HOST: proxy.green-rabbit.net
-
     script:
         # クリーンアップ: 古いコンテナを停止
         - >
@@ -213,12 +207,12 @@ test-docker:
                     docker stop -t 10 "$id" || true
                 fi
             done
-        - echo "OK"
-        # - >
-        #     docker run --tty
-        #     --name ${CI_JOB_NAME}-${CI_JOB_ID} --label job=${CI_PROJECT_NAME}-${CI_JOB_NAME}
-        #     ${CI_REGISTRY_IMAGE}:${TAG}
-        #     ./src/sharp_hems_logger.py -s ${HEMS_SERVER_HOST} -d -n 2
+
+        - >
+            docker run --tty
+            --name ${CI_JOB_NAME}-${CI_JOB_ID} --label job=${CI_PROJECT_NAME}-${CI_JOB_NAME}
+            ${CI_REGISTRY_IMAGE}:${TAG}
+            ./src/collect.py -n 1
 
 test-playwright-docker:
     stage: test
@@ -246,57 +240,55 @@ test-playwright-docker:
                 fi
             done
 
-        # - DOCKER_NETWORK=${CI_PROJECT_NAME}-${CI_JOB_NAME}-${CI_JOB_ID}-network
+        - DOCKER_NETWORK=${CI_PROJECT_NAME}-${CI_JOB_NAME}-${CI_JOB_ID}-network
 
-        # # 専用ネットワーク作成（プロジェクト固有）
-        # - docker network create ${DOCKER_NETWORK}
+        # 専用ネットワーク作成（プロジェクト固有）
+        - docker network create ${DOCKER_NETWORK}
 
-        # # テスト用に一時的なポート公開でコンテナ起動
-        # - >
-        #     docker run --rm --detach=true
-        #     --name ${CI_JOB_NAME}-${CI_JOB_ID} --label job=${CI_PROJECT_NAME}-${CI_JOB_NAME}
-        #     --network ${DOCKER_NETWORK} --publish :5000 --env TEST=true
-        #     ${CI_REGISTRY_IMAGE}:${TAG}
-        #     ./src/webui.py
+        # テスト用に一時的なポート公開でコンテナ起動
+        - >
+            docker run --rm --detach=true
+            --name ${CI_JOB_NAME}-${CI_JOB_ID} --label job=${CI_PROJECT_NAME}-${CI_JOB_NAME}
+            --network ${DOCKER_NETWORK} --publish :5000 --env TEST=true
+            ${CI_REGISTRY_IMAGE}:${TAG}
+            ./src/webui.py
 
-        # - echo "Container started, checking status..."
-        # - docker ps -a --filter name=${CI_JOB_NAME}-${CI_JOB_ID}
+        - echo "Container started, checking status..."
+        - docker ps -a --filter name=${CI_JOB_NAME}-${CI_JOB_ID}
 
-        # - uv run playwright install --with-deps chromium
+        - uv run playwright install --with-deps chromium
 
-        # # アプリケーションの起動を待つ（公開ポート経由）
-        # - >
-        #     APP_HOST=$(docker network inspect bridge --format="{{range .IPAM.Config}}{{.Gateway}}{{end}}")
-        # - >
-        #     APP_PORT=$(docker port ${CI_JOB_NAME}-${CI_JOB_ID} 5000 | cut -d: -f2)
-        # - >
-        #     echo "Testing at http://${APP_HOST}:${APP_PORT}/wattmeter-sharp/"
-        # - >
-        #     timeout 90 bash -c "until curl -f --connect-timeout 5 --max-time 10
-        #     http://${APP_HOST}:${APP_PORT}/wattmeter-sharp/ > /dev/null 2>&1;
-        #     do echo 'Waiting for app to start...'; sleep 3; done" || ACCESS_FAILED=1
+        # アプリケーションの起動を待つ（公開ポート経由）
+        - >
+            APP_HOST=$(docker network inspect bridge --format="{{range .IPAM.Config}}{{.Gateway}}{{end}}")
+        - >
+            APP_PORT=$(docker port ${CI_JOB_NAME}-${CI_JOB_ID} 5000 | cut -d: -f2)
+        - >
+            echo "Testing at http://${APP_HOST}:${APP_PORT}/modes-sensing/"
+        - >
+            timeout 90 bash -c "until curl -f --connect-timeout 5 --max-time 10
+            http://${APP_HOST}:${APP_PORT}/modes-sensing/ > /dev/null 2>&1;
+            do echo 'Waiting for app to start...'; sleep 3; done" || ACCESS_FAILED=1
 
-        # - |
-        #     if [ "$ACCESS_FAILED" = "1" ]; then
-        #         echo "Failed to access App"
-        #         docker logs ${CI_JOB_NAME}-${CI_JOB_ID} > flask_log.txt
-        #         docker stop ${CI_JOB_NAME}-${CI_JOB_ID} || true
-        #         docker network rm ${DOCKER_NETWORK} || true
-        #         exit 1
-        #     fi
+        - |
+            if [ "$ACCESS_FAILED" = "1" ]; then
+                echo "Failed to access App"
+                docker logs ${CI_JOB_NAME}-${CI_JOB_ID} > flask_log.txt
+                docker stop ${CI_JOB_NAME}-${CI_JOB_ID} || true
+                docker network rm ${DOCKER_NETWORK} || true
+                exit 1
+            fi
 
-        # # Playwrightテストを実行（ホストからポート経由で接続）
-        # - >
-        #     uv run pytest --tracing on --output tests/evidence/playwright
-        #     --junit-xml=tests/evidence/playwright-docker-junit.xml
-        #     tests/test_playwright.py --host ${APP_HOST} --port ${APP_PORT}
+        # Playwrightテストを実行（ホストからポート経由で接続）
+        - >
+            uv run pytest --tracing on --output tests/evidence/playwright
+            --junit-xml=tests/evidence/playwright-docker-junit.xml
+            tests/test_playwright.py --host ${APP_HOST} --port ${APP_PORT}
 
-        # # ログ取得とクリーンアップ
-        # - docker logs ${CI_JOB_NAME}-${CI_JOB_ID} > flask_log.txt
-        # - docker stop ${CI_JOB_NAME}-${CI_JOB_ID} || true
-        # - docker network rm ${DOCKER_NETWORK} || true
-
-        - echo "OK"
+        # ログ取得とクリーンアップ
+        - docker logs ${CI_JOB_NAME}-${CI_JOB_ID} > flask_log.txt
+        - docker stop ${CI_JOB_NAME}-${CI_JOB_ID} || true
+        - docker network rm ${DOCKER_NETWORK} || true
 
     cache:
         key: playwright-cache
