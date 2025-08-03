@@ -1,0 +1,70 @@
+/* 見出しのスタイル */
+.sectionHeader {
+    position: relative;
+    margin-bottom: 1rem;
+}
+
+.sectionHeader h2 {
+    display: flex;
+    align-items: center;
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+    text-align: left;
+}
+
+.sectionHeader :global(.icon) {
+    margin-right: 0.5em;
+}
+
+/* 日付範囲のサブタイトルの位置調整 */
+.sectionHeader h2 :global(.subtitle) {
+    align-self: center;
+    margin-bottom: 0;
+    line-height: 1;
+}
+
+/* パーマリンクアイコン */
+.permalinkIcon {
+    margin-left: 0.5rem;
+    font-size: 0.8em;
+    color: #3273dc;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.sectionHeader:hover .permalinkIcon {
+    opacity: 1;
+}
+
+.permalinkIcon:hover {
+    color: #2366d1;
+}
+
+/* コピー通知 */
+.copyNotification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: #48c774;
+    color: white;
+    padding: 0.75rem 1rem;
+    border-radius: 4px;
+    opacity: 0;
+    transform: translateY(-20px);
+    transition: all 0.3s ease;
+    z-index: 1000;
+    font-size: 0.875rem;
+}
+
+.copyNotification.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+@media (max-width: 768px) {
+    .sectionHeader h2 {
+        font-size: 1.25rem;
+    }
+}
