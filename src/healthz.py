@@ -59,7 +59,7 @@ if __name__ == "__main__":
         conf_list = []
 
     target_list = [
-        {"name": conf, "liveness_file": config["livenss"]["file"][conf], "interval": 60 * 10}
+        {"name": conf, "liveness_file": config["liveness"]["file"][conf], "interval": 60 * 10}
         for conf in conf_list
     ]
 

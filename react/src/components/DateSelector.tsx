@@ -21,6 +21,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
   const [customEnd, setCustomEnd] = useState(formatDateForInput(endDate))
   const [hasChanges, setHasChanges] = useState(false)
   const [focusedField, setFocusedField] = useState<'start' | 'end' | null>(null)
+  const [selectedPeriod, setSelectedPeriod] = useState<'1day' | '7days' | '30days' | 'custom'>('7days')
   const notificationRef = useRef<HTMLDivElement>(null)
 
   // propsが変更されたときに入力フィールドを更新
@@ -36,6 +37,30 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
     const currentEndStr = formatDateForInput(endDate)
     setHasChanges(customStart !== currentStartStr || customEnd !== currentEndStr)
   }, [customStart, customEnd, startDate, endDate])
+
+  // 現在の期間から選択されているボタンを判定
+  useEffect(() => {
+    const now = new Date()
+    const diffMs = endDate.getTime() - startDate.getTime()
+    const diffDays = Math.round(diffMs / (24 * 60 * 60 * 1000))
+
+    // 終了日時が現在時刻に近い（1時間以内）かつ、期間が特定の日数に近い場合
+    const isNearNow = Math.abs(now.getTime() - endDate.getTime()) < 60 * 60 * 1000
+
+    if (isNearNow) {
+      if (Math.abs(diffDays - 1) < 0.1) {
+        setSelectedPeriod('1day')
+      } else if (Math.abs(diffDays - 7) < 0.1) {
+        setSelectedPeriod('7days')
+      } else if (Math.abs(diffDays - 30) < 0.5) {
+        setSelectedPeriod('30days')
+      } else {
+        setSelectedPeriod('custom')
+      }
+    } else {
+      setSelectedPeriod('custom')
+    }
+  }, [startDate, endDate])
 
   // ページ読み込み時にハッシュがあれば該当要素にスクロール
   useEffect(() => {
@@ -105,7 +130,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
     }
   }
 
-  const handleQuickSelect = (days: number) => {
+  const handleQuickSelect = (days: number, period: '1day' | '7days' | '30days') => {
     const end = new Date()
     end.setSeconds(0, 0) // 秒とミリ秒を0に設定
     const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000)
@@ -113,6 +138,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
     onDateChange(start, end)
     setCustomStart(formatDateForInput(start))
     setCustomEnd(formatDateForInput(end))
+    setSelectedPeriod(period)
   }
 
   const handleCustomDateChange = () => {
@@ -123,9 +149,19 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
     if (start <= end) {
       onDateChange(start, end)
       setHasChanges(false)
+      setSelectedPeriod('custom')
     } else {
       // 開始日時が終了日時より後の場合はエラー表示
       alert('開始日時は終了日時より前に設定してください')
+    }
+  }
+
+  const handleCustomButtonClick = () => {
+    setSelectedPeriod('custom')
+    // カスタムボタンクリック時は入力フィールドにフォーカス
+    const startInput = document.querySelector('input[type="datetime-local"]') as HTMLInputElement
+    if (startInput) {
+      startInput.focus()
     }
   }
 
@@ -166,26 +202,34 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
         <div className="field is-grouped">
           <div className="control">
             <button
-              className="button is-info is-small"
-              onClick={() => handleQuickSelect(1)}
+              className={`button is-small ${selectedPeriod === '1day' ? 'is-primary' : 'is-light'}`}
+              onClick={() => handleQuickSelect(1, '1day')}
             >
-              1日
+              過去24時間
             </button>
           </div>
           <div className="control">
             <button
-              className="button is-info is-small"
-              onClick={() => handleQuickSelect(7)}
+              className={`button is-small ${selectedPeriod === '7days' ? 'is-primary' : 'is-light'}`}
+              onClick={() => handleQuickSelect(7, '7days')}
             >
-              7日
+              過去7日間
             </button>
           </div>
           <div className="control">
             <button
-              className="button is-info is-small"
-              onClick={() => handleQuickSelect(30)}
+              className={`button is-small ${selectedPeriod === '30days' ? 'is-primary' : 'is-light'}`}
+              onClick={() => handleQuickSelect(30, '30days')}
             >
-              1ヶ月
+              過去1ヶ月間
+            </button>
+          </div>
+          <div className="control">
+            <button
+              className={`button is-small ${selectedPeriod === 'custom' ? 'is-primary' : 'is-light'}`}
+              onClick={handleCustomButtonClick}
+            >
+              カスタム
             </button>
           </div>
         </div>
