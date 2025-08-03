@@ -89,14 +89,14 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   const retryImageLoad = (key: string) => {
     const currentRetryCount = retryCount[key] || 0
 
-    // 最大3回までリトライ
-    if (currentRetryCount < 3) {
-      console.log(`Retrying image load for ${key} (attempt ${currentRetryCount + 1}/3)`)
+    // 最大2回までリトライ（計3回試行：初回 + リトライ2回）
+    if (currentRetryCount < 2) {
+      console.log(`Retrying image load for ${key} (attempt ${currentRetryCount + 1}/2)`)
       setRetryCount(prev => ({ ...prev, [key]: currentRetryCount + 1 }))
       setImageVersion(prev => prev + 1) // バージョンを更新して再読み込みを強制
     } else {
       setLoading(prev => ({ ...prev, [key]: false }))
-      setErrors(prev => ({ ...prev, [key]: '画像の読み込みがタイムアウトしました' }))
+      setErrors(prev => ({ ...prev, [key]: '画像の読み込みに失敗しました（30秒でタイムアウト）' }))
     }
   }
 
