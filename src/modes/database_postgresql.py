@@ -12,9 +12,13 @@ Options:
 import datetime
 import logging
 import queue
+import threading
+import time
 
 import psycopg2
 import psycopg2.extras
+
+should_terminate = threading.Event()
 
 
 def open(host, port, database, user, password):  # noqa: A001
@@ -112,18 +116,33 @@ def insert(conn, data):
         )
 
 
-def store_queue(conn, queue):
-    logger = logging.getLogger(__name__)
+def store_queue(conn, measurement_queue):
+    logging.info("Start store worker")
+
     try:
         while True:
-            data = queue.get()
-            insert(conn, data)
+            try:
+                data = measurement_queue.get(timeout=1)
+                insert(conn, data)
+            except queue.Empty:
+                pass
+
+            if should_terminate.is_set():
+                break
+
     except Exception:
         conn.close()
-        logger.exception("Error in store_queue")
+        logging.exception("Error in store_queue")
+
+    logging.warning("Stop store worker")
+
+
+def store_term():
+    should_terminate.set()
 
 
 def fetch_by_time(conn, time_start, time_end):
+    start = time.perf_counter()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             "SELECT * FROM meteorological_data WHERE time BETWEEN %s AND %s",
@@ -132,25 +151,30 @@ def fetch_by_time(conn, time_start, time_end):
                 time_end.astimezone(datetime.timezone.utc),
             ),
         )
+        data = cur.fetchall()
 
-        return cur.fetchall()
+        logging.info("Elapsed time: %.2f sec", time.perf_counter() - start)
+
+        return data
 
 
 if __name__ == "__main__":
+    import multiprocessing
+
+    import docopt
     import my_lib.config
     import my_lib.logger
-    from docopt import docopt
 
     import modes.receiver
 
-    args = docopt(__doc__)
+    args = docopt.docopt(__doc__)
 
     my_lib.logger.init("ModeS sensing", level=logging.INFO)
 
     config_file = args["-c"]
     config = my_lib.config.load(args["-c"])
 
-    measurement_queue = queue.Queue()
+    measurement_queue = multiprocessing.Queue()
 
     modes.receiver.start(
         config["modes"]["decoder"]["host"],

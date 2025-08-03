@@ -1,0 +1,104 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+        "modes": {
+            "type": "object",
+            "properties": {
+                "decoder": {
+                    "type": "object",
+                    "properties": {
+                        "host": {
+                            "type": "string"
+                        },
+                        "port": {
+                            "type": "integer"
+                        }
+                    },
+                    "required": [
+                        "host",
+                        "port"
+                    ]
+                }
+            },
+            "required": [
+                "decoder"
+            ]
+        },
+        "database": {
+            "type": "object",
+            "properties": {
+                "host": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "user": {
+                    "type": "string"
+                },
+                "pass": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "host",
+                "name",
+                "pass",
+                "port",
+                "user"
+            ]
+        },
+        "filter": {
+            "type": "object",
+            "properties": {
+                "area": {
+                    "type": "object",
+                    "properties": {
+                        "lat": {
+                            "type": "object",
+                            "properties": {
+                                "ref": {
+                                    "type": "number"
+                                }
+                            },
+                            "required": [
+                                "ref"
+                            ]
+                        },
+                        "lon": {
+                            "type": "object",
+                            "properties": {
+                                "ref": {
+                                    "type": "number"
+                                }
+                            },
+                            "required": [
+                                "ref"
+                            ]
+                        },
+                        "distance": {
+                            "type": "integer"
+                        }
+                    },
+                    "required": [
+                        "distance",
+                        "lat",
+                        "lon"
+                    ]
+                }
+            },
+            "required": [
+                "area"
+            ]
+        }
+    },
+    "required": [
+        "database",
+        "filter",
+        "modes"
+    ]
+}

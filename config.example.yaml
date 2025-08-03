@@ -4,9 +4,11 @@ modes:
         port: 30002
 
 database:
-    server: proxy.green-rabbit.net
+    host: proxy.green-rabbit.net
     port: 5432
     name: modes
+    user: postgres
+    pass: postgres
 
 filter:
     area:
@@ -16,3 +18,9 @@ filter:
             ref: 139.762230
 
         distance: 150
+
+font:
+    path: ./font
+    map:
+        jp_medium: A-OTF-UDShinGoPr6N-Medium.otf
+        jp_bold: A-OTF-UDShinGoPr6N-Bold.otf
