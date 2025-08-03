@@ -42,8 +42,6 @@ import modes.database_postgresql
 matplotlib.use("Agg")
 IMAGE_DPI = 200.0
 
-DISTANCE = 100
-
 TEMPERATURE_THRESHOLD = -100
 TEMP_MIN = -80
 TEMP_MAX = 30
@@ -527,7 +525,9 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize):
 
     # データベース接続とデータ取得を子プロセス内で実行
     conn = connect_database(config)
-    raw_data = modes.database_postgresql.fetch_by_time(conn, time_start, time_end)
+    raw_data = modes.database_postgresql.fetch_by_time(
+        conn, time_start, time_end, config["filter"]["area"]["distance"]
+    )
     conn.close()
 
     # データ準備（変換不要、直接処理）
@@ -683,4 +683,8 @@ if __name__ == "__main__":
     time_end = my_lib.time.now()
     time_start = time_end - datetime.timedelta(days=period_days)
 
-    plot(modes.database_postgresql.fetch_by_time(sqlite, time_start, time_end))
+    plot(
+        modes.database_postgresql.fetch_by_time(
+            sqlite, time_start, time_end, config["filter"]["area"]["distance"]
+        )
+    )

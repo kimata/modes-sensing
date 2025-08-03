@@ -20,11 +20,13 @@ def open(log_db_path):  # noqa: A001
     sqlite.execute(
         "CREATE TABLE IF NOT EXISTS meteorological_data ("
         "id INTEGER primary key autoincrement, time INTEGER NOT NULL, "
-        "callsign TEXT NOT NULL, altitude REAL, latitude REAL, longitude REAL, "
+        "callsign TEXT NOT NULL, distance REAL, altitude REAL, latitude REAL, longitude REAL, "
         "temperature REAL, wind_x REAL, wind_y REAL, "
         "wind_angle REAL, wind_speed REAL);"
     )
-    sqlite.execute("CREATE INDEX IF NOT EXISTS idx_tim ON meteorological_data (time);")
+    sqlite.execute("CREATE INDEX IF NOT EXISTS idx_time ON meteorological_data (time);")
+    sqlite.execute("CREATE INDEX IF NOT EXISTS idx_distance ON meteorological_data (distance);")
+    sqlite.execute("CREATE INDEX IF NOT EXISTS idx_time_distance ON meteorological_data (time, distance);")
     sqlite.commit()
     sqlite.row_factory = lambda c, r: dict(zip([col[0] for col in c.description], r, strict=False))
 
@@ -33,9 +35,10 @@ def open(log_db_path):  # noqa: A001
 
 def insert(sqlite, data):
     sqlite.execute(
-        'INSERT INTO meteorological_data VALUES (NULL, strftime("%s", "now"), ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO meteorological_data VALUES (NULL, strftime("%s", "now"), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         (
             data["callsign"],
+            data["distance"],
             data["altitude"],
             data["latitude"],
             data["longitude"],
@@ -59,14 +62,15 @@ def store_queue(sqlite, queue):
         logging.exception("Database error occurred")
 
 
-def fetch_by_time(sqlite, time_start, time_end):
+def fetch_by_time(sqlite, time_start, time_end, distance):
     cur = sqlite.cursor()
 
     cur.execute(
-        "SELECT * FROM meteorological_data WHERE time BETWEEN ? AND ?",
+        "SELECT * FROM meteorological_data WHERE time BETWEEN ? AND ? AND distance <= ?",
         (
             time_start.astimezone(datetime.timezone.utc),
             time_end.astimezone(datetime.timezone.utc),
+            distance,
         ),
     )
 
