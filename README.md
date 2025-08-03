@@ -8,7 +8,6 @@
 
 - [📋 概要](#-概要)
     - [主な特徴](#主な特徴)
-- [🖼️ スクリーンショット](#️-スクリーンショット)
 - [🎮 デモ](#-デモ)
 - [🏗️ システム構成](#️-システム構成)
     - [アーキテクチャ概要](#アーキテクチャ概要)
@@ -19,11 +18,9 @@
     - [1. 依存パッケージのインストール](#1-依存パッケージのインストール)
     - [2. Mode S デコーダーの準備](#2-mode-s-デコーダーの準備)
     - [3. 設定ファイルの準備](#3-設定ファイルの準備)
-    - [4. データベースの準備](#4-データベースの準備)
 - [💻 実行方法](#-実行方法)
     - [データ収集の開始](#データ収集の開始)
     - [Web インターフェースの起動](#web-インターフェースの起動)
-    - [開発モード](#開発モード)
 - [🧪 テスト](#-テスト)
 - [🎯 API エンドポイント](#-api-エンドポイント)
     - [グラフ生成](#グラフ生成)
@@ -51,12 +48,6 @@
 - 🚀 **高速処理** - カラム選択による最適化されたデータベースアクセス
 - 📱 **レスポンシブUI** - スマートフォンからPCまで対応
 
-## 🖼️ スクリーンショット
-
-<div align="center">
-  <img src="screenshot.png" width="600" alt="modes-sensing UI">
-</div>
-
 ## 🎮 デモ
 
 実際の動作を体験できるデモサイト（準備中）：
@@ -70,7 +61,7 @@
 ```mermaid
 flowchart TD
     A[✈️ 航空機] --> B[📡 RTL-SDR]
-    B --> C[🔧 dump1090]
+    B --> C[🐳 dump1090-fa<br/>Docker Container]
     C --> D[🐍 modes-sensing Collector]
     D --> E[(🗃️ Database<br/>PostgreSQL/SQLite)]
 
@@ -107,7 +98,7 @@ flowchart TD
 sequenceDiagram
     participant A as ✈️ 航空機
     participant RTL as 📡 RTL-SDR
-    participant D1090 as 🔧 dump1090
+    participant D1090 as 🐳 dump1090-fa
     participant COL as 🐍 Collector
     participant DB as 🗃️ Database
     participant WEB as 🌐 Web UI
@@ -149,7 +140,7 @@ graph TB
     end
 
     subgraph "🐍 Backend (Flask)"
-        MAIN[app.py<br/>メインアプリ]
+        MAIN[webui.py<br/>メインアプリ]
         REC[receiver.py<br/>Mode S受信]
         DBPG[database_postgresql.py<br/>PostgreSQL操作]
         DBSQ[database_sqlite.py<br/>SQLite操作]
@@ -170,7 +161,7 @@ graph TB
 
     subgraph "📡 ハードウェア層"
         SDR[RTL-SDR ドングル]
-        D1090[dump1090]
+        D1090[🐳 dump1090-fa<br/>Container]
     end
 
     DS -.->|HTTP API| GRAPH
@@ -194,7 +185,7 @@ graph TB
 - **Node.js 18.x 以上** - React フロントエンド
 - **PostgreSQL 14+** (本番環境) または **SQLite** (開発環境)
 - **RTL-SDR ドングル** - Mode S 信号受信用
-- **dump1090** - Mode S デコーダー
+- **Docker** - dump1090-fa コンテナ実行用
 
 ### 1. 依存パッケージのインストール
 
@@ -202,7 +193,14 @@ graph TB
 # システムパッケージ
 sudo apt update
 sudo apt install postgresql postgresql-contrib
-sudo apt install rtl-sdr dump1090-mutability
+sudo apt install rtl-sdr docker.io
+
+# Docker サービスの開始
+sudo systemctl enable docker
+sudo systemctl start docker
+
+# ユーザーをDockerグループに追加
+sudo usermod -a -G docker $USER
 
 # Python環境（uvを使用）
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -220,30 +218,34 @@ npm ci
 ```bash
 # RTL-SDR ドライバーの確認
 lsusb | grep RTL
-
-# dump1090 の動作確認
-dump1090 --interactive --net
 ```
 
-#### dump1090 の設定
+#### dump1090-fa の Docker コンテナ起動
 
-設定ファイル `/etc/default/dump1090-mutability` を編集：
+[kimata/dump1090-fa](https://github.com/kimata/dump1090-fa) のDockerコンテナを使用します：
 
 ```bash
-# Mode S 受信設定
-START_DUMP1090="yes"
-DUMP1090_USER="dump1090"
-RECEIVER_OPTIONS="--gain -10 --fix"
-DECODER_OPTIONS="--max-range 360"
-NET_OPTIONS="--net --net-heartbeat 60 --net-ro-size 1024 --net-ro-interval 1"
-JSON_OPTIONS="--json-location-accuracy 2"
+# dump1090-fa Docker イメージの取得と起動
+docker run -d \
+  --name dump1090-fa \
+  --device=/dev/bus/usb \
+  --restart=unless-stopped \
+  -p 30002:30002 \
+  -p 8080:8080 \
+  registry.gitlab.com/kimata/dump1090-fa:latest
+
+# コンテナの動作確認
+docker logs dump1090-fa
+
+# 受信状況の確認（Web UI）
+# ブラウザで http://localhost:8080 にアクセス
 ```
 
-サービスの起動：
+#### 接続確認
 
 ```bash
-sudo systemctl enable dump1090-mutability
-sudo systemctl start dump1090-mutability
+# dump1090 からのデータ受信確認
+nc localhost 30002
 ```
 
 ### 3. 設定ファイルの準備
@@ -253,69 +255,41 @@ cp config.example.yaml config.yaml
 # config.yaml を環境に合わせて編集
 ```
 
-設定項目の例：
+実際の設定項目：
 
 ```yaml
+modes:
+    decoder:
+        host: localhost # dump1090 ホスト
+        port: 30002 # dump1090 ポート
+
 database:
-    # PostgreSQL（本番環境）
-    postgresql:
-        host: "localhost"
-        port: 5432
-        database: "modes_sensing"
-        user: "modes_user"
-        password: "password"
+    host: localhost
+    port: 5432
+    name: modes
+    user: postgres
+    pass: postgres
 
-    # SQLite（開発環境）
-    sqlite:
-        file: "data/modes_sensing.db"
+filter:
+    area:
+        lat:
+            ref: 35.682677 # 基準緯度（東京）
+        lon:
+            ref: 139.762230 # 基準経度（東京）
+        distance: 150 # フィルタ距離 (km)
 
-receiver:
-    # dump1090 接続設定
-    host: "localhost"
-    port: 30003
+font:
+    path: ./font
+    map:
+        jp_medium: A-OTF-UDShinGoPr6N-Medium.otf
+        jp_bold: A-OTF-UDShinGoPr6N-Bold.otf
 
-    # フィルタリング設定
-    distance_threshold: 100 # km
-    altitude_min: 1000 # ft
-    altitude_max: 45000 # ft
-
-webui:
-    # Flask 設定
-    host: "0.0.0.0"
-    port: 5000
-    debug: false
+webapp:
+    static_dir_path: react/dist
 
 liveness:
-    # ヘルスチェック設定
     file:
-        collector: "/tmp/modes-sensing-collector.liveness"
-```
-
-### 4. データベースの準備
-
-#### PostgreSQL の場合
-
-```bash
-# データベースとユーザーの作成
-sudo -u postgres psql << EOF
-CREATE DATABASE modes_sensing;
-CREATE USER modes_user WITH PASSWORD 'password';
-GRANT ALL PRIVILEGES ON DATABASE modes_sensing TO modes_user;
-\q
-EOF
-
-# テーブルの作成
-uv run python src/create_table.py
-```
-
-#### SQLite の場合
-
-```bash
-# データディレクトリの作成
-mkdir -p data
-
-# テーブルの作成
-uv run python src/create_table.py -d sqlite
+        collector: /dev/shm/modes-sensing/liveness/collector
 ```
 
 ## 💻 実行方法
@@ -328,6 +302,9 @@ uv run python src/collect.py
 
 # 設定ファイルを指定して実行
 uv run python src/collect.py -c custom_config.yaml
+
+# 受信回数を指定（テスト用）
+uv run python src/collect.py -n 100
 
 # デバッグモードで実行
 uv run python src/collect.py -D
@@ -347,26 +324,13 @@ npm run build
 cd ..
 
 # Flask サーバーの起動
-uv run python src/app.py
+uv run python src/webui.py
 
 # 設定ファイルを指定
-uv run python src/app.py -c production_config.yaml
+uv run python src/webui.py -c production_config.yaml
 
 # ポート指定
-uv run python src/app.py -p 8080
-```
-
-#### 開発モード
-
-```bash
-# React開発サーバー（ホットリロード対応）
-cd react
-npm start
-# ブラウザで http://localhost:3000 にアクセス
-
-# 別ターミナルでFlaskサーバー（デバッグモード）
-uv run python src/app.py -D
-# API は http://localhost:5000 で稼働
+uv run python src/webui.py -p 8080
 ```
 
 #### Docker での実行
@@ -375,13 +339,11 @@ uv run python src/app.py -D
 # Docker イメージのビルド
 docker build -t modes-sensing .
 
-# コンテナの実行
+# コンテナの実行（collect.py がデフォルト）
 docker run -d \
   --name modes-sensing \
   --device=/dev/bus/usb \
-  -p 5000:5000 \
-  -v $(pwd)/config.yaml:/app/config.yaml \
-  -v $(pwd)/data:/app/data \
+  -v $(pwd)/config.yaml:/opt/modes-sensing/config.yaml \
   modes-sensing
 ```
 
@@ -416,12 +378,12 @@ uv run pre-commit run --all-files
 
 ### グラフ生成
 
-- `GET /api/graph/scatter_2d` - 2D散布図の生成
-- `GET /api/graph/scatter_3d` - 3D散布図の生成
-- `GET /api/graph/heatmap` - ヒートマップの生成
-- `GET /api/graph/contour_2d` - 2D等高線図の生成
-- `GET /api/graph/contour_3d` - 3D等高線図の生成
-- `GET /api/graph/density` - 密度プロットの生成
+- `GET /modes-sensing/api/graph/scatter_2d` - 2D散布図の生成
+- `GET /modes-sensing/api/graph/scatter_3d` - 3D散布図の生成
+- `GET /modes-sensing/api/graph/heatmap` - ヒートマップの生成
+- `GET /modes-sensing/api/graph/contour_2d` - 2D等高線図の生成
+- `GET /modes-sensing/api/graph/contour_3d` - 3D等高線図の生成
+- `GET /modes-sensing/api/graph/density` - 密度プロットの生成
 
 #### パラメータ
 
@@ -429,46 +391,30 @@ uv run pre-commit run --all-files
 | ---------- | ------ | ------------------- | --------------------- |
 | `start`    | string | 開始日時 (ISO 8601) | `2025-08-01T00:00:00` |
 | `end`      | string | 終了日時 (ISO 8601) | `2025-08-03T23:59:59` |
-| `distance` | number | 距離フィルタ (km)   | `100`                 |
 
 #### レスポンス例
 
 ```bash
 # 2D散布図の生成
-curl "http://localhost:5000/api/graph/scatter_2d?start=2025-08-01T00:00:00&end=2025-08-03T23:59:59&distance=100"
+curl "http://localhost:5000/modes-sensing/graph/scatter_2d?start=2025-08-01T00:00:00&end=2025-08-03T23:59:59&distance=100"
 ```
 
 ### ヘルスチェック
 
 - `GET /healthz` - サービスの生存確認
-- `GET /api/status` - 詳細なステータス情報
 
-レスポンス例：
-
-```json
-{
-    "status": "healthy",
-    "collector": {
-        "running": true,
-        "last_update": "2025-08-03T16:30:00Z"
-    },
-    "database": {
-        "connection": "ok",
-        "last_record": "2025-08-03T16:29:45Z"
-    }
-}
-```
+注意: `/api/status` エンドポイントは実装されていません。
 
 ## 📊 グラフの種類
 
-| グラフタイプ | 説明                           | 適用場面                 | API エンドポイント      |
-| ------------ | ------------------------------ | ------------------------ | ----------------------- |
-| 2D散布図     | 時間-高度-温度の関係を点で表示 | 全体的な傾向の把握       | `/api/graph/scatter_2d` |
-| 3D散布図     | 時間-高度-温度を3次元で表示    | 立体的なデータ分布の確認 | `/api/graph/scatter_3d` |
-| ヒートマップ | 格子状に補間した温度分布       | 連続的な温度変化の可視化 | `/api/graph/heatmap`    |
-| 2D等高線     | 等温線による表示               | 温度層の境界確認         | `/api/graph/contour_2d` |
-| 3D等高線     | 3次元の等温面表示              | 複雑な温度構造の把握     | `/api/graph/contour_3d` |
-| 密度プロット | 高度-温度の分布密度            | データの集中度分析       | `/api/graph/density`    |
+| グラフタイプ | 説明                           | 適用場面                 | API エンドポイント                    |
+| ------------ | ------------------------------ | ------------------------ | ------------------------------------- |
+| 2D散布図     | 時間-高度-温度の関係を点で表示 | 全体的な傾向の把握       | `/modes-sensing/api/graph/scatter_2d` |
+| 3D散布図     | 時間-高度-温度を3次元で表示    | 立体的なデータ分布の確認 | `/modes-sensing/api/graph/scatter_3d` |
+| ヒートマップ | 格子状に補間した温度分布       | 連続的な温度変化の可視化 | `/modes-sensing/api/graph/heatmap`    |
+| 2D等高線     | 等温線による表示               | 温度層の境界確認         | `/modes-sensing/api/graph/contour_2d` |
+| 3D等高線     | 3次元の等温面表示              | 複雑な温度構造の把握     | `/modes-sensing/api/graph/contour_3d` |
+| 密度プロット | 高度-温度の分布密度            | データの集中度分析       | `/modes-sensing/api/graph/density`    |
 
 ## 🔧 カスタマイズ
 
@@ -477,41 +423,37 @@ curl "http://localhost:5000/api/graph/scatter_2d?start=2025-08-01T00:00:00&end=2
 `config.yaml` でデータフィルタリングの設定をカスタマイズできます：
 
 ```yaml
-receiver:
-    # 距離フィルタ（観測地点からの距離）
-    distance_threshold: 100 # km
-
-    # 高度フィルタ
-    altitude_min: 1000 # ft
-    altitude_max: 45000 # ft
-
-    # BDS サブタイプフィルタ
-    bds_filters:
-        - "BDS44" # 気象データ (温度, 風速)
-        - "BDS45" # 気象データ (湿度, 乱気流)
+filter:
+    area:
+        lat:
+            ref: 35.682677 # 基準緯度
+        lon:
+            ref: 139.762230 # 基準経度
+        distance: 150 # フィルタ距離 (km)
 ```
+
+注意: 高度フィルタや BDS サブタイプフィルタは、コード内のハードコーディングされた定数で制御されています。
 
 ### グラフのカスタマイズ
 
 `src/modes/webui/api/graph.py` でグラフの外観をカスタマイズできます：
 
 ```python
-# カラーマップの変更
-COLORMAP = "viridis"  # "plasma", "inferno", "magma" など
+# 解像度設定
+IMAGE_DPI = 200.0
 
-# 図のサイズ設定
-FIG_SIZE = (12, 8)
+# 温度範囲設定
+TEMP_MIN = -80
+TEMP_MAX = 30
 
-# DPI設定（解像度）
-DPI = 100
+# 高度範囲設定
+ALT_MIN = 0
+ALT_MAX = 14000
 
-# カラーバーのカスタマイズ
-COLORBAR_CONFIG = {
-    "shrink": 0.8,
-    "pad": 0.01,
-    "aspect": 35,
-    "fraction": 0.046
-}
+# フォントサイズ設定
+TICK_LABEL_SIZE = 8
+AXIS_LABEL_SIZE = 12
+TITLE_SIZE = 20
 ```
 
 ## 📡 Mode S について
@@ -552,17 +494,20 @@ sudo apt install rtl-sdr
 sudo usermod -a -G plugdev $USER
 ```
 
-#### 2. dump1090 が起動しない
+#### 2. dump1090-fa コンテナが起動しない
 
 ```bash
-# サービス状態の確認
-sudo systemctl status dump1090-mutability
+# コンテナ状態の確認
+docker ps -a | grep dump1090-fa
 
 # ログの確認
-sudo journalctl -u dump1090-mutability -f
+docker logs dump1090-fa
 
-# 手動起動でのテスト
-dump1090 --interactive --net
+# コンテナの再起動
+docker restart dump1090-fa
+
+# RTL-SDR デバイスの確認
+ls -la /dev/bus/usb/
 ```
 
 #### 3. データベース接続エラー
@@ -572,10 +517,10 @@ dump1090 --interactive --net
 sudo systemctl status postgresql
 
 # 接続テスト
-psql -h localhost -U modes_user -d modes_sensing
+psql -h localhost -U postgres -d modes
 
-# SQLite ファイルの権限確認
-ls -la data/modes_sensing.db
+# SQLite ファイルの権限確認（開発環境の場合）
+ls -la data/modes.db
 ```
 
 #### 4. React アプリのビルドエラー
@@ -588,7 +533,7 @@ npm --version
 # 依存関係の再インストール
 cd react
 rm -rf node_modules package-lock.json
-npm install
+npm ci
 ```
 
 #### 5. グラフが表示されない
@@ -596,13 +541,13 @@ npm install
 - **データの確認**: データベースにデータが保存されているかチェック
 - **期間設定**: 選択した期間にデータが存在するかチェック
 - **ブラウザ**: キャッシュをクリアして再読み込み
-- **ログ**: Flask サーバーのログでエラーを確認
+- **ログ**: Web UI サーバーのログでエラーを確認
 
 ### ログファイルの場所
 
 - **Collector**: `collect.log` (バックグラウンド実行時)
-- **Flask**: コンソール出力またはログファイル
-- **dump1090**: `/var/log/dump1090-mutability.log`
+- **Web UI**: コンソール出力
+- **dump1090-fa**: `docker logs dump1090-fa`
 - **PostgreSQL**: `/var/log/postgresql/`
 
 ## 📊 CI/CD
