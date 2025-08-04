@@ -407,8 +407,6 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
                             console.log(`[img onError] ${key}: onError event fired`)
                             handleImageError(key, graph.title)
                           }}
-                          // ブラウザのデフォルトタイムアウトを延長
-                          crossOrigin="anonymous"
                           loading="eager"
                         />
                       </figure>
