@@ -179,9 +179,11 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   // 画像の読み込み状態を管理（Refベース）
   const handleImageLoad = (key: string) => {
     const img = imageRefs.current[key]
+    console.log(`[handleImageLoad] ${key}: img exists=${!!img}, complete=${img?.complete}, naturalWidth=${img?.naturalWidth}`)
     if (img && img.complete && img.naturalWidth > 0) {
       // タイマーをクリア
       if (loadingTimers[key]) {
+        console.log(`[handleImageLoad] ${key}: clearing timeout timer`)
         clearTimeout(loadingTimers[key])
         setLoadingTimers(prev => {
           const newTimers = { ...prev }
@@ -189,12 +191,16 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
           return newTimers
         })
       }
+      console.log(`[handleImageLoad] ${key}: setting loading to false`)
       setLoading(prev => ({ ...prev, [key]: false }))
       setRetryCount(prev => ({ ...prev, [key]: 0 }))
+    } else {
+      console.log(`[handleImageLoad] ${key}: invalid image state, not marking as loaded`)
     }
   }
 
   const handleImageError = (key: string, title: string) => {
+    console.log(`[handleImageError] ${key}: image error occurred`)
     if (loadingTimers[key]) {
       clearTimeout(loadingTimers[key])
       setLoadingTimers(prev => {
@@ -227,6 +233,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       const graph = graphs.find(g => g.endpoint === key)
       if (graph) {
         const newUrl = getImageUrl(graph, newVersion)
+        console.log(`[retryImageLoad] ${key}: setting new URL = ${newUrl}`)
         setImageUrls(prev => ({ ...prev, [key]: newUrl }))
         setLoading(prev => ({ ...prev, [key]: true }))
         setErrors(prev => ({ ...prev, [key]: '' }))
@@ -245,6 +252,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
         setLoadingTimers(prev => ({ ...prev, [key]: newTimer }))
       }
     } else {
+      console.log(`[retryImageLoad] ${key}: max retry count reached (${actualRetryCount}), giving up`)
       setLoading(prev => ({ ...prev, [key]: false }))
       setErrors(prev => ({ ...prev, [key]: `画像の読み込みに失敗しました（${(MAX_RETRY_COUNT + 1) * IMAGE_LOAD_TIMEOUT / 1000}秒でタイムアウト）` }))
     }
@@ -388,8 +396,14 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
                             cursor: 'pointer'
                           }}
                           onClick={() => onImageClick(imageUrl)}
-                          onLoad={() => handleImageLoad(key)}
-                          onError={() => handleImageError(key, graph.title)}
+                          onLoad={() => {
+                            console.log(`[img onLoad] ${key}: onLoad event fired`)
+                            handleImageLoad(key)
+                          }}
+                          onError={() => {
+                            console.log(`[img onError] ${key}: onError event fired`)
+                            handleImageError(key, graph.title)
+                          }}
                         />
                       </figure>
                     )}
