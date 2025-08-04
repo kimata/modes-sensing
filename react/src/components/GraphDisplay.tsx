@@ -276,11 +276,14 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     const newErrorState: { [key: string]: string } = {}
     const newTimers: { [key: string]: number } = {}
 
-    graphs.forEach(graph => {
+    graphs.forEach((graph, index) => {
       const key = graph.endpoint
       newImageUrls[key] = getImageUrl(graph, newVersion)
       newLoadingState[key] = true
       newErrorState[key] = ''
+
+      // 画像読み込みのタイミングを少しずらす（同時リクエスト制限対策）
+      const delayMs = index * 10 // 10ms間隔でずらす
 
       // 各画像に対してタイムアウトタイマーを設定（画像要素の実際の状態をチェック）
       newTimers[key] = window.setTimeout(() => {
@@ -292,7 +295,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
           // 実際には読み込み完了していた場合
           handleImageLoad(key)
         }
-      }, IMAGE_LOAD_TIMEOUT)
+      }, IMAGE_LOAD_TIMEOUT + delayMs)
     })
 
     // 状態を一括更新
@@ -404,6 +407,9 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
                             console.log(`[img onError] ${key}: onError event fired`)
                             handleImageError(key, graph.title)
                           }}
+                          // ブラウザのデフォルトタイムアウトを延長
+                          crossOrigin="anonymous"
+                          loading="eager"
                         />
                       </figure>
                     )}
