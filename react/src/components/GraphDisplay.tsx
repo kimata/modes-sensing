@@ -179,6 +179,11 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     const newImageUrls: { [key: string]: string } = {}
     const newLoadingState: { [key: string]: boolean } = {}
     const newErrorState: { [key: string]: string } = {}
+    const newTimers: { [key: string]: number } = {}
+
+    // バージョンを更新して画像の再読み込みを促す
+    const newVersion = imageVersion + 1
+    setImageVersion(newVersion)
 
     graphs.forEach(graph => {
       const key = graph.endpoint
@@ -187,12 +192,12 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       newErrorState[key] = ''
     })
 
+    // 状態を一括更新
     setImageUrls(newImageUrls)
     setLoading(newLoadingState)
     setErrors(newErrorState)
     setRetryCount({}) // リトライ回数をリセット
-    // バージョンを更新して画像の再読み込みを促す
-    setImageVersion(prev => prev + 1)
+    setLoadingTimers({}) // タイマーをリセット
 
     // クリーンアップ関数
     return () => {
@@ -207,8 +212,8 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
 
     graphs.forEach(graph => {
       const key = graph.endpoint
-      if (loading[key]) {
-        // 10秒のタイムアウトを設定
+      if (loading[key] && !loadingTimers[key]) {
+        // 10秒のタイムアウトを設定（既存のタイマーがない場合のみ）
         newTimers[key] = window.setTimeout(() => {
           console.log(`Image loading timeout for ${key}`)
           retryImageLoad(key)
@@ -216,13 +221,15 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       }
     })
 
-    setLoadingTimers(prev => ({ ...prev, ...newTimers }))
+    if (Object.keys(newTimers).length > 0) {
+      setLoadingTimers(prev => ({ ...prev, ...newTimers }))
+    }
 
     // クリーンアップ関数
     return () => {
       Object.values(newTimers).forEach(timer => clearTimeout(timer))
     }
-  }, [loading, imageVersion])
+  }, [loading])
 
   return (
     <>
