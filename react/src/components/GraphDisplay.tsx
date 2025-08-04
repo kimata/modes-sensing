@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import styles from './GraphDisplay.module.css'
 
+// タイムアウトとリトライの設定
+const IMAGE_LOAD_TIMEOUT = 10000 // 10秒
+const MAX_RETRY_COUNT = 2 // 最大2回リトライ
+
 interface GraphDisplayProps {
   dateRange: {
     start: Date
@@ -208,7 +212,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     const currentRetryCount = retryCount[key] || 0
 
     // 最大2回までリトライ（計3回試行：初回 + リトライ2回）
-    if (currentRetryCount < 2) {
+    if (currentRetryCount < MAX_RETRY_COUNT) {
 
       // リトライ回数を更新
       setRetryCount(prev => ({ ...prev, [key]: currentRetryCount + 1 }))
@@ -233,13 +237,13 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
           } else {
             handleImageLoad(key)
           }
-        }, 10000)
+        }, IMAGE_LOAD_TIMEOUT)
 
         setLoadingTimers(prev => ({ ...prev, [key]: newTimer }))
       }
     } else {
       setLoading(prev => ({ ...prev, [key]: false }))
-      setErrors(prev => ({ ...prev, [key]: '画像の読み込みに失敗しました（30秒でタイムアウト）' }))
+      setErrors(prev => ({ ...prev, [key]: `画像の読み込みに失敗しました（${(MAX_RETRY_COUNT + 1) * IMAGE_LOAD_TIMEOUT / 1000}秒でタイムアウト）` }))
     }
   }
 
