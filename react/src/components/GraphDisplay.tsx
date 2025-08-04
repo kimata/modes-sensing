@@ -25,9 +25,27 @@ const graphs: GraphInfo[] = [
 ]
 
 const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) => {
-  const [loading, setLoading] = useState<{ [key: string]: boolean }>({})
-  const [errors, setErrors] = useState<{ [key: string]: string }>({})
-  const [imageUrls, setImageUrls] = useState<{ [key: string]: string }>({})
+  // 初期状態を設定
+  const initializeState = () => {
+    const initialLoading: { [key: string]: boolean } = {}
+    const initialErrors: { [key: string]: string } = {}
+    const initialImageUrls: { [key: string]: string } = {}
+
+    graphs.forEach(graph => {
+      const key = graph.endpoint
+      initialLoading[key] = true
+      initialErrors[key] = ''
+      initialImageUrls[key] = ''
+    })
+
+    return { initialLoading, initialErrors, initialImageUrls }
+  }
+
+  const { initialLoading, initialErrors, initialImageUrls } = initializeState()
+
+  const [loading, setLoading] = useState<{ [key: string]: boolean }>(initialLoading)
+  const [errors, setErrors] = useState<{ [key: string]: string }>(initialErrors)
+  const [imageUrls, setImageUrls] = useState<{ [key: string]: string }>(initialImageUrls)
   const [imageVersion, setImageVersion] = useState(0) // 画像の更新を強制するためのバージョン
   const [retryCount, setRetryCount] = useState<{ [key: string]: number }>({}) // リトライ回数
   const [loadingTimers, setLoadingTimers] = useState<{ [key: string]: number }>({}) // タイムアウトタイマー
@@ -68,6 +86,16 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
         }, 500)
       }
     }
+  }, [])
+
+  // 初回マウント時に画像URLを設定
+  useEffect(() => {
+    const newImageUrls: { [key: string]: string } = {}
+    graphs.forEach(graph => {
+      const key = graph.endpoint
+      newImageUrls[key] = getImageUrl(graph, 0)
+    })
+    setImageUrls(newImageUrls)
   }, [])
 
   // パーマリンクコピー用の通知表示
@@ -180,8 +208,11 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   }
 
   useEffect(() => {
-    // 既存のタイマーをクリア
-    Object.values(loadingTimers).forEach(timer => clearTimeout(timer))
+    // 既存のタイマーをクリア（状態を直接参照せず、setState内で処理）
+    setLoadingTimers(prev => {
+      Object.values(prev).forEach(timer => clearTimeout(timer))
+      return {}
+    })
 
     // 全てのグラフに対してURLを設定し、読み込み状態を初期化
     const newImageUrls: { [key: string]: string } = {}
@@ -204,12 +235,14 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     setLoading(newLoadingState)
     setErrors(newErrorState)
     setRetryCount({}) // リトライ回数をリセット
-    setLoadingTimers({}) // タイマーをリセット
 
     // クリーンアップ関数
     return () => {
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      Object.values(loadingTimers).forEach(timer => clearTimeout(timer))
+      // クリーンアップ時もsetState内で処理
+      setLoadingTimers(prev => {
+        Object.values(prev).forEach(timer => clearTimeout(timer))
+        return prev
+      })
     }
   }, [dateRange])
 
@@ -318,7 +351,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
                           onClick={() => onImageClick(imageUrl)}
                           onLoad={() => handleImageLoad(key)}
                           onError={() => handleImageError(key, graph.title)}
-                          key={imageVersion} // バージョンが変わると画像を再読み込み
+                          key={imageUrl} // URLが変わると画像を再読み込み
                         />
                       </figure>
                     )}
