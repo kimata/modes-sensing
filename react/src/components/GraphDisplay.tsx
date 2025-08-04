@@ -190,6 +190,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
 
     // 最大2回までリトライ（計3回試行：初回 + リトライ2回）
     if (currentRetryCount < 2) {
+      console.log(`Retrying image load for ${key} (attempt ${currentRetryCount + 1}/2)`)
       setRetryCount(prev => ({ ...prev, [key]: currentRetryCount + 1 }))
 
       // 新しいバージョンでURLを更新
@@ -208,26 +209,29 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   }
 
   useEffect(() => {
+    console.log('DateRange changed, updating images...')
+
     // 既存のタイマーをクリア（状態を直接参照せず、setState内で処理）
     setLoadingTimers(prev => {
       Object.values(prev).forEach(timer => clearTimeout(timer))
       return {}
     })
 
+    // バージョンを更新して画像の再読み込みを促す
+    const newVersion = imageVersion + 1
+    setImageVersion(newVersion)
+
     // 全てのグラフに対してURLを設定し、読み込み状態を初期化
     const newImageUrls: { [key: string]: string } = {}
     const newLoadingState: { [key: string]: boolean } = {}
     const newErrorState: { [key: string]: string } = {}
-
-    // バージョンを更新して画像の再読み込みを促す
-    const newVersion = imageVersion + 1
-    setImageVersion(newVersion)
 
     graphs.forEach(graph => {
       const key = graph.endpoint
       newImageUrls[key] = getImageUrl(graph, newVersion)
       newLoadingState[key] = true  // 初期状態は読み込み中
       newErrorState[key] = ''
+      console.log(`Setting up image: ${key} -> ${newImageUrls[key]}`)
     })
 
     // 状態を一括更新
@@ -255,6 +259,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       if (loading[key] && !loadingTimers[key]) {
         // 10秒のタイムアウトを設定（既存のタイマーがない場合のみ）
         newTimers[key] = window.setTimeout(() => {
+          console.log(`Image loading timeout for ${key}`)
           retryImageLoad(key)
         }, 10000)
       }
