@@ -208,15 +208,16 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   }
 
   // 画像の再読み込みを行う
-  const retryImageLoad = (key: string) => {
-    const currentRetryCount = retryCount[key] || 0
-    console.log(`[retryImageLoad] ${key}: retry count = ${currentRetryCount}`)
+  const retryImageLoad = (key: string, currentRetryCount?: number) => {
+    const actualRetryCount = currentRetryCount !== undefined ? currentRetryCount : (retryCount[key] || 0)
+    console.log(`[retryImageLoad] ${key}: retry count = ${actualRetryCount}`)
 
     // 最大2回までリトライ（計3回試行：初回 + リトライ2回）
-    if (currentRetryCount < MAX_RETRY_COUNT) {
+    if (actualRetryCount < MAX_RETRY_COUNT) {
 
       // リトライ回数を更新
-      setRetryCount(prev => ({ ...prev, [key]: currentRetryCount + 1 }))
+      const nextRetryCount = actualRetryCount + 1
+      setRetryCount(prev => ({ ...prev, [key]: nextRetryCount }))
 
       // 新しいバージョンでURLを更新
       const newVersion = imageVersion + 1
@@ -235,7 +236,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
           const img = imageRefs.current[key]
           console.log(`[Timeout check] ${key}: img exists=${!!img}, complete=${img?.complete}, naturalWidth=${img?.naturalWidth}`)
           if (!img || !img.complete || img.naturalWidth === 0) {
-            retryImageLoad(key)
+            retryImageLoad(key, nextRetryCount)
           } else {
             handleImageLoad(key)
           }
@@ -278,7 +279,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
         const img = imageRefs.current[key]
         console.log(`[Initial timeout check] ${key}: img exists=${!!img}, complete=${img?.complete}, naturalWidth=${img?.naturalWidth}`)
         if (!img || !img.complete || img.naturalWidth === 0) {
-          retryImageLoad(key)
+          retryImageLoad(key, 0)  // 初回は0からスタート
         } else {
           // 実際には読み込み完了していた場合
           handleImageLoad(key)
