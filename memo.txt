@@ -1,0 +1,4 @@
+- 下記のログについて、row の値は3桁ごとの区切りを入れたいです。
+[database_postgresql.py:212 fetch_by_time] Elapsed time: 0.11 sec (selected 4 columns, 6505 rows)
+
+- 画像生成に時間がかかる場合の対策として、何らかの値を返して、タイムアウトしないようにできますか？
