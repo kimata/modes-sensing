@@ -49,11 +49,11 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     return `${year}-${month}-${day} ${hours}:${minutes}`
   }
 
-  const getImageUrl = (graph: GraphInfo) => {
+  const getImageUrl = (graph: GraphInfo, version?: number) => {
     const params = new URLSearchParams({
       start: formatDateForAPI(dateRange.start),
       end: formatDateForAPI(dateRange.end),
-      v: imageVersion.toString()  // キャッシュバスターを追加
+      v: (version !== undefined ? version : imageVersion).toString()  // キャッシュバスターを追加
     })
     return `${graph.endpoint}?${params}`
   }
@@ -164,7 +164,16 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     if (currentRetryCount < 2) {
       console.log(`Retrying image load for ${key} (attempt ${currentRetryCount + 1}/2)`)
       setRetryCount(prev => ({ ...prev, [key]: currentRetryCount + 1 }))
-      setImageVersion(prev => prev + 1) // バージョンを更新して再読み込みを強制
+
+      // 新しいバージョンでURLを更新
+      const newVersion = imageVersion + 1
+      setImageVersion(newVersion)
+
+      // 該当する画像のURLを新しいバージョンで更新
+      const graph = graphs.find(g => g.endpoint === key)
+      if (graph) {
+        setImageUrls(prev => ({ ...prev, [key]: getImageUrl(graph, newVersion) }))
+      }
     } else {
       setLoading(prev => ({ ...prev, [key]: false }))
       setErrors(prev => ({ ...prev, [key]: '画像の読み込みに失敗しました（30秒でタイムアウト）' }))
@@ -186,7 +195,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
 
     graphs.forEach(graph => {
       const key = graph.endpoint
-      newImageUrls[key] = getImageUrl(graph)
+      newImageUrls[key] = getImageUrl(graph, newVersion)
       newLoadingState[key] = true  // 初期状態は読み込み中
       newErrorState[key] = ''
     })
@@ -278,7 +287,16 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
                             setErrors(prev => ({ ...prev, [key]: '' }))
                             setRetryCount(prev => ({ ...prev, [key]: 0 }))
                             setLoading(prev => ({ ...prev, [key]: true }))
-                            setImageVersion(prev => prev + 1)
+
+                            // 新しいバージョンでURLを更新
+                            const newVersion = imageVersion + 1
+                            setImageVersion(newVersion)
+
+                            // 該当する画像のURLを新しいバージョンで更新
+                            const graph = graphs.find(g => g.endpoint === key)
+                            if (graph) {
+                              setImageUrls(prev => ({ ...prev, [key]: getImageUrl(graph, newVersion) }))
+                            }
                           }}
                         >
                           <span className="icon">
