@@ -179,7 +179,6 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     const newImageUrls: { [key: string]: string } = {}
     const newLoadingState: { [key: string]: boolean } = {}
     const newErrorState: { [key: string]: string } = {}
-    const newTimers: { [key: string]: number } = {}
 
     // バージョンを更新して画像の再読み込みを促す
     const newVersion = imageVersion + 1
