@@ -190,7 +190,8 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
 
     // 最大2回までリトライ（計3回試行：初回 + リトライ2回）
     if (currentRetryCount < 2) {
-      console.log(`Retrying image load for ${key} (attempt ${currentRetryCount + 1}/2)`)
+
+      // リトライ回数を更新
       setRetryCount(prev => ({ ...prev, [key]: currentRetryCount + 1 }))
 
       // 新しいバージョンでURLを更新
@@ -200,7 +201,17 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       // 該当する画像のURLを新しいバージョンで更新
       const graph = graphs.find(g => g.endpoint === key)
       if (graph) {
-        setImageUrls(prev => ({ ...prev, [key]: getImageUrl(graph, newVersion) }))
+        const newUrl = getImageUrl(graph, newVersion)
+        setImageUrls(prev => ({ ...prev, [key]: newUrl }))
+        setLoading(prev => ({ ...prev, [key]: true }))
+        setErrors(prev => ({ ...prev, [key]: '' }))
+
+        // 新しいタイムアウトタイマーを設定
+        const newTimer = window.setTimeout(() => {
+          retryImageLoad(key)
+        }, 10000)
+
+        setLoadingTimers(prev => ({ ...prev, [key]: newTimer }))
       }
     } else {
       setLoading(prev => ({ ...prev, [key]: false }))
@@ -209,9 +220,8 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   }
 
   useEffect(() => {
-    console.log('DateRange changed, updating images...')
 
-    // 既存のタイマーをクリア（状態を直接参照せず、setState内で処理）
+    // 既存のタイマーをクリア
     setLoadingTimers(prev => {
       Object.values(prev).forEach(timer => clearTimeout(timer))
       return {}
@@ -221,59 +231,38 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     const newVersion = imageVersion + 1
     setImageVersion(newVersion)
 
-    // 全てのグラフに対してURLを設定し、読み込み状態を初期化
+    // 状態更新を同期的に処理するため、一度の更新にまとめる
     const newImageUrls: { [key: string]: string } = {}
     const newLoadingState: { [key: string]: boolean } = {}
     const newErrorState: { [key: string]: string } = {}
+    const newTimers: { [key: string]: number } = {}
 
     graphs.forEach(graph => {
       const key = graph.endpoint
       newImageUrls[key] = getImageUrl(graph, newVersion)
-      newLoadingState[key] = true  // 初期状態は読み込み中
+      newLoadingState[key] = true
       newErrorState[key] = ''
-      console.log(`Setting up image: ${key} -> ${newImageUrls[key]}`)
+
+      // 各画像に対してタイムアウトタイマーを設定
+      newTimers[key] = window.setTimeout(() => {
+        retryImageLoad(key)
+      }, 10000)
     })
 
     // 状態を一括更新
     setImageUrls(newImageUrls)
     setLoading(newLoadingState)
     setErrors(newErrorState)
-    setRetryCount({}) // リトライ回数をリセット
-
-    // クリーンアップ関数
-    return () => {
-      // クリーンアップ時もsetState内で処理
-      setLoadingTimers(prev => {
-        Object.values(prev).forEach(timer => clearTimeout(timer))
-        return prev
-      })
-    }
-  }, [dateRange])
-
-  // 画像読み込みタイムアウト監視用のuseEffect
-  useEffect(() => {
-    const newTimers: { [key: string]: number } = {}
-
-    graphs.forEach(graph => {
-      const key = graph.endpoint
-      if (loading[key] && !loadingTimers[key]) {
-        // 10秒のタイムアウトを設定（既存のタイマーがない場合のみ）
-        newTimers[key] = window.setTimeout(() => {
-          console.log(`Image loading timeout for ${key}`)
-          retryImageLoad(key)
-        }, 10000)
-      }
-    })
-
-    if (Object.keys(newTimers).length > 0) {
-      setLoadingTimers(prev => ({ ...prev, ...newTimers }))
-    }
+    setRetryCount({})
+    setLoadingTimers(newTimers)
 
     // クリーンアップ関数
     return () => {
       Object.values(newTimers).forEach(timer => clearTimeout(timer))
     }
-  }, [loading])
+  }, [dateRange])
+
+  // 画像読み込みタイムアウト監視は dateRange useEffect内で統合済み
 
   return (
     <>
