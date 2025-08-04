@@ -164,13 +164,23 @@ def test_all_images_display_correctly(page, host, port):
 
         # 画像が実際に読み込まれているかチェック（複数回確認）
         is_loaded = False
-        for _ in range(3):  # 3回チェックして安定性を確保
-            is_loaded = page.evaluate(f"""
+        for attempt in range(3):  # 3回チェックして安定性を確保
+            image_state = page.evaluate(f"""
                 () => {{
                     const img = document.querySelector('img[alt="{graph_type}"]');
-                    return img && img.complete && img.naturalWidth > 0;
+                    if (!img) return {{ exists: false }};
+                    return {{
+                        exists: true,
+                        complete: img.complete,
+                        naturalWidth: img.naturalWidth,
+                        naturalHeight: img.naturalHeight,
+                        src: img.src,
+                        loaded: img.complete && img.naturalWidth > 0
+                    }};
                 }}
             """)
+            logging.info("%s (attempt %d): %s", graph_type, attempt + 1, image_state)
+            is_loaded = image_state.get("loaded", False)
             if is_loaded:
                 break
             time.sleep(0.5)  # 短い待機
