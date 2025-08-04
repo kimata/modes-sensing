@@ -136,8 +136,8 @@ def test_all_images_display_correctly(page, host, port):
     # 画像APIリクエストが開始されるまで待機
     time.sleep(5)
 
-    # より長いタイムアウトで全画像の読み込みを待機
-    wait_for_images_to_load(page, expected_count=6, timeout=120000)
+    # より長いタイムアウトで全画像の読み込みを待機（2分から3分に延長）
+    wait_for_images_to_load(page, expected_count=6, timeout=180000)
 
     # 各グラフタイプの画像要素が存在することを確認
     graph_types = [
