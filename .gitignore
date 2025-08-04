@@ -44,6 +44,7 @@ testem.log
 *.db
 /font/
 *.png
+*.log
 
 # Configuration
 config.yaml
