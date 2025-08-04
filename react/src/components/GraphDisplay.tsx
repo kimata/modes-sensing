@@ -65,8 +65,9 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   const checkAllImagesStatus = () => {
     graphs.forEach(graph => {
       const key = graph.endpoint
+      // loading状態かつ実際には読み込み完了している場合のみ処理
       if (loading[key] && checkImageLoadingState(key)) {
-        // 実際には読み込み完了しているのにloadingがtrueの場合
+        console.log(`[checkAllImagesStatus] ${key}: detected loaded image with loading=true, fixing state`)
         handleImageLoad(key)
       }
     })
@@ -180,6 +181,13 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   const handleImageLoad = (key: string) => {
     const img = imageRefs.current[key]
     console.log(`[handleImageLoad] ${key}: img exists=${!!img}, complete=${img?.complete}, naturalWidth=${img?.naturalWidth}`)
+
+    // 既に読み込み完了している場合は重複処理を避ける
+    if (loading[key] === false) {
+      console.log(`[handleImageLoad] ${key}: already marked as loaded, skipping`)
+      return
+    }
+
     if (img && img.complete && img.naturalWidth > 0) {
       // タイマーをクリア
       if (loadingTimers[key]) {
@@ -410,10 +418,12 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
                           onClick={() => onImageClick(imageUrl)}
                           onLoad={() => {
                             console.log(`[img onLoad] ${key}: onLoad event fired`)
+                            console.log(`[img onLoad] ${key}: current loading state = ${loading[key]}`)
                             handleImageLoad(key)
                           }}
                           onError={() => {
                             console.log(`[img onError] ${key}: onError event fired`)
+                            console.log(`[img onError] ${key}: current loading state = ${loading[key]}`)
                             handleImageError(key, graph.title)
                           }}
                           loading="eager"
