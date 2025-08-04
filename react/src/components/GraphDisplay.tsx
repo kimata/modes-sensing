@@ -162,7 +162,6 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
 
     // 最大2回までリトライ（計3回試行：初回 + リトライ2回）
     if (currentRetryCount < 2) {
-      console.log(`Retrying image load for ${key} (attempt ${currentRetryCount + 1}/2)`)
       setRetryCount(prev => ({ ...prev, [key]: currentRetryCount + 1 }))
 
       // 新しいバージョンでURLを更新
@@ -223,7 +222,6 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       if (loading[key] && !loadingTimers[key]) {
         // 10秒のタイムアウトを設定（既存のタイマーがない場合のみ）
         newTimers[key] = window.setTimeout(() => {
-          console.log(`Image loading timeout for ${key}`)
           retryImageLoad(key)
         }, 10000)
       }

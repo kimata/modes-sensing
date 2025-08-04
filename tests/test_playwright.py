@@ -164,7 +164,7 @@ def test_all_images_display_correctly(page, host, port):
 
         # 画像が実際に読み込まれているかチェック（複数回確認）
         is_loaded = False
-        for attempt in range(3):  # 3回チェックして安定性を確保
+        for _attempt in range(3):  # 3回チェックして安定性を確保
             image_state = page.evaluate(f"""
                 () => {{
                     const img = document.querySelector('img[alt="{graph_type}"]');
@@ -179,7 +179,6 @@ def test_all_images_display_correctly(page, host, port):
                     }};
                 }}
             """)
-            logging.info("%s (attempt %d): %s", graph_type, attempt + 1, image_state)
             is_loaded = image_state.get("loaded", False)
             if is_loaded:
                 break
@@ -187,16 +186,10 @@ def test_all_images_display_correctly(page, host, port):
 
         if is_loaded:
             loaded_images += 1
-            logging.info("%s は読み込み完了", graph_type)
-        else:
-            logging.warning("%s は読み込み未完了", graph_type)
 
         # 画像が表示されているかチェック
         if image_locator.is_visible():
             visible_images += 1
-            logging.info("%s は表示されています", graph_type)
-        else:
-            logging.warning("%s は非表示です", graph_type)
 
     # 全ての画像が読み込まれていることを確認
     assert loaded_images == 6, f"読み込まれた画像数が不十分: {loaded_images}/6"  # noqa: S101
