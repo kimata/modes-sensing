@@ -200,7 +200,12 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   }
 
   const handleImageError = (key: string, title: string) => {
+    const img = imageRefs.current[key]
     console.log(`[handleImageError] ${key}: image error occurred`)
+    console.log(`[handleImageError] ${key}: img.src = ${img?.src}`)
+    console.log(`[handleImageError] ${key}: img.complete = ${img?.complete}`)
+    console.log(`[handleImageError] ${key}: img.naturalWidth = ${img?.naturalWidth}`)
+
     if (loadingTimers[key]) {
       clearTimeout(loadingTimers[key])
       setLoadingTimers(prev => {
@@ -252,7 +257,11 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
         setLoadingTimers(prev => ({ ...prev, [key]: newTimer }))
       }
     } else {
+      const img = imageRefs.current[key]
       console.log(`[retryImageLoad] ${key}: max retry count reached (${actualRetryCount}), giving up`)
+      console.log(`[retryImageLoad] ${key}: final state - img.src = ${img?.src}`)
+      console.log(`[retryImageLoad] ${key}: final state - img.complete = ${img?.complete}`)
+      console.log(`[retryImageLoad] ${key}: final state - img.naturalWidth = ${img?.naturalWidth}`)
       setLoading(prev => ({ ...prev, [key]: false }))
       setErrors(prev => ({ ...prev, [key]: `画像の読み込みに失敗しました（${(MAX_RETRY_COUNT + 1) * IMAGE_LOAD_TIMEOUT / 1000}秒でタイムアウト）` }))
     }
