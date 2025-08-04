@@ -210,6 +210,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   // 画像の再読み込みを行う
   const retryImageLoad = (key: string) => {
     const currentRetryCount = retryCount[key] || 0
+    console.log(`[retryImageLoad] ${key}: retry count = ${currentRetryCount}`)
 
     // 最大2回までリトライ（計3回試行：初回 + リトライ2回）
     if (currentRetryCount < MAX_RETRY_COUNT) {
@@ -232,6 +233,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
         // 新しいタイムアウトタイマーを設定
         const newTimer = window.setTimeout(() => {
           const img = imageRefs.current[key]
+          console.log(`[Timeout check] ${key}: img exists=${!!img}, complete=${img?.complete}, naturalWidth=${img?.naturalWidth}`)
           if (!img || !img.complete || img.naturalWidth === 0) {
             retryImageLoad(key)
           } else {
@@ -274,13 +276,14 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       // 各画像に対してタイムアウトタイマーを設定（画像要素の実際の状態をチェック）
       newTimers[key] = window.setTimeout(() => {
         const img = imageRefs.current[key]
+        console.log(`[Initial timeout check] ${key}: img exists=${!!img}, complete=${img?.complete}, naturalWidth=${img?.naturalWidth}`)
         if (!img || !img.complete || img.naturalWidth === 0) {
           retryImageLoad(key)
         } else {
           // 実際には読み込み完了していた場合
           handleImageLoad(key)
         }
-      }, 10000)
+      }, IMAGE_LOAD_TIMEOUT)
     })
 
     // 状態を一括更新
