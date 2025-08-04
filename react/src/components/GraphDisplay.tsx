@@ -46,9 +46,27 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   const [loading, setLoading] = useState<{ [key: string]: boolean }>(initialLoading)
   const [errors, setErrors] = useState<{ [key: string]: string }>(initialErrors)
   const [imageUrls, setImageUrls] = useState<{ [key: string]: string }>(initialImageUrls)
-  const [imageVersion, setImageVersion] = useState(0) // 画像の更新を強制するためのバージョン
-  const [retryCount, setRetryCount] = useState<{ [key: string]: number }>({}) // リトライ回数
-  const [loadingTimers, setLoadingTimers] = useState<{ [key: string]: number }>({}) // タイムアウトタイマー
+  const [imageVersion, setImageVersion] = useState(0)
+  const [retryCount, setRetryCount] = useState<{ [key: string]: number }>({})
+  const [loadingTimers, setLoadingTimers] = useState<{ [key: string]: number }>({})
+  const imageRefs = useRef<{ [key: string]: HTMLImageElement | null }>({})
+
+  // 画像要素の実際の読み込み状態をチェックする関数
+  const checkImageLoadingState = (key: string): boolean => {
+    const img = imageRefs.current[key]
+    return img ? (img.complete && img.naturalWidth > 0) : false
+  }
+
+  // 全画像の状態を定期的にチェックして、onLoadイベント消失を補完
+  const checkAllImagesStatus = () => {
+    graphs.forEach(graph => {
+      const key = graph.endpoint
+      if (loading[key] && checkImageLoadingState(key)) {
+        // 実際には読み込み完了しているのにloadingがtrueの場合
+        handleImageLoad(key)
+      }
+    })
+  }
   const notificationRef = useRef<HTMLDivElement>(null)
 
   const formatDateForAPI = (date: Date): string => {
@@ -154,24 +172,25 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     }
   }
 
-  // 画像の読み込み状態を管理
+  // 画像の読み込み状態を管理（Refベース）
   const handleImageLoad = (key: string) => {
-    // タイマーをクリア
-    if (loadingTimers[key]) {
-      clearTimeout(loadingTimers[key])
-      setLoadingTimers(prev => {
-        const newTimers = { ...prev }
-        delete newTimers[key]
-        return newTimers
-      })
+    const img = imageRefs.current[key]
+    if (img && img.complete && img.naturalWidth > 0) {
+      // タイマーをクリア
+      if (loadingTimers[key]) {
+        clearTimeout(loadingTimers[key])
+        setLoadingTimers(prev => {
+          const newTimers = { ...prev }
+          delete newTimers[key]
+          return newTimers
+        })
+      }
+      setLoading(prev => ({ ...prev, [key]: false }))
+      setRetryCount(prev => ({ ...prev, [key]: 0 }))
     }
-    setLoading(prev => ({ ...prev, [key]: false }))
-    // リトライ回数をリセット
-    setRetryCount(prev => ({ ...prev, [key]: 0 }))
   }
 
   const handleImageError = (key: string, title: string) => {
-    // タイマーをクリア
     if (loadingTimers[key]) {
       clearTimeout(loadingTimers[key])
       setLoadingTimers(prev => {
@@ -208,7 +227,12 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
 
         // 新しいタイムアウトタイマーを設定
         const newTimer = window.setTimeout(() => {
-          retryImageLoad(key)
+          const img = imageRefs.current[key]
+          if (!img || !img.complete || img.naturalWidth === 0) {
+            retryImageLoad(key)
+          } else {
+            handleImageLoad(key)
+          }
         }, 10000)
 
         setLoadingTimers(prev => ({ ...prev, [key]: newTimer }))
@@ -243,9 +267,15 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       newLoadingState[key] = true
       newErrorState[key] = ''
 
-      // 各画像に対してタイムアウトタイマーを設定
+      // 各画像に対してタイムアウトタイマーを設定（画像要素の実際の状態をチェック）
       newTimers[key] = window.setTimeout(() => {
-        retryImageLoad(key)
+        const img = imageRefs.current[key]
+        if (!img || !img.complete || img.naturalWidth === 0) {
+          retryImageLoad(key)
+        } else {
+          // 実際には読み込み完了していた場合
+          handleImageLoad(key)
+        }
       }, 10000)
     })
 
@@ -256,9 +286,15 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     setRetryCount({})
     setLoadingTimers(newTimers)
 
+    // 定期的な画像状態チェックを開始（onLoadイベント消失を補完）
+    const statusCheckInterval = setInterval(() => {
+      checkAllImagesStatus()
+    }, 1000) // 1秒ごとにチェック
+
     // クリーンアップ関数
     return () => {
       Object.values(newTimers).forEach(timer => clearTimeout(timer))
+      clearInterval(statusCheckInterval)
     }
   }, [dateRange])
 
@@ -335,17 +371,17 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
                     {imageUrl && (
                       <figure className="image" style={{ display: isLoading ? 'none' : 'block' }}>
                         <img
+                          ref={(el) => { imageRefs.current[key] = el }}
                           src={imageUrl}
                           alt={graph.title}
                           style={{
-                            width: '100%',     // card-contentの幅に合わせる
-                            height: 'auto',    // アスペクト比を保持
+                            width: '100%',
+                            height: 'auto',
                             cursor: 'pointer'
                           }}
                           onClick={() => onImageClick(imageUrl)}
                           onLoad={() => handleImageLoad(key)}
                           onError={() => handleImageError(key, graph.title)}
-                          key={imageUrl} // URLが変わると画像を再読み込み
                         />
                       </figure>
                     )}
