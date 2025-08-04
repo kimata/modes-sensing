@@ -406,7 +406,7 @@ def plot_contour_2d(data, figsize):
         alpha=0.9,
     )
 
-    ax.clabel(contour, inline=True, fontsize=CONTOUR_SIZE, fmt="%d°C")
+    ax.clabel(contour, inline=True, fontsize=CONTOUR_SIZE, fmt="%d℃")
 
     set_axis_2d_default(
         ax,
