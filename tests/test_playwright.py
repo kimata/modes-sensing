@@ -359,17 +359,14 @@ def test_image_modal_functionality(page, host, port):
     # 画像の読み込み完了まで待機
     wait_for_images_to_load(page, expected_count=6, timeout=30000)
 
-    # 表示されている最初の画像を見つけてクリック
+    # 最初の画像をクリック（全ての画像が表示されることを前提）
     first_image = page.locator(
         'img[alt*="散布図"], img[alt*="等高線"], img[alt*="密度"], img[alt*="ヒートマップ"]'
     ).first
 
-    # 画像が表示されている場合のみクリック
-    if first_image.is_visible():
-        first_image.click()
-    else:
-        # 画像が非表示の場合はforce clickを使用
-        first_image.click(force=True)
+    # 画像が表示されていることを確認してからクリック
+    expect(first_image).to_be_visible(timeout=10000)
+    first_image.click()
 
     # モーダルが表示されることを確認
     modal = page.locator(".modal")
