@@ -352,13 +352,34 @@ def test_image_modal_functionality(page, host, port):
     # 画像の読み込み完了まで待機
     wait_for_images_to_load(page, expected_count=6, timeout=30000)
 
-    # 最初の画像をクリック（全ての画像が表示されることを前提）
+    # 画像が実際に表示状態になるまで待機（isLoadingがfalseになるまで）
+    page.wait_for_function(
+        """
+        () => {
+            const images = document.querySelectorAll(
+                'img[alt*="散布図"], img[alt*="等高線"], img[alt*="密度"], img[alt*="ヒートマップ"]'
+            );
+            if (images.length === 0) return false;
+
+            // 最初の画像が表示されているかチェック
+            const firstImage = images[0];
+            const figure = firstImage.closest('figure');
+            if (!figure) return false;
+
+            const computedStyle = window.getComputedStyle(figure);
+            return computedStyle.display !== 'none' && firstImage.complete && firstImage.naturalWidth > 0;
+        }
+        """,
+        timeout=60000,
+    )
+
+    # 最初の画像をクリック
     first_image = page.locator(
         'img[alt*="散布図"], img[alt*="等高線"], img[alt*="密度"], img[alt*="ヒートマップ"]'
     ).first
 
-    # 画像が表示されていることを確認してからクリック
-    expect(first_image).to_be_visible(timeout=10000)
+    # 最終確認：画像が表示されていることを確認してからクリック
+    expect(first_image).to_be_visible(timeout=5000)
     first_image.click()
 
     # モーダルが表示されることを確認
