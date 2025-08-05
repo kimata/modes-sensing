@@ -24,7 +24,7 @@ const graphs: GraphInfo[] = [
   { endpoint: '/modes-sensing/api/graph/contour_2d', title: '2D等高線プロット', filename: 'contour.png' },
   { endpoint: '/modes-sensing/api/graph/density', title: '密度プロット', filename: 'density.png' },
   { endpoint: '/modes-sensing/api/graph/heatmap', title: 'ヒートマップ', filename: 'heatmap.png' },
-  { endpoint: '/modes-sensing/api/graph/temperature_timeseries', title: '高度別温度時系列', filename: 'temperature_timeseries.png' },
+  { endpoint: '/modes-sensing/api/graph/temperature', title: '高度別温度時系列', filename: 'temperature.png' },
   { endpoint: '/modes-sensing/api/graph/scatter_3d', title: '3D散布図', filename: 'scatter_3d.png' },
   { endpoint: '/modes-sensing/api/graph/contour_3d', title: '3D等高線プロット', filename: 'contour_3d.png' }
 ]
