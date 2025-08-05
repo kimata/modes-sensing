@@ -43,6 +43,102 @@ def app_url(host, port):
     return APP_URL_TMPL.format(host=host, port=port)
 
 
+def wait_for_all_images_individually(page, timeout=30000):
+    """各画像を個別に待機する、よりシンプルなアプローチ"""
+    # まず、全ての画像要素が存在することを確認
+    all_images = page.evaluate("""
+        () => {
+            const images = document.querySelectorAll('img[alt]');
+            return Array.from(images).map(img => ({
+                alt: img.alt,
+                src: img.src,
+                complete: img.complete,
+                naturalWidth: img.naturalWidth,
+                display: window.getComputedStyle(img).display
+            }));
+        }
+    """)
+
+    logging.info("Found %d images on page: %s", len(all_images), all_images)
+
+    # 期待される画像のリスト
+    expected_titles = [
+        "2D散布図",
+        "2D等高線プロット",
+        "密度プロット",
+        "ヒートマップ",
+        "高度別温度時系列",
+        "3D散布図",
+        "3D等高線プロット",
+    ]
+
+    # 画像が7つ存在するまで待機
+    page.wait_for_function(
+        """
+        () => {
+            const images = document.querySelectorAll('img[alt]');
+            return images.length >= 7;
+        }
+        """,
+        timeout=30000,
+    )
+
+    # 各画像の読み込みを確認
+    for title in expected_titles:
+        loaded = page.evaluate(f"""
+            () => {{
+                const img = document.querySelector('img[alt="{title}"]');
+                if (!img) return {{ found: false, title: "{title}" }};
+                return {{
+                    found: true,
+                    title: "{title}",
+                    loaded: img.complete && img.naturalWidth > 0,
+                    src: img.src
+                }};
+            }}
+        """)
+
+        if not loaded["found"]:
+            logging.error("%s: Image element not found in DOM", title)
+            # DOMに存在しない場合は、少し待ってから再試行
+            time.sleep(2)
+            loaded = page.evaluate(f"""
+                () => {{
+                    const img = document.querySelector('img[alt="{title}"]');
+                    if (!img) return {{ found: false, title: "{title}" }};
+                    return {{
+                        found: true,
+                        title: "{title}",
+                        loaded: img.complete && img.naturalWidth > 0,
+                        src: img.src
+                    }};
+                }}
+            """)
+
+        if loaded["found"] and loaded["loaded"]:
+            logging.info("%s: Already loaded", title)
+        elif loaded["found"]:
+            logging.info("%s: Found but not loaded, waiting...", title)
+            # 画像が読み込まれるまで待機
+            try:
+                page.wait_for_function(
+                    f"""
+                    () => {{
+                        const img = document.querySelector('img[alt="{title}"]');
+                        return img && img.complete && img.naturalWidth > 0;
+                    }}
+                    """,
+                    timeout=timeout,
+                )
+                logging.info("%s: Loaded successfully", title)
+            except Exception as e:
+                logging.error("%s: Failed to load - %s", title, e)  # noqa: TRY400
+                raise
+        else:
+            logging.error("%s: Not found in DOM even after retry", title)
+            raise Exception(f"{title} not found in DOM")  # noqa: TRY002, TRY003, EM102
+
+
 def wait_for_images_to_load(page, expected_count=7, timeout=120000):
     """指定された数の画像が読み込まれるまで待機"""
     try:
@@ -83,7 +179,18 @@ def wait_for_images_to_load(page, expected_count=7, timeout=120000):
                     return consecutiveChecks >= 3;
                 }} else {{
                     window.consecutiveLoadedChecks = 0;
-                    console.log(`Loaded ${{loadedCount}}/{expected_count} images`);
+                    // どの画像が読み込まれていないかを特定
+                    const imageStatus = [];
+                    images.forEach(img => {{
+                        imageStatus.push({{
+                            alt: img.alt,
+                            loaded: img.complete && img.naturalWidth > 0
+                        }});
+                    }});
+                    console.log(
+                        `Loaded ${{loadedCount}}/{expected_count} images`,
+                        JSON.stringify(imageStatus)
+                    );
                     return false;
                 }}
             }}
@@ -135,7 +242,7 @@ def test_page_loads_correctly(page, host, port):
     expect(page.locator("#graph h2")).to_contain_text("グラフ")
 
 
-def test_all_images_display_correctly(page, host, port):
+def test_all_images_display_correctly(page, host, port):  # noqa: C901
     """全ての画像が正常に表示されることをテスト"""
     page.goto(app_url(host, port))
 
@@ -162,7 +269,55 @@ def test_all_images_display_correctly(page, host, port):
     """)
     logging.info("Debug - contour_2d image state: %s", contour_2d_debug)
 
-    wait_for_images_to_load(page, expected_count=7, timeout=180000)
+    # 各画像を個別に確認する簡単なアプローチ
+    expected_images = [
+        "2D散布図",
+        "2D等高線プロット",
+        "密度プロット",
+        "ヒートマップ",
+        "高度別温度時系列",
+        "3D散布図",
+        "3D等高線プロット",
+    ]
+
+    # 各画像が DOM に存在することを確認
+    for title in expected_images:
+        try:
+            page.wait_for_selector(f'img[alt="{title}"]', timeout=30000)
+            logging.info("%s: Element found in DOM", title)
+        except Exception as e:  # noqa: PERF203
+            logging.error("%s: Element not found in DOM: %s", title, e)  # noqa: TRY400
+            raise
+
+    # 各画像が読み込まれることを確認
+    for title in expected_images:
+        try:
+            page.wait_for_function(
+                f"""
+                () => {{
+                    const img = document.querySelector('img[alt="{title}"]');
+                    return img && img.complete && img.naturalWidth > 0;
+                }}
+                """,
+                timeout=60000,
+            )
+            logging.info("%s: Successfully loaded", title)
+        except Exception as e:  # noqa: PERF203
+            logging.error("%s: Failed to load: %s", title, e)  # noqa: TRY400
+            # 失敗時の画像状態をログ出力
+            img_state = page.evaluate(f"""
+                () => {{
+                    const img = document.querySelector('img[alt="{title}"]');
+                    if (!img) return null;
+                    return {{
+                        complete: img.complete,
+                        naturalWidth: img.naturalWidth,
+                        src: img.src.substring(0, 100)
+                    }};
+                }}
+            """)
+            logging.error("%s: Image state at failure: %s", title, img_state)  # noqa: TRY400
+            raise
 
     # CI環境でcontour_2dが読み込まれない問題への追加対策
     # contour_2dが読み込まれていない場合、追加で待機
