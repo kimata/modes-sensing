@@ -60,7 +60,20 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   // 画像要素の実際の読み込み状態をチェックする関数
   const checkImageLoadingState = (key: string): boolean => {
     const img = imageRefs.current[key]
-    return img ? (img.complete && img.naturalWidth > 0) : false
+    if (!img || !img.src) return false
+
+    // 画像が読み込まれた場合
+    if (img.complete && img.naturalWidth > 0) {
+      return true
+    }
+
+    // エラー状態の場合（complete=trueだがnaturalWidth=0）
+    if (img.complete && img.naturalWidth === 0) {
+      console.log(`[checkImageLoadingState] ${key}: Error state detected - complete=true but naturalWidth=0`)
+      return false
+    }
+
+    return false
   }
 
   // 状態更新の排他制御用フラグ
@@ -327,10 +340,19 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
         const newTimer = window.setTimeout(() => {
           const img = imageRefs.current[key]
           console.log(`[Timeout check] ${key}: img exists=${!!img}, complete=${img?.complete}, naturalWidth=${img?.naturalWidth}`)
-          if (!img || !img.complete || img.naturalWidth === 0) {
+
+          if (!img || !img.src) {
+            console.log(`[Timeout check] ${key}: Image element or src missing`)
             retryImageLoad(key, nextRetryCount)
-          } else {
+          } else if (img.complete && img.naturalWidth > 0) {
+            console.log(`[Timeout check] ${key}: Image loaded successfully`)
             handleImageLoad(key)
+          } else if (img.complete && img.naturalWidth === 0) {
+            console.log(`[Timeout check] ${key}: Error state detected`)
+            handleImageError(key, graph.title)
+          } else {
+            console.log(`[Timeout check] ${key}: Still loading, continuing retry`)
+            retryImageLoad(key, nextRetryCount)
           }
         }, IMAGE_LOAD_TIMEOUT)
 
@@ -376,11 +398,22 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       newTimers[key] = window.setTimeout(() => {
         const img = imageRefs.current[key]
         console.log(`[Initial timeout check] ${key}: img exists=${!!img}, complete=${img?.complete}, naturalWidth=${img?.naturalWidth}`)
-        if (!img || !img.complete || img.naturalWidth === 0) {
-          retryImageLoad(key, 0)  // 初回は0からスタート
-        } else {
+
+        if (!img || !img.src) {
+          console.log(`[Initial timeout check] ${key}: Image element or src missing`)
+          retryImageLoad(key, 0)
+        } else if (img.complete && img.naturalWidth > 0) {
           // 実際には読み込み完了していた場合
+          console.log(`[Initial timeout check] ${key}: Image already loaded, calling handleImageLoad`)
           handleImageLoad(key)
+        } else if (img.complete && img.naturalWidth === 0) {
+          // エラー状態の検出
+          console.log(`[Initial timeout check] ${key}: Error state detected, calling handleImageError`)
+          handleImageError(key, graph.title)
+        } else {
+          // まだ読み込み中
+          console.log(`[Initial timeout check] ${key}: Still loading, retrying`)
+          retryImageLoad(key, 0)
         }
       }, IMAGE_LOAD_TIMEOUT)
     })
