@@ -21,7 +21,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
   const [customEnd, setCustomEnd] = useState(formatDateForInput(endDate))
   const [hasChanges, setHasChanges] = useState(false)
   const [focusedField, setFocusedField] = useState<'start' | 'end' | null>(null)
-  const [selectedPeriod, setSelectedPeriod] = useState<'1day' | '7days' | '30days' | 'custom'>('7days')
+  const [selectedPeriod, setSelectedPeriod] = useState<'1day' | '7days' | '30days' | '180days' | '365days' | 'custom'>('7days')
   const notificationRef = useRef<HTMLDivElement>(null)
 
   // propsが変更されたときに入力フィールドを更新
@@ -54,6 +54,10 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
         setSelectedPeriod('7days')
       } else if (Math.abs(diffDays - 30) < 0.5) {
         setSelectedPeriod('30days')
+      } else if (Math.abs(diffDays - 180) < 1) {
+        setSelectedPeriod('180days')
+      } else if (Math.abs(diffDays - 365) < 2) {
+        setSelectedPeriod('365days')
       } else {
         setSelectedPeriod('custom')
       }
@@ -130,7 +134,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
     }
   }
 
-  const handleQuickSelect = (days: number, period: '1day' | '7days' | '30days') => {
+  const handleQuickSelect = (days: number, period: '1day' | '7days' | '30days' | '180days' | '365days') => {
     const end = new Date()
     end.setSeconds(0, 0) // 秒とミリ秒を0に設定
     const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000)
@@ -199,7 +203,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
 
       <div className="field">
         <label className="label">クイック選択</label>
-        <div className="field is-grouped">
+        <div className="field is-grouped is-grouped-multiline">
           <div className="control">
             <button
               className={`button is-small ${selectedPeriod === '1day' ? 'is-primary' : 'is-light'}`}
@@ -222,6 +226,22 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
               onClick={() => handleQuickSelect(30, '30days')}
             >
               過去1ヶ月間
+            </button>
+          </div>
+          <div className="control">
+            <button
+              className={`button is-small ${selectedPeriod === '180days' ? 'is-primary' : 'is-light'}`}
+              onClick={() => handleQuickSelect(180, '180days')}
+            >
+              過去半年
+            </button>
+          </div>
+          <div className="control">
+            <button
+              className={`button is-small ${selectedPeriod === '365days' ? 'is-primary' : 'is-light'}`}
+              onClick={() => handleQuickSelect(365, '365days')}
+            >
+              過去1年
             </button>
           </div>
           <div className="control">

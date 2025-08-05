@@ -461,6 +461,8 @@ def test_period_selection_buttons(page_init, host, port):
         ("過去24時間", "button >> text='過去24時間'"),
         ("過去7日間", "button >> text='過去7日間'"),
         ("過去1ヶ月間", "button >> text='過去1ヶ月間'"),
+        ("過去半年", "button >> text='過去半年'"),
+        ("過去1年", "button >> text='過去1年'"),
     ]
 
     for period_name, button_selector in period_buttons:
