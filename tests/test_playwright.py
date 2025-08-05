@@ -68,16 +68,17 @@ def wait_for_all_images_individually(page, timeout=30000):
         "密度プロット",
         "ヒートマップ",
         "高度別温度時系列",
+        "風向・風速分布",
         "3D散布図",
         "3D等高線プロット",
     ]
 
-    # 画像が7つ存在するまで待機
+    # 画像が8つ存在するまで待機
     page.wait_for_function(
         """
         () => {
             const images = document.querySelectorAll('img[alt]');
-            return images.length >= 7;
+            return images.length >= 8;
         }
         """,
         timeout=30000,
@@ -139,7 +140,7 @@ def wait_for_all_images_individually(page, timeout=30000):
             raise Exception(f"{title} not found in DOM")  # noqa: TRY002, TRY003, EM102
 
 
-def wait_for_images_to_load(page, expected_count=7, timeout=120000):
+def wait_for_images_to_load(page, expected_count=8, timeout=120000):
     """指定された数の画像が読み込まれるまで待機"""
     try:
         # 複数回チェックして安定した状態になるまで待つ
@@ -152,6 +153,7 @@ def wait_for_images_to_load(page, expected_count=7, timeout=120000):
                     'img[alt="密度プロット"]',
                     'img[alt="ヒートマップ"]',
                     'img[alt="高度別温度時系列"]',
+                    'img[alt="風向・風速分布"]',
                     'img[alt="3D散布図"]',
                     'img[alt="3D等高線プロット"]'
                 ];
@@ -209,6 +211,7 @@ def wait_for_images_to_load(page, expected_count=7, timeout=120000):
                     'img[alt="密度プロット"]',
                     'img[alt="ヒートマップ"]',
                     'img[alt="高度別温度時系列"]',
+                    'img[alt="風向・風速分布"]',
                     'img[alt="3D散布図"]',
                     'img[alt="3D等高線プロット"]'
                 ];
@@ -408,10 +411,10 @@ def test_all_images_display_correctly(page, host, port):  # noqa: C901
             visible_images += 1
 
     # 全ての画像が読み込まれていることを確認
-    assert loaded_images == 7, f"読み込まれた画像数が不十分: {loaded_images}/7"  # noqa: S101
+    assert loaded_images == 8, f"読み込まれた画像数が不十分: {loaded_images}/8"  # noqa: S101
 
     # 全ての画像が表示されていることを確認
-    assert visible_images == 7, f"表示された画像数が不十分: {visible_images}/7"  # noqa: S101
+    assert visible_images == 8, f"表示された画像数が不十分: {visible_images}/8"  # noqa: S101
 
 
 def test_period_selection_buttons(page, host, port):
@@ -438,7 +441,7 @@ def test_period_selection_buttons(page, host, port):
 
         # 画像の再読み込み完了まで待機
         time.sleep(5)  # ボタンクリック後の処理完了を待つ
-        wait_for_images_to_load(page, expected_count=7, timeout=20000)
+        wait_for_images_to_load(page, expected_count=8, timeout=20000)
 
         # 少なくとも1つの画像要素が存在することを確認
         images = page.locator(
@@ -487,7 +490,7 @@ def test_custom_date_range(page, host, port):
 
     # 画像の読み込み完了まで待機
     time.sleep(5)
-    wait_for_images_to_load(page, expected_count=7, timeout=20000)
+    wait_for_images_to_load(page, expected_count=8, timeout=20000)
 
     # 画像要素が存在していることを確認
     images = page.locator(
@@ -531,7 +534,7 @@ def test_date_range_before_january_2025(page, host, port):
 
     # 画像要素またはエラーメッセージが表示されていることを確認
     # データがない場合はエラーメッセージ、ある場合は画像が表示される
-    wait_for_images_to_load(page, expected_count=7, timeout=30000)
+    wait_for_images_to_load(page, expected_count=8, timeout=30000)
 
     # 画像要素が作成されていることを確認（データがあってもなくても要素は作成される）
     images = page.locator(
@@ -566,7 +569,7 @@ def test_image_modal_functionality(page, host, port):
     page.goto(app_url(host, port))
 
     # 画像の読み込み完了まで待機
-    wait_for_images_to_load(page, expected_count=7, timeout=30000)
+    wait_for_images_to_load(page, expected_count=8, timeout=30000)
 
     # 画像が実際に表示状態になるまで待機（isLoadingがfalseになるまで）
     page.wait_for_function(

@@ -3,11 +3,11 @@
 ModeS のメッセージを解析し，上空の温度と風速を算出して出力します．
 
 Usage:
-  receiver.py [-c CONFIG] [-d]
+  receiver.py [-c CONFIG] [-D]
 
 Options:
   -c CONFIG         : CONFIG を設定ファイルとして読み込んで実行します．[default: config.yaml]
-  -d                : デバッグモードで動作します．
+  -D                : デバッグモードで動作します．
 """
 # 参考: https://www.ishikawa-lab.com/RasPi_ModeS.html
 
@@ -487,7 +487,7 @@ if __name__ == "__main__":
     args = docopt.docopt(__doc__)
 
     config_file = args["-c"]
-    debug_mode = args["-d"]
+    debug_mode = args["-D"]
 
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
