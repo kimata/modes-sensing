@@ -182,12 +182,6 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     const img = imageRefs.current[key]
     console.log(`[handleImageLoad] ${key}: img exists=${!!img}, complete=${img?.complete}, naturalWidth=${img?.naturalWidth}`)
 
-    // 既に読み込み完了している場合は重複処理を避ける
-    if (loading[key] === false) {
-      console.log(`[handleImageLoad] ${key}: already marked as loaded, skipping`)
-      return
-    }
-
     if (img && img.complete && img.naturalWidth > 0) {
       // タイマーをクリア
       if (loadingTimers[key]) {
@@ -200,7 +194,15 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
         })
       }
       console.log(`[handleImageLoad] ${key}: setting loading to false`)
-      setLoading(prev => ({ ...prev, [key]: false }))
+      // 更新時に既にfalseかチェック
+      setLoading(prev => {
+        if (prev[key] === false) {
+          console.log(`[handleImageLoad] ${key}: already false, skipping state update`)
+          return prev
+        }
+        console.log(`[handleImageLoad] ${key}: updating state from true to false`)
+        return { ...prev, [key]: false }
+      })
       setRetryCount(prev => ({ ...prev, [key]: 0 }))
     } else {
       console.log(`[handleImageLoad] ${key}: invalid image state, not marking as loaded`)
