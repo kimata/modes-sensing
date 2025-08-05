@@ -549,7 +549,7 @@ def plot_contour_3d(data, figsize):
     return (img, time.perf_counter() - start)
 
 
-def plot_temperature_timeseries(data, figsize):
+def plot_temperature(data, figsize):
     logging.info("Starting plot temperature timeseries")
 
     start = time.perf_counter()
@@ -628,7 +628,7 @@ def plot_temperature_timeseries(data, figsize):
     ax.xaxis.set_minor_locator(matplotlib.dates.HourLocator(interval=2))
 
     # Y軸の範囲設定
-    ax.set_ylim(TEMP_MIN, TEMP_MAX)
+    ax.set_ylim(-20, 30)
 
     # 凡例の追加
     ax.legend(loc="upper right", framealpha=0.9)
@@ -647,10 +647,10 @@ GRAPH_DEF_MAP = {
     "contour_3d": {"func": plot_contour_3d, "size": (2800, 2800), "file": "contour_3d.png"},
     "density": {"func": plot_density, "size": (2400, 1600), "file": "density.png"},
     "heatmap": {"func": plot_heatmap, "size": (2400, 1600), "file": "heatmap.png"},
-    "temperature_timeseries": {
-        "func": plot_temperature_timeseries,
+    "temperature": {
+        "func": plot_temperature,
         "size": (2400, 1600),
-        "file": "temperature_timeseries.png",
+        "file": "temperature.png",
     },
 }
 
