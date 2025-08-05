@@ -10,31 +10,39 @@ from playwright.sync_api import expect
 APP_URL_TMPL = "http://{host}:{port}/modes-sensing/"
 
 
-@pytest.fixture(autouse=True)
-def _page_init(page, host, port):
+@pytest.fixture
+def page_init(page, host, port):
+    """各テスト用のページ初期化（並列実行対応）"""
     wait_for_server_ready(host, port)
 
-    time.sleep(3)
+    # 並列実行時の競合を避けるため、短い待機時間に調整
+    time.sleep(1)
 
     page.on("console", lambda msg: print(msg.text))  # noqa: T201
     page.set_viewport_size({"width": 2400, "height": 1600})
 
+    return page
+
 
 def wait_for_server_ready(host, port):
+    """サーバーの起動を待機（並列実行対応）"""
     TIMEOUT_SEC = 60
 
     start_time = time.time()
     while time.time() - start_time < TIMEOUT_SEC:
         try:
-            res = requests.get(app_url(host, port))  # noqa: S113
+            res = requests.get(app_url(host, port), timeout=5)
             if res.ok:
                 logging.info("サーバが %.1f 秒後に起動しました。", time.time() - start_time)
-                # NOTE: ページのロードに時間がかかるので、少し待つ
-                time.sleep(15)
+                # 並列実行時は追加待機を短縮（初回起動後はサーバーは既に安定）
+                if time.time() - start_time < 5:  # 初回起動の場合のみ長めに待機
+                    time.sleep(10)
+                else:
+                    time.sleep(2)  # 既に起動済みの場合は短縮
                 return
         except Exception:  # noqa: S110
             pass
-        time.sleep(2)
+        time.sleep(1)  # チェック間隔を短縮
 
     raise RuntimeError(f"サーバーが {TIMEOUT_SEC}秒以内に起動しませんでした。")  # noqa: TRY003, EM102
 
@@ -229,8 +237,9 @@ def wait_for_images_to_load(page, expected_count=8, timeout=120000):
 
 
 ######################################################################
-def test_page_loads_correctly(page, host, port):
+def test_page_loads_correctly(page_init, host, port):
     """ページが正常に表示されることをテスト"""
+    page = page_init
     page.goto(app_url(host, port))
 
     # ページタイトルの確認
@@ -245,12 +254,13 @@ def test_page_loads_correctly(page, host, port):
     expect(page.locator("#graph h2")).to_contain_text("グラフ")
 
 
-def test_all_images_display_correctly(page, host, port):  # noqa: C901
+def test_all_images_display_correctly(page_init, host, port):  # noqa: C901, PLR0915
     """全ての画像が正常に表示されることをテスト"""
+    page = page_init
     page.goto(app_url(host, port))
 
-    # 画像APIリクエストが開始されるまで待機
-    time.sleep(5)
+    # 画像APIリクエストが開始されるまで待機（並列実行対応で短縮）
+    time.sleep(3)
 
     # より長いタイムアウトで全画像の読み込みを待機（2分から3分に延長）
     # CI環境での不安定性対策：特定の画像の状態をデバッグ
@@ -442,8 +452,9 @@ def test_all_images_display_correctly(page, host, port):  # noqa: C901
     assert visible_images == 8, f"表示された画像数が不十分: {visible_images}/8"  # noqa: S101
 
 
-def test_period_selection_buttons(page, host, port):
+def test_period_selection_buttons(page_init, host, port):
     """期間選択のボタンを押して画像が正常に表示できることをテスト"""
+    page = page_init
     page.goto(app_url(host, port))
 
     # 各期間選択ボタンをテスト
@@ -479,8 +490,9 @@ def test_period_selection_buttons(page, host, port):
         assert first_image_src and len(first_image_src) > 0, f"{period_name} の画像src属性が空です"  # noqa: S101, PT018
 
 
-def test_custom_date_range(page, host, port):
+def test_custom_date_range(page_init, host, port):
     """カスタムの区間を指定して、画像が正常に表示できることをテスト"""
+    page = page_init
     page.goto(app_url(host, port))
 
     # カスタムボタンをクリック
@@ -528,8 +540,9 @@ def test_custom_date_range(page, host, port):
     assert first_image_src and len(first_image_src) > 0, "カスタム期間の画像src属性が空です"  # noqa: S101, PT018
 
 
-def test_date_range_before_january_2025(page, host, port):
+def test_date_range_before_january_2025(page_init, host, port):
     """25年1月以前の区間(開始日時の方早くなるようにすること)を指定しても画像が表示されることをテスト"""
+    page = page_init
     page.goto(app_url(host, port))
 
     # カスタムボタンをクリック
@@ -589,8 +602,9 @@ def test_date_range_before_january_2025(page, host, port):
     expect(graph_header).to_contain_text("2024-12-31")
 
 
-def test_wind_direction_graph_display(page, host, port):
+def test_wind_direction_graph_display(page_init, host, port):
     """風向・風速分布グラフが正常に表示されることをテスト"""
+    page = page_init
     page.goto(app_url(host, port))
 
     # 風向グラフが表示されるまで待機
@@ -622,8 +636,9 @@ def test_wind_direction_graph_display(page, host, port):
     logging.info("Wind direction graph test passed successfully")
 
 
-def test_image_modal_functionality(page, host, port):
+def test_image_modal_functionality(page_init, host, port):
     """画像をクリックしてモーダルが正常に動作することをテスト"""
+    page = page_init
     page.goto(app_url(host, port))
 
     # 画像の読み込み完了まで待機

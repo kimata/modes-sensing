@@ -176,7 +176,7 @@ test-playwright:
             fi
 
         - >
-            uv run pytest tests/test_playwright.py
+            uv run pytest --numprocesses=auto tests/test_playwright.py
             --junit-xml=tests/evidence/playwright-junit.xml
     artifacts:
         when: always
@@ -281,7 +281,7 @@ test-playwright-docker:
 
         # Playwrightテストを実行（ホストからポート経由で接続）
         - >
-            uv run pytest --tracing on --output tests/evidence/playwright
+            uv run pytest --numprocesses=auto --tracing on --output tests/evidence/playwright
             --junit-xml=tests/evidence/playwright-docker-junit.xml
             tests/test_playwright.py --host ${APP_HOST} --port ${APP_PORT}
 
