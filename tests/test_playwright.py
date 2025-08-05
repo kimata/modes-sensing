@@ -279,43 +279,68 @@ def test_all_images_display_correctly(page, host, port):  # noqa: C901
         "密度プロット",
         "ヒートマップ",
         "高度別温度時系列",
+        "風向・風速分布",
         "3D散布図",
         "3D等高線プロット",
     ]
 
-    # 各画像が DOM に存在することを確認
+    # 各画像が表示状態になるまで待機（DOM存在 + 非hidden状態）
     for title in expected_images:
         try:
-            page.wait_for_selector(f'img[alt="{title}"]', timeout=30000)
-            logging.info("%s: Element found in DOM", title)
+            # 画像要素が存在し、かつ親要素が非表示でないことを確認
+            page.wait_for_function(
+                f"""
+                () => {{
+                    const img = document.querySelector('img[alt="{title}"]');
+                    if (!img) return false;
+
+                    const figure = img.closest('figure');
+                    if (!figure) return false;
+
+                    const style = window.getComputedStyle(figure);
+                    return style.display !== 'none';
+                }}
+                """,
+                timeout=60000,  # ローディング時間を考慮して60秒に延長
+            )
+            logging.info("%s: Element found and visible", title)
         except Exception as e:  # noqa: PERF203
-            logging.error("%s: Element not found in DOM: %s", title, e)  # noqa: TRY400
+            logging.error("%s: Element not found or not visible: %s", title, e)  # noqa: TRY400
             raise
 
-    # 各画像が読み込まれることを確認
+    # 各画像が読み込まれ、かつ表示されていることを確認
     for title in expected_images:
         try:
             page.wait_for_function(
                 f"""
                 () => {{
                     const img = document.querySelector('img[alt="{title}"]');
-                    return img && img.complete && img.naturalWidth > 0;
+                    if (!img || !img.complete || img.naturalWidth <= 0) return false;
+
+                    const figure = img.closest('figure');
+                    if (!figure) return false;
+
+                    const style = window.getComputedStyle(figure);
+                    return style.display !== 'none';
                 }}
                 """,
                 timeout=60000,
             )
-            logging.info("%s: Successfully loaded", title)
+            logging.info("%s: Successfully loaded and visible", title)
         except Exception as e:  # noqa: PERF203
-            logging.error("%s: Failed to load: %s", title, e)  # noqa: TRY400
-            # 失敗時の画像状態をログ出力
+            logging.error("%s: Failed to load or not visible: %s", title, e)  # noqa: TRY400
+            # 失敗時の画像とfigure状態をログ出力
             img_state = page.evaluate(f"""
                 () => {{
                     const img = document.querySelector('img[alt="{title}"]');
-                    if (!img) return null;
+                    if (!img) return {{ found: false }};
+                    const figure = img.closest('figure');
                     return {{
+                        found: true,
                         complete: img.complete,
                         naturalWidth: img.naturalWidth,
-                        src: img.src.substring(0, 100)
+                        src: img.src.substring(0, 100),
+                        figureDisplay: figure ? window.getComputedStyle(figure).display : 'no-figure'
                     }};
                 }}
             """)
@@ -562,6 +587,39 @@ def test_date_range_before_january_2025(page, host, port):
     graph_header = page.locator("#graph h2")
     expect(graph_header).to_contain_text("2024-12-01")
     expect(graph_header).to_contain_text("2024-12-31")
+
+
+def test_wind_direction_graph_display(page, host, port):
+    """風向・風速分布グラフが正常に表示されることをテスト"""
+    page.goto(app_url(host, port))
+
+    # 風向グラフが表示されるまで待機
+    page.wait_for_function(
+        """
+        () => {
+            const img = document.querySelector('img[alt="風向・風速分布"]');
+            if (!img || !img.complete || img.naturalWidth <= 0) return false;
+
+            const figure = img.closest('figure');
+            if (!figure) return false;
+
+            const style = window.getComputedStyle(figure);
+            return style.display !== 'none';
+        }
+        """,
+        timeout=60000,
+    )
+
+    # 風向グラフ要素の存在確認
+    wind_graph = page.locator('img[alt="風向・風速分布"]')
+    expect(wind_graph).to_be_attached()
+    expect(wind_graph).to_be_visible()
+
+    # src属性の確認（wind_directionエンドポイントを含むか）
+    src_attribute = wind_graph.get_attribute("src")
+    assert src_attribute and "wind_direction" in src_attribute, "風向グラフのsrc属性が正しくありません"  # noqa: S101, PT018
+
+    logging.info("Wind direction graph test passed successfully")
 
 
 def test_image_modal_functionality(page, host, port):
