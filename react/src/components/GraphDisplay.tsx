@@ -63,21 +63,49 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     return img ? (img.complete && img.naturalWidth > 0) : false
   }
 
+  // 状態更新の排他制御用フラグ
+  const isUpdatingStateRef = useRef(false)
+
   // 全画像の状態を定期的にチェックして、onLoadイベント消失を補完
   const checkAllImagesStatus = () => {
+    // 状態更新中は重複実行を防ぐ
+    if (isUpdatingStateRef.current) {
+      return
+    }
+
+    const updatesNeeded: string[] = []
+
     graphs.forEach(graph => {
       const key = graph.endpoint
       // loading状態かつ実際には読み込み完了している場合のみ処理
       if (loading[key] && checkImageLoadingState(key)) {
         console.log(`[checkAllImagesStatus] ${key}: detected loaded image with loading=true, fixing state`)
-        // 即座に状態を更新
-        setLoading(prev => {
-          if (prev[key] === false) return prev // 既にfalseなら変更なし
-          return { ...prev, [key]: false }
-        })
-        setRetryCount(prev => ({ ...prev, [key]: 0 }))
+        updatesNeeded.push(key)
       }
     })
+
+    // 一括で状態更新（競合回避）
+    if (updatesNeeded.length > 0) {
+      isUpdatingStateRef.current = true
+      setLoading(prev => {
+        const newLoading = { ...prev }
+        updatesNeeded.forEach(key => {
+          newLoading[key] = false
+        })
+        return newLoading
+      })
+      setRetryCount(prev => {
+        const newRetryCount = { ...prev }
+        updatesNeeded.forEach(key => {
+          newRetryCount[key] = 0
+        })
+        return newRetryCount
+      })
+      // 状態更新完了後にフラグをリセット
+      setTimeout(() => {
+        isUpdatingStateRef.current = false
+      }, 0)
+    }
   }
   const notificationRef = useRef<HTMLDivElement>(null)
 
@@ -184,12 +212,19 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     }
   }
 
-  // 画像の読み込み状態を管理（シンプル化）
+  // 画像の読み込み状態を管理（排他制御付き）
   const handleImageLoad = (key: string) => {
+    // 状態更新中は重複実行を防ぐ
+    if (isUpdatingStateRef.current) {
+      return
+    }
+
     const img = imageRefs.current[key]
     console.log(`[handleImageLoad] ${key}: img exists=${!!img}, complete=${img?.complete}, naturalWidth=${img?.naturalWidth}`)
 
     if (img && img.complete && img.naturalWidth > 0) {
+      isUpdatingStateRef.current = true
+
       // タイマーをクリア
       if (loadingTimers[key]) {
         console.log(`[handleImageLoad] ${key}: clearing timeout timer`)
@@ -205,17 +240,29 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       // バッチ処理で一度に状態を更新
       setLoading(prev => ({ ...prev, [key]: false }))
       setRetryCount(prev => ({ ...prev, [key]: 0 }))
+
+      // 状態更新完了後にフラグをリセット
+      setTimeout(() => {
+        isUpdatingStateRef.current = false
+      }, 0)
     } else {
       console.log(`[handleImageLoad] ${key}: invalid image state, not marking as loaded`)
     }
   }
 
   const handleImageError = (key: string, title: string) => {
+    // 状態更新中は重複実行を防ぐ
+    if (isUpdatingStateRef.current) {
+      return
+    }
+
     const img = imageRefs.current[key]
     console.log(`[handleImageError] ${key}: image error occurred`)
     console.log(`[handleImageError] ${key}: img.src = ${img?.src}`)
     console.log(`[handleImageError] ${key}: img.complete = ${img?.complete}`)
     console.log(`[handleImageError] ${key}: img.naturalWidth = ${img?.naturalWidth}`)
+
+    isUpdatingStateRef.current = true
 
     if (loadingTimers[key]) {
       clearTimeout(loadingTimers[key])
@@ -227,6 +274,11 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     }
     setLoading(prev => ({ ...prev, [key]: false }))
     setErrors(prev => ({ ...prev, [key]: `${title}の読み込みに失敗しました` }))
+
+    // 状態更新完了後にフラグをリセット
+    setTimeout(() => {
+      isUpdatingStateRef.current = false
+    }, 0)
   }
 
   // 画像の再読み込みを行う
@@ -326,7 +378,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     // 定期的な画像状態チェックを開始（onLoadイベント消失を補完）
     const statusCheckInterval = setInterval(() => {
       checkAllImagesStatus()
-    }, 500) // 0.5秒ごとにチェック（より頻繁に）
+    }, 1000) // 1秒ごとにチェック（負荷軽減のため間隔を調整）
 
     // クリーンアップ関数
     return () => {
