@@ -257,21 +257,34 @@ def is_outlier_data(temperature, altitude, callsign=None):
         predicted_temp = regression_model.predict([[altitude]])[0]
 
         # 判定結果をログ出力（形式統一）
-        status = "外れ値検出" if is_outlier else "正常値判定"
-        logging.info(
-            "%s: callsign=%s, altitude=%.1fm, temperature=%.1f°C, "
-            "predicted_temp=%.1f°C, residual=%.1f°C, anomaly_score=%.3f, path_length=%.3f "
-            "(anomaly_score > 0: 正常傾向, path_length > 0.5: 正常傾向)",
-            status,
-            callsign or "Unknown",
-            altitude,
-            temperature,
-            predicted_temp,
-            new_residual,
-            anomaly_score,
-            path_length,
-        )
-
+        if is_outlier:
+            logging.warning(
+                "%s: callsign=%s, altitude=%.1fm, temperature=%.1f°C, "
+                "predicted_temp=%.1f°C, residual=%.1f°C, anomaly_score=%.3f, path_length=%.3f "
+                "(anomaly_score > 0: 正常傾向, path_length > 0.5: 正常傾向)",
+                "外れ値検出",
+                callsign or "Unknown",
+                altitude,
+                temperature,
+                predicted_temp,
+                new_residual,
+                anomaly_score,
+                path_length,
+            )
+        else:
+            logging.info(
+                "%s: callsign=%s, altitude=%.1fm, temperature=%.1f°C, "
+                "predicted_temp=%.1f°C, residual=%.1f°C, anomaly_score=%.3f, path_length=%.3f "
+                "(anomaly_score > 0: 正常傾向, path_length > 0.5: 正常傾向)",
+                "正常値判定",
+                callsign or "Unknown",
+                altitude,
+                temperature,
+                predicted_temp,
+                new_residual,
+                anomaly_score,
+                path_length,
+            )
         return is_outlier
 
     except Exception as e:
