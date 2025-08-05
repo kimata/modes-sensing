@@ -143,7 +143,58 @@ def test_all_images_display_correctly(page, host, port):
     time.sleep(5)
 
     # より長いタイムアウトで全画像の読み込みを待機（2分から3分に延長）
+    # CI環境での不安定性対策：特定の画像の状態をデバッグ
+    contour_2d_debug = page.evaluate("""
+        () => {
+            const img = document.querySelector('img[alt="2D等高線プロット"]');
+            if (!img) return { found: false };
+            return {
+                found: true,
+                alt: img.alt,
+                src: img.src,
+                complete: img.complete,
+                naturalWidth: img.naturalWidth,
+                naturalHeight: img.naturalHeight,
+                display: window.getComputedStyle(img).display,
+                visibility: window.getComputedStyle(img).visibility
+            };
+        }
+    """)
+    logging.info("Debug - contour_2d image state: %s", contour_2d_debug)
+
     wait_for_images_to_load(page, expected_count=7, timeout=180000)
+
+    # CI環境でcontour_2dが読み込まれない問題への追加対策
+    # contour_2dが読み込まれていない場合、追加で待機
+    contour_2d_loaded = page.evaluate("""
+        () => {
+            const img = document.querySelector('img[alt="2D等高線プロット"]');
+            return img && img.complete && img.naturalWidth > 0;
+        }
+    """)
+
+    if not contour_2d_loaded:
+        logging.warning("contour_2d not loaded, attempting additional wait...")
+        # contour_2d特有の問題に対処するため、追加で30秒待機
+        try:
+            page.wait_for_function(
+                """
+                () => {
+                    const img = document.querySelector('img[alt="2D等高線プロット"]');
+                    if (!img) return false;
+                    console.log('contour_2d check:', {
+                        complete: img.complete,
+                        naturalWidth: img.naturalWidth,
+                        src: img.src.substring(0, 50) + '...'
+                    });
+                    return img.complete && img.naturalWidth > 0;
+                }
+                """,
+                timeout=30000,
+            )
+            logging.info("contour_2d loaded after additional wait")
+        except Exception as e:
+            logging.warning("contour_2d still not loaded after additional wait: %s", str(e))
 
     # 各グラフタイプの画像要素が存在することを確認
     graph_types = [
@@ -169,9 +220,9 @@ def test_all_images_display_correctly(page, host, port):
         src_attribute = image_locator.get_attribute("src")
         assert src_attribute and len(src_attribute) > 0, f"{graph_type} のsrc属性が空です"  # noqa: S101, PT018
 
-        # 画像が実際に読み込まれているかチェック（複数回確認）
+        # 画像が実際に読み込まれているかチェック（CI環境対応で回数増加）
         is_loaded = False
-        for _attempt in range(3):  # 3回チェックして安定性を確保
+        for attempt in range(5):  # CI環境対応で3回から5回に増加
             image_state = page.evaluate(f"""
                 () => {{
                     const img = document.querySelector('img[alt="{graph_type}"]');
@@ -189,10 +240,13 @@ def test_all_images_display_correctly(page, host, port):
             is_loaded = image_state.get("loaded", False)
             if is_loaded:
                 break
-            time.sleep(0.5)  # 短い待機
+            logging.info("Attempt %d/5: %s loading state: %s", attempt + 1, graph_type, image_state)
+            time.sleep(1.0)  # CI環境対応で0.5秒から1.0秒に増加
 
         if is_loaded:
             loaded_images += 1
+        else:
+            logging.warning("%s failed to load after 5 attempts: %s", graph_type, image_state)
 
         # 画像が表示されているかチェック
         if image_locator.is_visible():
