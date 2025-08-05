@@ -65,6 +65,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
 
   // 状態更新の排他制御用フラグ
   const isUpdatingStateRef = useRef(false)
+  const statusCheckIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   // 全画像の状態を定期的にチェックして、onLoadイベント消失を補完
   const checkAllImagesStatus = () => {
@@ -104,6 +105,22 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       // 状態更新完了後にフラグをリセット
       setTimeout(() => {
         isUpdatingStateRef.current = false
+
+        // 全ての画像が完了状態になったかチェック
+        const allCompleted = graphs.every(graph => {
+          const key = graph.endpoint
+          const img = imageRefs.current[key]
+          const isLoaded = img && img.complete && img.naturalWidth > 0
+          const hasError = errors[key] && errors[key].length > 0
+          return isLoaded || hasError
+        })
+
+        // 全て完了していたらインターバルを停止
+        if (allCompleted && statusCheckIntervalRef.current) {
+          clearInterval(statusCheckIntervalRef.current)
+          statusCheckIntervalRef.current = null
+          console.log('[checkAllImagesStatus] All images completed, stopping interval')
+        }
       }, 0)
     }
   }
@@ -375,15 +392,23 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     setRetryCount({})
     setLoadingTimers(newTimers)
 
+    // 既存のインターバルをクリア
+    if (statusCheckIntervalRef.current) {
+      clearInterval(statusCheckIntervalRef.current)
+    }
+
     // 定期的な画像状態チェックを開始（onLoadイベント消失を補完）
-    const statusCheckInterval = setInterval(() => {
+    statusCheckIntervalRef.current = setInterval(() => {
       checkAllImagesStatus()
     }, 1000) // 1秒ごとにチェック（負荷軽減のため間隔を調整）
 
     // クリーンアップ関数
     return () => {
       Object.values(newTimers).forEach(timer => clearTimeout(timer))
-      clearInterval(statusCheckInterval)
+      if (statusCheckIntervalRef.current) {
+        clearInterval(statusCheckIntervalRef.current)
+        statusCheckIntervalRef.current = null
+      }
     }
   }, [dateRange])
 
