@@ -172,7 +172,7 @@ def is_physically_reasonable(altitude, temperature, regression_model, tolerance_
         return True  # エラー時は保守的に妥当とみなす
 
 
-def is_outlier_data(temperature, altitude):
+def is_outlier_data(temperature, altitude, callsign=None):
     """
     高度-温度相関を考慮してaltitudeとtemperatureのペアが外れ値かどうかを判定
 
@@ -183,6 +183,7 @@ def is_outlier_data(temperature, altitude):
     Args:
         temperature (float): 気温
         altitude (float): 高度
+        callsign (str, optional): 航空機のコールサイン（ログ用）
 
     Returns:
         bool: 外れ値の場合True、正常値の場合False
@@ -214,7 +215,7 @@ def is_outlier_data(temperature, altitude):
 
         # 物理的相関チェック
         if is_physically_reasonable(altitude, temperature, regression_model):
-            logging.debug(
+            logging.info(
                 "物理的に妥当な高度-温度相関のため正常値として扱います "
                 "(altitude: %.1fm, temperature: %.1f°C)",
                 altitude,
@@ -243,17 +244,42 @@ def is_outlier_data(temperature, altitude):
         )
         isolation_forest.fit(residuals_2d)
 
-        # 新データの残差を検査
+        # 新データの残差を検査（詳細情報付き）
         prediction = isolation_forest.predict([[new_residual]])
+        # anomaly_score: 正の値ほど正常、負の値ほど異常（しきい値は0付近）
+        anomaly_score = isolation_forest.decision_function([[new_residual]])[0]
+        # path_length: 0.5以上で正常傾向、0.5未満で異常傾向（深い分離パス = 正常）
+        path_length = isolation_forest.score_samples([[new_residual]])[0]
 
         is_outlier = prediction[0] == -1
 
+        # 予測温度と残差の情報を計算
+        predicted_temp = regression_model.predict([[altitude]])[0]
+
         if is_outlier:
-            logging.debug(
-                "残差ベース異常検知で外れ値を検出 (altitude: %.1fm, temperature: %.1f°C, residual: %.1f°C)",
+            logging.info(
+                "外れ値検出: callsign=%s, altitude=%.1fm, temperature=%.1f°C, "
+                "predicted_temp=%.1f°C, residual=%.1f°C, anomaly_score=%.3f, path_length=%.3f",
+                callsign or "Unknown",
                 altitude,
                 temperature,
+                predicted_temp,
                 new_residual,
+                anomaly_score,
+                path_length,
+            )
+        else:
+            logging.info(
+                "正常値判定: callsign=%s, altitude=%.1fm, temperature=%.1f°C, "
+                "predicted_temp=%.1f°C, residual=%.1f°C, anomaly_score=%.3f, path_length=%.3f "
+                "(anomaly_score > 0: 正常傾向, path_length > 0.5: 正常傾向)",
+                callsign or "Unknown",
+                altitude,
+                temperature,
+                predicted_temp,
+                new_residual,
+                anomaly_score,
+                path_length,
             )
 
         return is_outlier
@@ -331,7 +357,9 @@ def message_pairing(icao, packet_type, data, queue, area_info):
             if meteorological_data["temperature"] >= -100:
                 # 外れ値検出
                 is_outlier = is_outlier_data(
-                    meteorological_data["temperature"], meteorological_data["altitude"]
+                    meteorological_data["temperature"],
+                    meteorological_data["altitude"],
+                    meteorological_data["callsign"],
                 )
 
                 if not is_outlier:
