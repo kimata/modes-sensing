@@ -3,10 +3,11 @@
 Mode S のメッセージを保管し，条件にマッチしたものを出力します．
 
 Usage:
-  database_sqlite.py [-c CONFIG]
+  database_sqlite.py [-c CONFIG] [-D]
 
 Options:
-  -c CONFIG     : CONFIG を設定ファイルとして読み込んで実行します．[default: config.yaml]
+  -c CONFIG         : CONFIG を設定ファイルとして読み込んで実行します．[default: config.yaml]
+  -D                : デバッグモードで動作します．
 """
 
 import datetime
@@ -55,7 +56,7 @@ def insert(sqlite, data):
     sqlite.commit()
 
 
-def store_queue(sqlite, queue, liveness_file, count):
+def store_queue(sqlite, queue, liveness_file, count=0):
     i = 0
     try:
         while True:
@@ -160,7 +161,7 @@ if __name__ == "__main__":
     args = docopt.docopt(__doc__)
 
     config_file = args["-c"]
-    debug_mode = args["-d"]
+    debug_mode = args["-D"]
 
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 

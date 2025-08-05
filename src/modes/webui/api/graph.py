@@ -549,6 +549,143 @@ def plot_contour_3d(data, figsize):
     return (img, time.perf_counter() - start)
 
 
+def _prepare_wind_data(data):
+    """風データの前処理とビニング処理"""
+    # 風データが利用可能かチェック
+    if "dataframe" not in data or len(data["dataframe"]) == 0:
+        logging.warning("Wind data not available for wind direction plot")
+        raise ValueError("Wind data not available")  # noqa: TRY003, EM101
+
+    df = data["dataframe"]
+
+    # 風データのカラムが存在するかチェック
+    required_columns = ["time", "altitude", "wind_x", "wind_y", "wind_speed", "wind_angle"]
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    if missing_columns:
+        logging.warning("Missing wind data columns: %s", missing_columns)
+        logging.warning("Available columns: %s", list(df.columns))
+        raise ValueError(f"Missing wind data columns: {missing_columns}")  # noqa: TRY003, EM102
+
+    # 200m毎の高度ビンを作成
+    altitude_bins = numpy.arange(0, 13000, 200)  # 0-13000mを200m間隔
+    df_copy = df.copy()
+    df_copy["altitude_bin"] = pandas.cut(df_copy["altitude"], bins=altitude_bins, labels=altitude_bins[:-1])
+
+    # 時間ビンを作成
+    df_copy["time_numeric"] = df_copy["time"].apply(matplotlib.dates.date2num)
+    time_range = df_copy["time_numeric"].max() - df_copy["time_numeric"].min()
+    if time_range <= 1:  # 1日以内
+        time_bins = 48  # 30分間隔
+    elif time_range <= 3:  # 3日以内
+        time_bins = 24  # 3時間間隔
+    else:
+        time_bins = int(time_range * 4)  # 6時間間隔
+
+    time_bin_edges = numpy.linspace(
+        df_copy["time_numeric"].min(), df_copy["time_numeric"].max(), time_bins + 1
+    )
+    df_copy["time_bin"] = pandas.cut(df_copy["time_numeric"], bins=time_bin_edges)
+
+    # 各ビンで風向成分を平均化
+    grouped = (
+        df_copy.groupby(["time_bin", "altitude_bin"], observed=False)
+        .agg({"wind_x": "mean", "wind_y": "mean", "time_numeric": "mean"})
+        .reset_index()
+    )
+
+    grouped = grouped.dropna()
+    if len(grouped) == 0:
+        logging.warning("No valid wind data after binning")
+        raise ValueError("No valid wind data after binning")  # noqa: TRY003, EM101
+
+    # 風速と風向を再計算
+    grouped["wind_speed"] = numpy.sqrt(grouped["wind_x"] ** 2 + grouped["wind_y"] ** 2)
+    grouped["wind_angle"] = (90 - numpy.degrees(numpy.arctan2(grouped["wind_y"], grouped["wind_x"]))) % 360
+
+    # 無風を除外
+    grouped = grouped[grouped["wind_speed"] > 0.1]
+    if len(grouped) == 0:
+        logging.warning("No valid wind vectors after speed filtering")
+        raise ValueError("No valid wind vectors after speed filtering")  # noqa: TRY003, EM101
+
+    return grouped
+
+
+def plot_wind_direction(data, figsize):
+    logging.info("Starting plot wind direction")
+    start = time.perf_counter()
+
+    # デバッグ情報
+    if "dataframe" in data and len(data["dataframe"]) > 0:
+        df = data["dataframe"]
+        logging.info("Available columns in dataframe: %s", list(df.columns))
+        logging.info("Dataframe shape: %s", df.shape)
+
+    # データ前処理
+    grouped = _prepare_wind_data(data)
+
+    # ベクトル計算
+    time_range = grouped["time_numeric"].max() - grouped["time_numeric"].min()
+    altitude_range = 13000
+    u_scale = time_range / 30
+    v_scale = altitude_range / 30
+
+    wind_magnitude = numpy.sqrt(grouped["wind_x"] ** 2 + grouped["wind_y"] ** 2)
+    grouped["u_normalized"] = (grouped["wind_x"] / wind_magnitude) * u_scale
+    grouped["v_normalized"] = (grouped["wind_y"] / wind_magnitude) * v_scale
+
+    grouped = grouped.dropna()
+    if len(grouped) == 0:
+        logging.warning("No valid wind vectors after angle conversion")
+        raise ValueError("No valid wind vectors after angle conversion")  # noqa: TRY003, EM101
+
+    # プロット作成
+    fig, ax = create_figure(figsize)
+    wind_speeds = grouped["wind_speed"].to_numpy()
+    wind_speeds_clipped = numpy.clip(wind_speeds, 0, 100)
+
+    quiver = ax.quiver(
+        grouped["time_numeric"],
+        grouped["altitude_bin"],
+        grouped["u_normalized"],
+        grouped["v_normalized"],
+        wind_speeds_clipped,
+        cmap="plasma",
+        scale=1,
+        scale_units="xy",
+        angles="xy",
+        alpha=0.9,
+        width=0.002,
+        headwidth=3,
+        headlength=5,
+        minlength=0,
+        pivot="middle",
+    )
+
+    quiver.set_clim(0, 100)
+
+    set_axis_2d_default(
+        ax,
+        [
+            matplotlib.dates.num2date(grouped["time_numeric"].min()),
+            matplotlib.dates.num2date(grouped["time_numeric"].max()),
+        ],
+    )
+
+    cbar = matplotlib.pyplot.colorbar(quiver, shrink=0.8, pad=0.01, aspect=35, fraction=0.046)
+    cbar.set_label("風速 (m/s)", fontsize=AXIS_LABEL_SIZE)
+    set_tick_label_size(cbar.ax)
+
+    set_title("航空機観測による風向・風速分布")
+
+    # デバッグ情報出力
+    logging.info("Wind direction plot: %d vectors calculated", len(grouped))
+    logging.info("Vector scales: u_scale=%s, v_scale=%s", u_scale, v_scale)
+
+    img = conver_to_img(fig)
+    return (img, time.perf_counter() - start)
+
+
 def plot_temperature(data, figsize):
     logging.info("Starting plot temperature timeseries")
 
@@ -652,6 +789,11 @@ GRAPH_DEF_MAP = {
         "size": (2400, 1600),
         "file": "temperature.png",
     },
+    "wind_direction": {
+        "func": plot_wind_direction,
+        "size": (2400, 1600),
+        "file": "wind_direction.png",
+    },
 }
 
 
@@ -665,13 +807,28 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize):
 
     # データベース接続とデータ取得を子プロセス内で実行
     conn = connect_database(config)
-    # グラフ作成に必要な最小限のカラムのみ取得してパフォーマンス向上
+    # 風向グラフの場合は風データも取得
+    if graph_name == "wind_direction":
+        columns = [
+            "time",
+            "altitude",
+            "temperature",
+            "distance",
+            "wind_x",
+            "wind_y",
+            "wind_speed",
+            "wind_angle",
+        ]
+    else:
+        # グラフ作成に必要な最小限のカラムのみ取得してパフォーマンス向上
+        columns = ["time", "altitude", "temperature", "distance"]
+
     raw_data = modes.database_postgresql.fetch_by_time(
         conn,
         time_start,
         time_end,
         config["filter"]["area"]["distance"],
-        columns=["time", "altitude", "temperature", "distance"],
+        columns=columns,
     )
     conn.close()
 
@@ -696,7 +853,18 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize):
 
     set_font(config["font"])
 
-    img, elapsed = GRAPH_DEF_MAP[graph_name]["func"](data, figsize)
+    try:
+        img, elapsed = GRAPH_DEF_MAP[graph_name]["func"](data, figsize)
+    except Exception as e:
+        logging.warning("Failed to generate %s: %s", graph_name, str(e))
+        # エラー時は「データなし」画像を生成
+        try:
+            img = create_no_data_image(config, graph_name)
+            elapsed = 0
+        except Exception:
+            logging.exception("Failed to create no data image")
+            img = create_no_data_image(config, graph_name, "グラフの作成に失敗しました")
+            elapsed = 0
 
     # PIL.Imageを直接returnできないので、bytesに変換して返す
     bytes_io = io.BytesIO()

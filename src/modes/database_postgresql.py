@@ -3,10 +3,11 @@
 Mode S のメッセージを保管し，条件にマッチしたものを出力します．
 
 Usage:
-  database_postgres.py [-c CONFIG]
+  database_postgres.py [-c CONFIG] [-D]
 
 Options:
-  -c CONFIG     : CONFIG を設定ファイルとして読み込んで実行します．[default: config.yaml]
+  -c CONFIG         : CONFIG を設定ファイルとして読み込んで実行します．[default: config.yaml]
+  -D                : デバッグモードで動作します．
 """
 
 import datetime
@@ -122,7 +123,7 @@ def insert(conn, data):
         )
 
 
-def store_queue(conn, measurement_queue, liveness_file, count):
+def store_queue(conn, measurement_queue, liveness_file, count=0):
     logging.info("Start store worker")
 
     i = 0
