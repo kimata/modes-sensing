@@ -72,7 +72,16 @@ def test_graph(config):
             time_start,
             time_end,
             config["filter"]["area"]["distance"],
-            columns=["time", "altitude", "temperature", "distance"],
+            columns=[
+                "time",
+                "altitude",
+                "temperature",
+                "distance",
+                "wind_x",
+                "wind_y",
+                "wind_speed",
+                "wind_angle",
+            ],
         )
     )
 
