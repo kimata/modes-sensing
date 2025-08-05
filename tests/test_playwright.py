@@ -51,11 +51,13 @@ def wait_for_images_to_load(page, expected_count=7, timeout=120000):
             f"""
             () => {{
                 const selectors = [
-                    'img[alt*="散布図"]',
-                    'img[alt*="等高線"]',
-                    'img[alt*="密度"]',
-                    'img[alt*="ヒートマップ"]',
-                    'img[alt*="温度時系列"]'
+                    'img[alt="2D散布図"]',
+                    'img[alt="2D等高線プロット"]',
+                    'img[alt="密度プロット"]',
+                    'img[alt="ヒートマップ"]',
+                    'img[alt="高度別温度時系列"]',
+                    'img[alt="3D散布図"]',
+                    'img[alt="3D等高線プロット"]'
                 ];
                 const images = document.querySelectorAll(selectors.join(', '));
                 if (images.length === 0) return false;
@@ -95,11 +97,13 @@ def wait_for_images_to_load(page, expected_count=7, timeout=120000):
         current_loaded = page.evaluate("""
             () => {
                 const selectors = [
-                    'img[alt*="散布図"]',
-                    'img[alt*="等高線"]',
-                    'img[alt*="密度"]',
-                    'img[alt*="ヒートマップ"]',
-                    'img[alt*="温度時系列"]'
+                    'img[alt="2D散布図"]',
+                    'img[alt="2D等高線プロット"]',
+                    'img[alt="密度プロット"]',
+                    'img[alt="ヒートマップ"]',
+                    'img[alt="高度別温度時系列"]',
+                    'img[alt="3D散布図"]',
+                    'img[alt="3D等高線プロット"]'
                 ];
                 const images = document.querySelectorAll(selectors.join(', '));
                 let loadedCount = 0;
