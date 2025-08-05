@@ -65,7 +65,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
 
   // 状態更新の排他制御用フラグ
   const isUpdatingStateRef = useRef(false)
-  const statusCheckIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const statusCheckIntervalRef = useRef<number | null>(null)
 
   // 全画像の状態を定期的にチェックして、onLoadイベント消失を補完
   const checkAllImagesStatus = () => {
