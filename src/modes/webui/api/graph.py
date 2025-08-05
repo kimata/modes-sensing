@@ -549,6 +549,97 @@ def plot_contour_3d(data, figsize):
     return (img, time.perf_counter() - start)
 
 
+def plot_temperature_timeseries(data, figsize):
+    logging.info("Starting plot temperature timeseries")
+
+    start = time.perf_counter()
+
+    fig, ax = create_figure(figsize)
+
+    # 高度範囲の定義
+    altitude_ranges = [
+        {"min": 1400, "max": 1600, "label": "1500±100m", "color": "blue", "marker": "o"},
+        {"min": 2900, "max": 3100, "label": "3000±100m", "color": "green", "marker": "s"},
+        {"min": 4400, "max": 4600, "label": "4500±100m", "color": "orange", "marker": "^"},
+        {"min": 5900, "max": 6100, "label": "6000±100m", "color": "red", "marker": "d"},
+    ]
+
+    # 各高度範囲のデータをプロット
+    for alt_range in altitude_ranges:
+        # 高度範囲でフィルタリング
+        mask = (data["altitudes"] >= alt_range["min"]) & (data["altitudes"] <= alt_range["max"])
+        if not numpy.any(mask):
+            continue
+
+        filtered_temps = data["temperatures"][mask]
+        filtered_time_numeric = data["time_numeric"][mask]
+
+        # 時系列でソート
+        sort_indices = numpy.argsort(filtered_time_numeric)
+        sorted_times = filtered_time_numeric[sort_indices]
+        sorted_temps = filtered_temps[sort_indices]
+
+        # 同じ時間帯のデータを平均化（30分間隔でビニング）
+        if len(sorted_times) > 1:
+            # 30分 = 0.020833日
+            bin_size = 0.020833
+            unique_times = []
+            avg_temps = []
+
+            current_bin_start = sorted_times[0]
+            current_temps = []
+
+            for i, time_val in enumerate(sorted_times):
+                if time_val <= current_bin_start + bin_size:
+                    current_temps.append(sorted_temps[i])
+                else:
+                    if current_temps:
+                        unique_times.append(current_bin_start + bin_size / 2)
+                        avg_temps.append(numpy.mean(current_temps))
+
+                    current_bin_start = time_val
+                    current_temps = [sorted_temps[i]]
+
+            # 最後のビンを処理
+            if current_temps:
+                unique_times.append(current_bin_start + bin_size / 2)
+                avg_temps.append(numpy.mean(current_temps))
+
+            # プロット
+            ax.plot(
+                unique_times,
+                avg_temps,
+                color=alt_range["color"],
+                marker=alt_range["marker"],
+                markersize=4,
+                linewidth=2,
+                label=alt_range["label"],
+                alpha=0.8,
+            )
+
+    # 軸の設定
+    ax.set_xlabel("日時")
+    ax.set_ylabel("温度 (℃)")
+    ax.grid(True, alpha=0.7)
+
+    # 時間軸の書式設定
+    ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%m/%d\n%H:%M"))
+    ax.xaxis.set_major_locator(matplotlib.dates.HourLocator(interval=6))
+    ax.xaxis.set_minor_locator(matplotlib.dates.HourLocator(interval=2))
+
+    # Y軸の範囲設定
+    ax.set_ylim(TEMP_MIN, TEMP_MAX)
+
+    # 凡例の追加
+    ax.legend(loc="upper right", framealpha=0.9)
+
+    set_title("高度別温度の時系列変化")
+
+    img = conver_to_img(fig)
+
+    return (img, time.perf_counter() - start)
+
+
 GRAPH_DEF_MAP = {
     "scatter_2d": {"func": plot_scatter_2d, "size": (2400, 1600), "file": "scatter_2d.png"},
     "scatter_3d": {"func": plot_scatter_3d, "size": (2800, 2800), "file": "scatter_3d.png"},
@@ -556,6 +647,11 @@ GRAPH_DEF_MAP = {
     "contour_3d": {"func": plot_contour_3d, "size": (2800, 2800), "file": "contour_3d.png"},
     "density": {"func": plot_density, "size": (2400, 1600), "file": "density.png"},
     "heatmap": {"func": plot_heatmap, "size": (2400, 1600), "file": "heatmap.png"},
+    "temperature_timeseries": {
+        "func": plot_temperature_timeseries,
+        "size": (2400, 1600),
+        "file": "temperature_timeseries.png",
+    },
 }
 
 
