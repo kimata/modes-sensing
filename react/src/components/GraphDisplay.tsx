@@ -295,7 +295,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     const newErrorState: { [key: string]: string } = {}
     const newTimers: { [key: string]: number } = {}
 
-    graphs.forEach((graph, index) => {
+    graphs.forEach((graph) => {
       const key = graph.endpoint
       newImageUrls[key] = getImageUrl(graph, newVersion)
       newLoadingState[key] = true
