@@ -233,7 +233,14 @@ def is_outlier_data(temperature, altitude):
 
         # 残差に対してIsolation Forestを適用
         residuals_2d = residuals.reshape(-1, 1)
-        isolation_forest = sklearn.ensemble.IsolationForest(contamination=0.01, random_state=42)
+        isolation_forest = sklearn.ensemble.IsolationForest(
+            contamination=0.02,  # 2%の外れ値を想定（航空機データは比較的信頼性が高い）
+            n_estimators=100,  # デフォルト値で十分な精度
+            max_samples="auto",  # 自動サンプリング
+            bootstrap=False,  # 重複なしサンプリング
+            n_jobs=1,  # リアルタイム処理のため単一スレッド
+            random_state=42,  # 再現性のため固定
+        )
         isolation_forest.fit(residuals_2d)
 
         # 新データの残差を検査
