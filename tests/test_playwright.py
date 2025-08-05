@@ -254,7 +254,7 @@ def test_page_loads_correctly(page_init, host, port):
     expect(page.locator("#graph h2")).to_contain_text("グラフ")
 
 
-def test_all_images_display_correctly(page_init, host, port):  # noqa: C901, PLR0915
+def test_all_images_display_correctly(page_init, host, port):  # noqa: C901
     """全ての画像が正常に表示されることをテスト"""
     page = page_init
     page.goto(app_url(host, port))
@@ -313,7 +313,6 @@ def test_all_images_display_correctly(page_init, host, port):  # noqa: C901, PLR
                 """,
                 timeout=60000,  # ローディング時間を考慮して60秒に延長
             )
-            logging.info("%s: Element found and visible", title)
         except Exception as e:  # noqa: PERF203
             logging.error("%s: Element not found or not visible: %s", title, e)  # noqa: TRY400
             raise
@@ -336,7 +335,6 @@ def test_all_images_display_correctly(page_init, host, port):  # noqa: C901, PLR
                 """,
                 timeout=60000,
             )
-            logging.info("%s: Successfully loaded and visible", title)
         except Exception as e:  # noqa: PERF203
             logging.error("%s: Failed to load or not visible: %s", title, e)  # noqa: TRY400
             # 失敗時の画像とfigure状態をログ出力
@@ -396,6 +394,7 @@ def test_all_images_display_correctly(page_init, host, port):  # noqa: C901, PLR
         "密度プロット",
         "ヒートマップ",
         "高度別温度時系列",
+        "風向・風速分布",
         "3D散布図",
         "3D等高線プロット",
     ]
