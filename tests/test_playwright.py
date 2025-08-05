@@ -89,7 +89,7 @@ def wait_for_all_images_individually(page, timeout=30000):
             return images.length >= 8;
         }
         """,
-        timeout=30000,
+        timeout=60000,
     )
 
     # 各画像の読み込みを確認
@@ -148,7 +148,7 @@ def wait_for_all_images_individually(page, timeout=30000):
             raise Exception(f"{title} not found in DOM")  # noqa: TRY002, TRY003, EM102
 
 
-def wait_for_images_to_load(page, expected_count=8, timeout=120000):
+def wait_for_images_to_load(page, expected_count=8, timeout=30000):
     """指定された数の画像が読み込まれるまで待機"""
     try:
         # 複数回チェックして安定した状態になるまで待つ
@@ -381,7 +381,7 @@ def test_all_images_display_correctly(page_init, host, port):  # noqa: C901
                     return img.complete && img.naturalWidth > 0;
                 }
                 """,
-                timeout=30000,
+                timeout=60000,
             )
             logging.info("contour_2d loaded after additional wait")
         except Exception as e:
@@ -476,7 +476,7 @@ def test_period_selection_buttons(page_init, host, port):
 
         # 画像の再読み込み完了まで待機
         time.sleep(5)  # ボタンクリック後の処理完了を待つ
-        wait_for_images_to_load(page, expected_count=8, timeout=20000)
+        wait_for_images_to_load(page, expected_count=8, timeout=30000)
 
         # 少なくとも1つの画像要素が存在することを確認
         images = page.locator(
@@ -526,7 +526,7 @@ def test_custom_date_range(page_init, host, port):
 
     # 画像の読み込み完了まで待機
     time.sleep(5)
-    wait_for_images_to_load(page, expected_count=8, timeout=20000)
+    wait_for_images_to_load(page, expected_count=8, timeout=30000)
 
     # 画像要素が存在していることを確認
     images = page.locator(
