@@ -170,7 +170,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       if (element) {
         setTimeout(() => {
           element.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        }, 500)
+        }, 200)
       }
     }
   }, [])
@@ -429,7 +429,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     // 定期的な画像状態チェックを開始（onLoadイベント消失を補完）
     statusCheckIntervalRef.current = setInterval(() => {
       checkAllImagesStatus()
-    }, 500) // 0.5秒ごとにチェック（CI環境対応で応答性向上）
+    }, 200) // 0.5秒ごとにチェック（CI環境対応で応答性向上）
 
     // クリーンアップ関数
     return () => {
