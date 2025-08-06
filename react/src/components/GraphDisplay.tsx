@@ -69,7 +69,6 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
 
     // エラー状態の場合（complete=trueだがnaturalWidth=0）
     if (img.complete && img.naturalWidth === 0) {
-      console.log(`[checkImageLoadingState] ${key}: Error state detected - complete=true but naturalWidth=0`)
       return false
     }
 
@@ -87,54 +86,62 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       return
     }
 
-    const updatesNeeded: string[] = []
+    // 最新の状態を取得するため、setLoadingの中で判定
+    setLoading(currentLoading => {
+      const updatesNeeded: string[] = []
 
-    graphs.forEach(graph => {
-      const key = graph.endpoint
-      // loading状態かつ実際には読み込み完了している場合のみ処理
-      if (loading[key] && checkImageLoadingState(key)) {
-        updatesNeeded.push(key)
-      }
-    })
+      graphs.forEach(graph => {
+        const key = graph.endpoint
+        // loading状態かつ実際には読み込み完了している場合のみ処理
+        if (currentLoading[key] && checkImageLoadingState(key)) {
+          updatesNeeded.push(key)
+        }
+      })
 
-    // 一括で状態更新（競合回避）
-    if (updatesNeeded.length > 0) {
-      isUpdatingStateRef.current = true
-      setLoading(prev => {
-        const newLoading = { ...prev }
+      // 一括で状態更新（競合回避）
+      if (updatesNeeded.length > 0) {
+        isUpdatingStateRef.current = true
+
+        // 必要な更新のみを含む新しいloading状態を返す
+        const newLoading = { ...currentLoading }
         updatesNeeded.forEach(key => {
           newLoading[key] = false
         })
+
+        // retryCountも更新
+        setRetryCount(prev => {
+          const newRetryCount = { ...prev }
+          updatesNeeded.forEach(key => {
+            newRetryCount[key] = 0
+          })
+          return newRetryCount
+        })
+
+        // 状態更新完了後にフラグをリセット
+        setTimeout(() => {
+          isUpdatingStateRef.current = false
+
+          // 全ての画像が完了状態になったかチェック
+          const allCompleted = graphs.every(graph => {
+            const key = graph.endpoint
+            const img = imageRefs.current[key]
+            const isLoaded = img && img.complete && img.naturalWidth > 0
+            const hasError = errors[key] && errors[key].length > 0
+            return isLoaded || hasError
+          })
+
+          // 全て完了していたらインターバルを停止
+          if (allCompleted && statusCheckIntervalRef.current) {
+            clearInterval(statusCheckIntervalRef.current)
+            statusCheckIntervalRef.current = null
+          }
+        }, 0)
+
         return newLoading
-      })
-      setRetryCount(prev => {
-        const newRetryCount = { ...prev }
-        updatesNeeded.forEach(key => {
-          newRetryCount[key] = 0
-        })
-        return newRetryCount
-      })
-      // 状態更新完了後にフラグをリセット
-      setTimeout(() => {
-        isUpdatingStateRef.current = false
+      }
 
-        // 全ての画像が完了状態になったかチェック
-        const allCompleted = graphs.every(graph => {
-          const key = graph.endpoint
-          const img = imageRefs.current[key]
-          const isLoaded = img && img.complete && img.naturalWidth > 0
-          const hasError = errors[key] && errors[key].length > 0
-          return isLoaded || hasError
-        })
-
-        // 全て完了していたらインターバルを停止
-        if (allCompleted && statusCheckIntervalRef.current) {
-          clearInterval(statusCheckIntervalRef.current)
-          statusCheckIntervalRef.current = null
-          console.log('[checkAllImagesStatus] All images completed, stopping interval')
-        }
-      }, 0)
-    }
+      return currentLoading // 更新がない場合は現在の状態を返す
+    })
   }
   const notificationRef = useRef<HTMLDivElement>(null)
 
@@ -175,14 +182,38 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     }
   }, [])
 
-  // 初回マウント時に画像URLを設定
+  // 初回マウント時に画像URLを設定（段階的に設定してCI環境対応）
   useEffect(() => {
     const newImageUrls: { [key: string]: string } = {}
     graphs.forEach(graph => {
       const key = graph.endpoint
       newImageUrls[key] = getImageUrl(graph, 0)
     })
-    setImageUrls(newImageUrls)
+
+    // 初回も段階的に設定して同時読み込みを制御
+    // graphsの順序を保持して確実に全画像を設定
+    const urlKeys = graphs.map(g => g.endpoint)
+    urlKeys.forEach((key, index) => {
+      setTimeout(() => {
+        setImageUrls(prev => ({ ...prev, [key]: newImageUrls[key] }))
+        if (index === urlKeys.length - 1) {
+          // 最後の画像URL設定後、確実に全てのURLが設定されていることを確認
+          setTimeout(() => {
+            setImageUrls(prev => {
+              const missingKeys = urlKeys.filter(k => !prev[k])
+              if (missingKeys.length > 0) {
+                const fixed = { ...prev }
+                missingKeys.forEach(k => {
+                  fixed[k] = newImageUrls[k]
+                })
+                return fixed
+              }
+              return prev
+            })
+          }, 50) // 追加の遅延で確実性を向上
+        }
+      }, index * 25) // 25msずつ遅延して設定
+    })
   }, [])
 
   // パーマリンクコピー用の通知表示
@@ -415,9 +446,27 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     setLoadingTimers(newTimers)
 
     // 画像URLを段階的に設定して同時読み込みを制御（CI環境対応で遅延を短縮）
-    Object.keys(newImageUrls).forEach((key, index) => {
+    // graphsの順序を保持して確実に全画像を設定
+    const urlKeys = graphs.map(g => g.endpoint)
+    urlKeys.forEach((key, index) => {
       setTimeout(() => {
         setImageUrls(prev => ({ ...prev, [key]: newImageUrls[key] }))
+        if (index === urlKeys.length - 1) {
+          // 最後の画像URL設定後、確実に全てのURLが設定されていることを確認
+          setTimeout(() => {
+            setImageUrls(prev => {
+              const missingKeys = urlKeys.filter(k => !prev[k])
+              if (missingKeys.length > 0) {
+                const fixed = { ...prev }
+                missingKeys.forEach(k => {
+                  fixed[k] = newImageUrls[k]
+                })
+                return fixed
+              }
+              return prev
+            })
+          }, 50) // 追加の遅延で確実性を向上
+        }
       }, index * 25) // 25msずつ遅延して設定（CI環境対応で短縮）
     })
 
