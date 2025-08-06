@@ -139,7 +139,7 @@ def calc_meteorological_data(  # noqa: PLR0913
     }
 
 
-def is_physically_reasonable(altitude, temperature, regression_model, tolerance_factor=2.0):
+def is_physically_reasonable(altitude, temperature, regression_model, tolerance_factor=2.5):
     """
     高度-温度の物理的相関が妥当かどうかを判定
 
@@ -164,9 +164,21 @@ def is_physically_reasonable(altitude, temperature, regression_model, tolerance_
         temp_tolerance = standard_lapse_rate * altitude_diff_threshold * tolerance_factor
 
         # 予測値との差が許容範囲内かチェック
-        temp_diff = abs(temperature - predicted_temp)
+        residual = abs(temperature - predicted_temp)
 
-        return temp_diff <= temp_tolerance
+        judge = residual <= temp_tolerance
+
+        if judge:
+            logging.info(
+                "物理的に妥当な高度-温度相関のため正常値として扱います "
+                "(altitude: %.1fm, temperature: %.1f°C, predicted_temp=%.1f°C, residual=%.1f°C)",
+                altitude,
+                temperature,
+                predicted_temp,
+                residual,
+            )
+
+        return judge
 
     except Exception:
         return True  # エラー時は保守的に妥当とみなす
@@ -215,12 +227,6 @@ def is_outlier_data(temperature, altitude, callsign=None):
 
         # 物理的相関チェック（より寛容に）
         if is_physically_reasonable(altitude, temperature, regression_model, tolerance_factor=2.5):
-            logging.info(
-                "物理的に妥当な高度-温度相関のため正常値として扱います "
-                "(altitude: %.1fm, temperature: %.1f°C)",
-                altitude,
-                temperature,
-            )
             return False  # 物理的に妥当なので外れ値ではない
 
         # 第二段階：残差ベースの異常検知

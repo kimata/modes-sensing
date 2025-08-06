@@ -29,6 +29,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
   const [hasChanges, setHasChanges] = useState(false)
   const [focusedField, setFocusedField] = useState<'start' | 'end' | null>(null)
   const [selectedPeriod, setSelectedPeriod] = useState<'1day' | '7days' | '30days' | '180days' | '365days' | 'custom'>('7days')
+  const [userSelectedPeriod, setUserSelectedPeriod] = useState<'1day' | '7days' | '30days' | '180days' | '365days' | 'custom' | null>(null) // ユーザーが明示的に選択した期間
   const [isQuickSelectActive, setIsQuickSelectActive] = useState(false) // 期間ボタン押下後の自動判定を抑制
   const notificationRef = useRef<HTMLDivElement>(null)
 
@@ -51,6 +52,12 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
     // 期間ボタン押下直後は自動判定をスキップ
     if (isQuickSelectActive) {
       setIsQuickSelectActive(false)
+      return
+    }
+
+    // ユーザーが明示的に期間ボタンを選択した場合、その選択を維持
+    if (userSelectedPeriod && userSelectedPeriod !== 'custom') {
+      setSelectedPeriod(userSelectedPeriod)
       return
     }
 
@@ -78,7 +85,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
     } else {
       setSelectedPeriod('custom')
     }
-  }, [startDate, endDate, isQuickSelectActive])
+  }, [startDate, endDate, isQuickSelectActive, userSelectedPeriod])
 
   // ページ読み込み時にハッシュがあれば該当要素にスクロール
   useEffect(() => {
@@ -182,6 +189,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
 
     // 期間選択状態を先に設定（useEffectによる自動判定を防ぐ）
     setSelectedPeriod(period)
+    setUserSelectedPeriod(period) // ユーザーが明示的に選択した期間として記録
     setIsQuickSelectActive(true) // 自動判定を抑制するフラグを設定
     onDateChange(start, end)
     setCustomStart(formatDateForInput(start))
@@ -237,6 +245,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
     onDateChange(start, end)
     setHasChanges(false)
     setSelectedPeriod('custom')
+    setUserSelectedPeriod('custom') // カスタム期間として記録
 
     // 調整された場合は入力フィールドも更新
     if (adjusted) {
@@ -247,6 +256,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
 
   const handleCustomButtonClick = () => {
     setSelectedPeriod('custom')
+    setUserSelectedPeriod('custom') // ユーザーが明示的にカスタムを選択
     // カスタムボタンクリック時は入力フィールドにフォーカス
     const startInput = document.querySelector('input[type="datetime-local"]') as HTMLInputElement
     if (startInput) {

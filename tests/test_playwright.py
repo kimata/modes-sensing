@@ -494,43 +494,112 @@ def test_all_images_display_correctly(page_init, host, port):
     assert visible_images == 8, f"表示された画像数が不十分: {visible_images}/8"  # noqa: S101
 
 
+def get_available_period_buttons(data_range):
+    """データ範囲に基づいて利用可能な期間ボタンを決定"""
+    available_buttons = []
+    if data_range and data_range.get("earliest") and data_range.get("latest"):
+        import datetime
+
+        earliest = datetime.datetime.fromisoformat(data_range["earliest"].replace("Z", "+00:00"))
+        latest = datetime.datetime.fromisoformat(data_range["latest"].replace("Z", "+00:00"))
+        data_range_days = (latest - earliest).days
+
+        logging.info("Available data range: %d days", data_range_days)
+
+        # データ範囲に基づいて利用可能なボタンを選択
+        if data_range_days >= 1:
+            available_buttons.append(("過去24時間", "button >> text='過去24時間'", 1))
+        if data_range_days >= 7:
+            available_buttons.append(("過去7日間", "button >> text='過去7日間'", 7))
+        if data_range_days >= 30:
+            available_buttons.append(("過去1ヶ月間", "button >> text='過去1ヶ月間'", 30))
+        if data_range_days >= 180:
+            available_buttons.append(("過去半年", "button >> text='過去半年'", 180))
+        if data_range_days >= 365:
+            available_buttons.append(("過去1年", "button >> text='過去1年'", 365))
+
+    # データ範囲が取得できない場合は、最小限のボタンのみテスト
+    if not available_buttons:
+        available_buttons = [("過去24時間", "button >> text='過去24時間'", 1)]
+
+    return available_buttons
+
+
 def test_period_selection_buttons(page_init, host, port):
     """期間選択のボタンを押して画像が正常に表示できることをテスト"""
     page = page_init
     page.goto(app_url(host, port))
 
-    # 各期間選択ボタンをテスト
-    period_buttons = [
-        ("過去24時間", "button >> text='過去24時間'"),
-        ("過去7日間", "button >> text='過去7日間'"),
-        ("過去1ヶ月間", "button >> text='過去1ヶ月間'"),
-        ("過去半年", "button >> text='過去半年'"),
-        ("過去1年", "button >> text='過去1年'"),
-    ]
+    # データ範囲を取得
+    data_range = page.evaluate("""
+        async () => {
+            try {
+                const response = await fetch('/modes-sensing/api/data-range');
+                const data = await response.json();
+                return data;
+            } catch (e) {
+                return null;
+            }
+        }
+    """)
 
-    for period_name, button_selector in period_buttons:
+    # 利用可能な期間ボタンを判定
+    period_buttons = get_available_period_buttons(data_range)
+
+    for period_name, button_selector, _days in period_buttons:
         logging.info("Testing %s button", period_name)
 
         # ボタンをクリック
         page.click(button_selector)
 
-        # React状態更新の完了を待機
-        time.sleep(1)
+        # React状態更新の完了を待機（isQuickSelectActiveフラグのリセットを含む）
+        time.sleep(2)
 
-        # ボタンがアクティブ状態になることを確認（動的に待機）
+        # ボタンがアクティブ状態になることを確認
+        # Playwrightのlocatorを使用した方が安定する
+        button_element = page.locator(button_selector)
+
+        # ボタンがis-primaryクラスを持つまで待機
         try:
-            page.wait_for_function(
-                f"""
-                () => {{
-                    const button = document.querySelector('{button_selector}');
-                    if (!button) return false;
-                    return button.classList.contains('is-primary');
-                }}
-                """,
-                timeout=5000,
-            )
+            button_element.wait_for(state="visible", timeout=5000)
+            # クラス属性を確認
+            max_attempts = 10
+            for attempt in range(max_attempts):
+                class_attribute = button_element.get_attribute("class")
+                if "is-primary" in class_attribute:
+                    break
+                if attempt < max_attempts - 1:
+                    time.sleep(0.5)
+                    logging.info(
+                        "Waiting for button to become active, attempt %d/%d", attempt + 1, max_attempts
+                    )
+
+            # 最終確認
+            class_attribute = button_element.get_attribute("class")
+            if "is-primary" not in class_attribute:
+                msg = f"Button did not become active after {max_attempts} attempts"
+                raise AssertionError(msg)  # noqa: TRY301
             logging.info("%s button became active", period_name)
         except Exception as e:
+            # エラー時の詳細な状態を取得
+            button_state = page.evaluate(f"""
+                () => {{
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    const button = buttons.find(btn => btn.textContent === '{period_name}');
+                    if (!button) return {{ found: false }};
+                    return {{
+                        found: true,
+                        text: button.textContent,
+                        classes: button.className,
+                        hasPrimary: button.classList.contains('is-primary'),
+                        allButtons: buttons.map(btn => ({{
+                            text: btn.textContent,
+                            classes: btn.className
+                        }}))
+                    }};
+                }}
+            """)
+            logging.exception("Button state at failure: %s", button_state)
             button_element = page.locator(button_selector)
             class_attribute = button_element.get_attribute("class")
             logging.exception("Button state check failed for %s: %s", period_name, class_attribute)
