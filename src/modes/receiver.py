@@ -376,14 +376,6 @@ def message_pairing(icao, packet_type, data, queue, area_info):
                             "temperature": meteorological_data["temperature"],
                         }
                     )
-                else:
-                    logging.warning(
-                        "外れ値として除外されました (callsign: %s, altitude: %.1fm, temperature: %.1f°C)",
-                        fragment["adsb_sign"][0],
-                        meteorological_data["altitude"],
-                        meteorological_data["temperature"],
-                    )
-                    # 外れ値でも履歴には追加しない（統計モデルを汚染しないため）
             else:
                 # 温度異常値は外れ値検出の対象外（従来通りの処理）
                 logging.debug("温度異常値のため外れ値検出をスキップ")
