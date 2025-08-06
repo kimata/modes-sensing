@@ -932,8 +932,8 @@ def graph(graph_name):
 
     res = flask.Response(image_bytes, mimetype="image/png")
 
-    # キャッシュヘッダーを設定（1分間キャッシュ）
-    res.headers["Cache-Control"] = "public, max-age=60"
+    # キャッシュヘッダーを設定（1時間キャッシュ）
+    res.headers["Cache-Control"] = "public, max-age=3600"
     res.headers["ETag"] = f'"{etag}"'
     res.headers["Last-Modified"] = current_minute.strftime("%a, %d %b %Y %H:%M:%S GMT")
 
