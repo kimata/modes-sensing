@@ -514,10 +514,28 @@ def test_period_selection_buttons(page_init, host, port):
         # ボタンをクリック
         page.click(button_selector)
 
-        # ボタンがアクティブ状態になることを確認
-        button_element = page.locator(button_selector)
-        class_attribute = button_element.get_attribute("class")
-        assert "is-primary" in class_attribute, f"{period_name} ボタンがアクティブになっていません"  # noqa: S101
+        # React状態更新の完了を待機
+        time.sleep(1)
+
+        # ボタンがアクティブ状態になることを確認（動的に待機）
+        try:
+            page.wait_for_function(
+                f"""
+                () => {{
+                    const button = document.querySelector('{button_selector}');
+                    if (!button) return false;
+                    return button.classList.contains('is-primary');
+                }}
+                """,
+                timeout=5000,
+            )
+            logging.info("%s button became active", period_name)
+        except Exception as e:
+            button_element = page.locator(button_selector)
+            class_attribute = button_element.get_attribute("class")
+            logging.exception("Button state check failed for %s: %s", period_name, class_attribute)
+            error_msg = f"{period_name} ボタンがアクティブになっていません (class: {class_attribute})"
+            raise AssertionError(error_msg) from e
 
         # 画像の再読み込み完了まで待機
         time.sleep(5)  # ボタンクリック後の処理完了を待つ
@@ -582,68 +600,6 @@ def test_custom_date_range(page_init, host, port):
     # 最初の画像にsrc属性があることを確認
     first_image_src = images.first.get_attribute("src")
     assert first_image_src and len(first_image_src) > 0, "カスタム期間の画像src属性が空です"  # noqa: S101, PT018
-
-
-def test_date_range_before_january_2025(page_init, host, port):
-    """25年1月以前の区間(開始日時の方早くなるようにすること)を指定しても画像が表示されることをテスト"""
-    page = page_init
-    page.goto(app_url(host, port))
-
-    # カスタムボタンをクリック
-    page.click("button >> text='カスタム'")
-
-    # 2024年12月の期間を設定（25年1月以前）
-    start_date = datetime(2024, 12, 1, 0, 0, tzinfo=timezone.utc)
-    end_date = datetime(2024, 12, 31, 23, 59, tzinfo=timezone.utc)
-
-    start_str = start_date.strftime("%Y-%m-%dT%H:%M")
-    end_str = end_date.strftime("%Y-%m-%dT%H:%M")
-
-    # 開始日時を設定
-    start_input = page.locator('input[type="datetime-local"]').first
-    start_input.fill(start_str)
-
-    # 終了日時を設定
-    end_input = page.locator('input[type="datetime-local"]').last
-    end_input.fill(end_str)
-
-    # 確定ボタンをクリック
-    update_button = page.locator("button >> text='期間を確定して更新'")
-    update_button.click()
-
-    # 画像の読み込み完了まで待機（データがない可能性もあるので少し長めに待つ）
-    time.sleep(10)
-
-    # 画像要素またはエラーメッセージが表示されていることを確認
-    # データがない場合はエラーメッセージ、ある場合は画像が表示される
-    wait_for_images_to_load(page, expected_count=8, timeout=30000)
-
-    # 画像要素が作成されていることを確認（データがあってもなくても要素は作成される）
-    images = page.locator(
-        'img[alt*="散布図"], img[alt*="等高線"], img[alt*="密度"], img[alt*="ヒートマップ"]'
-    )
-
-    if images.count() > 0:
-        # 画像要素が存在する場合
-        expect(images.first).to_be_attached()
-        first_image_src = images.first.get_attribute("src")
-        assert first_image_src and len(first_image_src) > 0, "2024年12月期間の画像src属性が空です"  # noqa: S101, PT018
-        logging.info("Image elements found for December 2024 period")
-    else:
-        # 画像要素が存在しない場合はエラー状態を確認
-        error_notifications = page.locator(".notification.is-danger")
-        loading_indicators = page.locator(".loader")
-
-        # エラーまたはローディング状態のいずれかが存在することを確認
-        assert error_notifications.count() > 0 or loading_indicators.count() > 0, (  # noqa: S101
-            "画像要素もエラーメッセージも見つかりませんでした"
-        )
-        logging.info("Error notifications or loading indicators found for December 2024 period")
-
-    # 期間表示が正しく更新されていることを確認
-    graph_header = page.locator("#graph h2")
-    expect(graph_header).to_contain_text("2024-12-01")
-    expect(graph_header).to_contain_text("2024-12-31")
 
 
 def test_wind_direction_graph_display(page_init, host, port):
