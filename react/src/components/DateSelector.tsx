@@ -29,6 +29,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
   const [hasChanges, setHasChanges] = useState(false)
   const [focusedField, setFocusedField] = useState<'start' | 'end' | null>(null)
   const [selectedPeriod, setSelectedPeriod] = useState<'1day' | '7days' | '30days' | '180days' | '365days' | 'custom'>('7days')
+  const [isQuickSelectActive, setIsQuickSelectActive] = useState(false) // 期間ボタン押下後の自動判定を抑制
   const notificationRef = useRef<HTMLDivElement>(null)
 
   // propsが変更されたときに入力フィールドを更新
@@ -47,6 +48,12 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
 
   // 現在の期間から選択されているボタンを判定
   useEffect(() => {
+    // 期間ボタン押下直後は自動判定をスキップ
+    if (isQuickSelectActive) {
+      setIsQuickSelectActive(false)
+      return
+    }
+
     const now = new Date()
     const diffMs = endDate.getTime() - startDate.getTime()
     const diffDays = Math.round(diffMs / (24 * 60 * 60 * 1000))
@@ -71,7 +78,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
     } else {
       setSelectedPeriod('custom')
     }
-  }, [startDate, endDate])
+  }, [startDate, endDate, isQuickSelectActive])
 
   // ページ読み込み時にハッシュがあれば該当要素にスクロール
   useEffect(() => {
@@ -173,15 +180,17 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
       }
     }
 
+    // 期間選択状態を先に設定（useEffectによる自動判定を防ぐ）
+    setSelectedPeriod(period)
+    setIsQuickSelectActive(true) // 自動判定を抑制するフラグを設定
     onDateChange(start, end)
     setCustomStart(formatDateForInput(start))
     setCustomEnd(formatDateForInput(end))
-    setSelectedPeriod(period)
   }
 
   const handleCustomDateChange = () => {
-    const start = new Date(customStart)
-    const end = new Date(customEnd)
+    let start = new Date(customStart)
+    let end = new Date(customEnd)
     start.setSeconds(0, 0) // 秒とミリ秒を0に設定
     end.setSeconds(0, 0) // 秒とミリ秒を0に設定
 
@@ -191,27 +200,49 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
       return
     }
 
-    // データ範囲チェック
+    // データ範囲による自動調整
+    let adjusted = false
     if (dataRange && dataRange.earliest && dataRange.latest) {
       const dataEarliest = new Date(dataRange.earliest)
       const dataLatest = new Date(dataRange.latest)
 
       if (start < dataEarliest) {
-        const earliestStr = dataEarliest.toLocaleDateString('ja-JP') + ' ' + dataEarliest.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
-        alert(`開始日時は ${earliestStr} 以降に設定してください（利用可能なデータの範囲外です）`)
-        return
+        start = new Date(dataEarliest)
+        start.setSeconds(0, 0)
+        adjusted = true
       }
 
       if (end > dataLatest) {
+        end = new Date(dataLatest)
+        end.setSeconds(0, 0)
+        adjusted = true
+      }
+
+      // 調整後の順序チェック
+      if (start > end) {
+        const earliestStr = dataEarliest.toLocaleDateString('ja-JP') + ' ' + dataEarliest.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
         const latestStr = dataLatest.toLocaleDateString('ja-JP') + ' ' + dataLatest.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
-        alert(`終了日時は ${latestStr} 以前に設定してください（利用可能なデータの範囲外です）`)
+        alert(`利用可能な期間（${earliestStr} ～ ${latestStr}）では、指定された期間を設定できません`)
         return
+      }
+
+      if (adjusted) {
+        console.log('Date range adjusted to fit available data:', {
+          original: { start: customStart, end: customEnd },
+          adjusted: { start: start.toISOString(), end: end.toISOString() }
+        })
       }
     }
 
     onDateChange(start, end)
     setHasChanges(false)
     setSelectedPeriod('custom')
+
+    // 調整された場合は入力フィールドも更新
+    if (adjusted) {
+      setCustomStart(formatDateForInput(start))
+      setCustomEnd(formatDateForInput(end))
+    }
   }
 
   const handleCustomButtonClick = () => {
