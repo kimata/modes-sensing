@@ -30,9 +30,17 @@ def page(page):
 
 
 @pytest.fixture
-def browser_context_args(browser_context_args, request):
-    return {
+def browser_context_args(browser_context_args, request, worker_id):
+    # 並列実行時は各ワーカーに独立したコンテキストを設定
+    args = {
         **browser_context_args,
         "record_video_dir": f"tests/evidence/{request.node.name}",
         "record_video_size": {"width": 2400, "height": 1600},
     }
+
+    # 並列実行時はキャッシュを無効化
+    if worker_id != "master":
+        args["bypass_csp"] = True
+        args["ignore_https_errors"] = True
+
+    return args

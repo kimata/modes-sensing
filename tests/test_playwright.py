@@ -11,12 +11,18 @@ APP_URL_TMPL = "http://{host}:{port}/modes-sensing/"
 
 
 @pytest.fixture
-def page_init(page, host, port):
+def page_init(page, host, port, worker_id):
     """各テスト用のページ初期化（並列実行対応）"""
     wait_for_server_ready(host, port)
 
-    # 並列実行時の競合を避けるため、短い待機時間に調整
-    time.sleep(1)
+    # 並列実行時の競合を避けるため、ワーカーごとに異なる遅延を設定
+    if worker_id != "master":
+        # worker_idから数値を抽出（例: "gw0" -> 0）
+        worker_num = int(worker_id[2:]) if worker_id.startswith("gw") else 0
+        delay = 0.5 + (worker_num * 0.2)  # 0.5秒 + ワーカー番号 * 0.2秒
+        time.sleep(delay)
+    else:
+        time.sleep(1)
 
     page.on("console", lambda msg: print(msg.text))  # noqa: T201
     page.set_viewport_size({"width": 2400, "height": 1600})

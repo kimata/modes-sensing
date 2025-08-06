@@ -93,7 +93,6 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       const key = graph.endpoint
       // loading状態かつ実際には読み込み完了している場合のみ処理
       if (loading[key] && checkImageLoadingState(key)) {
-        console.log(`[checkAllImagesStatus] ${key}: detected loaded image with loading=true, fixing state`)
         updatesNeeded.push(key)
       }
     })
@@ -250,14 +249,12 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     }
 
     const img = imageRefs.current[key]
-    console.log(`[handleImageLoad] ${key}: img exists=${!!img}, complete=${img?.complete}, naturalWidth=${img?.naturalWidth}`)
 
     if (img && img.complete && img.naturalWidth > 0) {
       isUpdatingStateRef.current = true
 
       // タイマーをクリア
       if (loadingTimers[key]) {
-        console.log(`[handleImageLoad] ${key}: clearing timeout timer`)
         clearTimeout(loadingTimers[key])
         setLoadingTimers(prev => {
           const newTimers = { ...prev }
@@ -265,7 +262,6 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
           return newTimers
         })
       }
-      console.log(`[handleImageLoad] ${key}: setting loading to false`)
 
       // バッチ処理で一度に状態を更新
       setLoading(prev => ({ ...prev, [key]: false }))
@@ -394,36 +390,36 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       newErrorState[key] = ''
 
       // 各画像に対してタイムアウトタイマーを設定（画像要素の実際の状態をチェック）
-      // 遅延を削除してすべて同じタイミングでチェック
       newTimers[key] = window.setTimeout(() => {
         const img = imageRefs.current[key]
-        console.log(`[Initial timeout check] ${key}: img exists=${!!img}, complete=${img?.complete}, naturalWidth=${img?.naturalWidth}`)
 
         if (!img || !img.src) {
-          console.log(`[Initial timeout check] ${key}: Image element or src missing`)
           retryImageLoad(key, 0)
         } else if (img.complete && img.naturalWidth > 0) {
           // 実際には読み込み完了していた場合
-          console.log(`[Initial timeout check] ${key}: Image already loaded, calling handleImageLoad`)
           handleImageLoad(key)
         } else if (img.complete && img.naturalWidth === 0) {
           // エラー状態の検出
-          console.log(`[Initial timeout check] ${key}: Error state detected, calling handleImageError`)
           handleImageError(key, graph.title)
         } else {
           // まだ読み込み中
-          console.log(`[Initial timeout check] ${key}: Still loading, retrying`)
           retryImageLoad(key, 0)
         }
       }, IMAGE_LOAD_TIMEOUT)
     })
 
     // 状態を一括更新
-    setImageUrls(newImageUrls)
     setLoading(newLoadingState)
     setErrors(newErrorState)
     setRetryCount({})
     setLoadingTimers(newTimers)
+
+    // 画像URLを段階的に設定して同時読み込みを制御
+    Object.keys(newImageUrls).forEach((key, index) => {
+      setTimeout(() => {
+        setImageUrls(prev => ({ ...prev, [key]: newImageUrls[key] }))
+      }, index * 50) // 50msずつ遅延して設定
+    })
 
     // 既存のインターバルをクリア
     if (statusCheckIntervalRef.current) {
@@ -528,13 +524,9 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
                           }}
                           onClick={() => onImageClick(imageUrl)}
                           onLoad={() => {
-                            console.log(`[img onLoad] ${key}: onLoad event fired`)
-                            console.log(`[img onLoad] ${key}: current loading state = ${loading[key]}`)
                             handleImageLoad(key)
                           }}
                           onError={() => {
-                            console.log(`[img onError] ${key}: onError event fired`)
-                            console.log(`[img onError] ${key}: current loading state = ${loading[key]}`)
                             handleImageError(key, graph.title)
                           }}
                           loading="eager"
