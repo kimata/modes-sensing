@@ -473,7 +473,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     // 定期的な画像状態チェックを開始（onLoadイベント消失を補完）
     statusCheckIntervalRef.current = setInterval(() => {
       checkAllImagesStatus()
-    }, 1000) // 1秒ごとにチェック（CI環境安定性重視）
+    }, 100) // 100msごとにチェック（応答性向上）
 
     // クリーンアップ関数
     return () => {

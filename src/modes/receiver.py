@@ -213,8 +213,8 @@ def is_outlier_data(temperature, altitude, callsign=None):
         regression_model = sklearn.linear_model.LinearRegression()
         regression_model.fit(altitudes, temperatures)
 
-        # 物理的相関チェック
-        if is_physically_reasonable(altitude, temperature, regression_model):
+        # 物理的相関チェック（より寛容に）
+        if is_physically_reasonable(altitude, temperature, regression_model, tolerance_factor=2.5):
             logging.info(
                 "物理的に妥当な高度-温度相関のため正常値として扱います "
                 "(altitude: %.1fm, temperature: %.1f°C)",
@@ -235,7 +235,7 @@ def is_outlier_data(temperature, altitude, callsign=None):
         # 残差に対してIsolation Forestを適用
         residuals_2d = residuals.reshape(-1, 1)
         isolation_forest = sklearn.ensemble.IsolationForest(
-            contamination=0.1,
+            contamination=0.12,
             max_samples=2000,
             n_jobs=4,
             random_state=55,  # 再現性のため固定
