@@ -1,13 +1,20 @@
 import { useState, useEffect, useRef } from 'react'
 import styles from './GraphDisplay.module.css'
 
+interface DataRange {
+  earliest: string | null
+  latest: string | null
+  count?: number
+}
+
 interface DateSelectorProps {
   startDate: Date
   endDate: Date
   onDateChange: (start: Date, end: Date) => void
+  dataRange: DataRange | null
 }
 
-const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateChange }) => {
+const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateChange, dataRange }) => {
   const formatDateForInput = (date: Date): string => {
     const year = date.getFullYear()
     const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -135,10 +142,37 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
   }
 
   const handleQuickSelect = (days: number, period: '1day' | '7days' | '30days' | '180days' | '365days') => {
-    const end = new Date()
+    let end = new Date()
     end.setSeconds(0, 0) // 秒とミリ秒を0に設定
-    const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000)
+    let start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000)
     start.setSeconds(0, 0) // 秒とミリ秒を0に設定
+
+    // データ範囲による調整
+    if (dataRange && dataRange.earliest && dataRange.latest) {
+      const dataEarliest = new Date(dataRange.earliest)
+      const dataLatest = new Date(dataRange.latest)
+
+      // 終了日時が利用可能なデータの最新日時を超えている場合、データの最新日時に調整
+      if (end > dataLatest) {
+        end = new Date(dataLatest)
+        end.setSeconds(0, 0)
+      }
+
+      // 開始日時が利用可能なデータの最古日時を下回っている場合、データの最古日時に調整
+      if (start < dataEarliest) {
+        start = new Date(dataEarliest)
+        start.setSeconds(0, 0)
+      }
+
+      // 期間が調整された場合、終了日から逆算して適切な期間を設定
+      const requestedPeriodMs = days * 24 * 60 * 60 * 1000
+      const adjustedStart = new Date(end.getTime() - requestedPeriodMs)
+      if (adjustedStart >= dataEarliest) {
+        start = adjustedStart
+        start.setSeconds(0, 0)
+      }
+    }
+
     onDateChange(start, end)
     setCustomStart(formatDateForInput(start))
     setCustomEnd(formatDateForInput(end))
@@ -150,14 +184,34 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
     const end = new Date(customEnd)
     start.setSeconds(0, 0) // 秒とミリ秒を0に設定
     end.setSeconds(0, 0) // 秒とミリ秒を0に設定
-    if (start <= end) {
-      onDateChange(start, end)
-      setHasChanges(false)
-      setSelectedPeriod('custom')
-    } else {
-      // 開始日時が終了日時より後の場合はエラー表示
+
+    // 基本的な日付順序チェック
+    if (start > end) {
       alert('開始日時は終了日時より前に設定してください')
+      return
     }
+
+    // データ範囲チェック
+    if (dataRange && dataRange.earliest && dataRange.latest) {
+      const dataEarliest = new Date(dataRange.earliest)
+      const dataLatest = new Date(dataRange.latest)
+
+      if (start < dataEarliest) {
+        const earliestStr = dataEarliest.toLocaleDateString('ja-JP') + ' ' + dataEarliest.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+        alert(`開始日時は ${earliestStr} 以降に設定してください（利用可能なデータの範囲外です）`)
+        return
+      }
+
+      if (end > dataLatest) {
+        const latestStr = dataLatest.toLocaleDateString('ja-JP') + ' ' + dataLatest.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+        alert(`終了日時は ${latestStr} 以前に設定してください（利用可能なデータの範囲外です）`)
+        return
+      }
+    }
+
+    onDateChange(start, end)
+    setHasChanges(false)
+    setSelectedPeriod('custom')
   }
 
   const handleCustomButtonClick = () => {
@@ -183,6 +237,21 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
   const handleInputBlur = () => {
     setFocusedField(null)
   }
+
+  // データ範囲に基づいて入力フィールドのmin/maxを設定
+  const getInputLimits = () => {
+    if (dataRange && dataRange.earliest && dataRange.latest) {
+      const earliest = new Date(dataRange.earliest)
+      const latest = new Date(dataRange.latest)
+      return {
+        min: formatDateForInput(earliest),
+        max: formatDateForInput(latest)
+      }
+    }
+    return { min: undefined, max: undefined }
+  }
+
+  const inputLimits = getInputLimits()
 
   return (
     <>
@@ -264,10 +333,13 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
                 className={`input ${focusedField === 'start' ? 'is-focused' : ''}`}
                 type="datetime-local"
                 value={customStart}
+                min={inputLimits.min}
+                max={inputLimits.max}
                 onChange={(e) => setCustomStart(e.target.value)}
                 onKeyPress={handleKeyPress}
                 onFocus={() => handleInputFocus('start')}
                 onBlur={handleInputBlur}
+                title={inputLimits.min && inputLimits.max ? `利用可能な期間: ${inputLimits.min} ～ ${inputLimits.max}` : undefined}
                 style={{
                   transition: 'all 0.3s ease-in-out',
                   transform: focusedField === 'start' ? 'scale(1.02)' : 'scale(1)',
@@ -285,10 +357,13 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
                 className={`input ${focusedField === 'end' ? 'is-focused' : ''}`}
                 type="datetime-local"
                 value={customEnd}
+                min={inputLimits.min}
+                max={inputLimits.max}
                 onChange={(e) => setCustomEnd(e.target.value)}
                 onKeyPress={handleKeyPress}
                 onFocus={() => handleInputFocus('end')}
                 onBlur={handleInputBlur}
+                title={inputLimits.min && inputLimits.max ? `利用可能な期間: ${inputLimits.min} ～ ${inputLimits.max}` : undefined}
                 style={{
                   transition: 'all 0.3s ease-in-out',
                   transform: focusedField === 'end' ? 'scale(1.02)' : 'scale(1)',

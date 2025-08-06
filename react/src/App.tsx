@@ -1,8 +1,14 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import DateSelector from './components/DateSelector'
 import GraphDisplay from './components/GraphDisplay'
 import Modal from './components/Modal'
 import Footer from './components/Footer'
+
+interface DataRange {
+  earliest: string | null
+  latest: string | null
+  count?: number
+}
 
 function App() {
   const getInitialDate = () => {
@@ -15,6 +21,43 @@ function App() {
 
   const [dateRange, setDateRange] = useState(getInitialDate())
   const [modalImage, setModalImage] = useState<string | null>(null)
+  const [dataRange, setDataRange] = useState<DataRange | null>(null)
+  const [dataRangeSubtitle, setDataRangeSubtitle] = useState<string>('')
+
+  // データ範囲を取得
+  useEffect(() => {
+    const fetchDataRange = async () => {
+      try {
+        const response = await fetch('/modes-sensing/api/data-range')
+        if (response.ok) {
+          const range: DataRange = await response.json()
+          setDataRange(range)
+
+          // サブタイトルを生成（参考ファイルのフォーマットに従う）
+          if (range.earliest && range.latest) {
+            const earliest = new Date(range.earliest)
+            const latest = new Date(range.latest)
+
+            // 日数を計算
+            const daysDiff = Math.floor((latest.getTime() - earliest.getTime()) / (24 * 60 * 60 * 1000)) + 1
+
+            // 開始日をフォーマット（年月日のみ）
+            const startDateFormatted = earliest.toLocaleDateString('ja-JP', {
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit'
+            }).replace(/\//g, '年').replace(/年(\d+)年/, '年$1月') + '日'
+
+            setDataRangeSubtitle(`過去${daysDiff}日間（${startDateFormatted}〜）のデータが記録されています`)
+          }
+        }
+      } catch (error) {
+        console.error('データ範囲の取得に失敗しました:', error)
+      }
+    }
+
+    fetchDataRange()
+  }, [])
 
   const handleDateChange = (start: Date, end: Date) => {
     setDateRange({ start, end })
@@ -40,10 +83,17 @@ function App() {
             <span style={{ marginLeft: '0.5em' }}></span>
           </h1>
 
+          {dataRangeSubtitle && (
+            <p className="subtitle is-6 has-text-centered" style={{ marginTop: '-0.5rem', marginBottom: '2rem' }}>
+              {dataRangeSubtitle}
+            </p>
+          )}
+
           <DateSelector
             startDate={dateRange.start}
             endDate={dateRange.end}
             onDateChange={handleDateChange}
+            dataRange={dataRange}
           />
 
           <GraphDisplay
