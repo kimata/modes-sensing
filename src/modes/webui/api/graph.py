@@ -950,6 +950,56 @@ def plot(config, graph_name, time_start, time_end):
             return b""
 
 
+@blueprint.route("/api/data-range", methods=["GET"])
+def data_range():
+    """データベースの最古・最新データの日時を返すAPI"""
+    try:
+        config = flask.current_app.config["CONFIG"]
+        conn = connect_database(config)
+
+        # 最古・最新のデータを取得
+        query = """
+        SELECT
+            MIN(time) as earliest,
+            MAX(time) as latest
+        FROM meteorological_data
+        """
+
+        import psycopg2.extras
+
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(query)
+            result = cur.fetchone()
+
+        conn.close()
+
+        if result and result["earliest"] and result["latest"]:
+            # タイムゾーン情報を追加してJSONシリアライゼーション可能にする
+            earliest = result["earliest"]
+            latest = result["latest"]
+
+            # タイムゾーン情報がない場合はローカルタイムゾーンを適用
+            if earliest.tzinfo is None:
+                earliest = earliest.replace(tzinfo=my_lib.time.get_zoneinfo())
+            if latest.tzinfo is None:
+                latest = latest.replace(tzinfo=my_lib.time.get_zoneinfo())
+
+            response_data = {
+                "earliest": earliest.isoformat(),
+                "latest": latest.isoformat(),
+                "count": None,  # オプション：後でレコード数も追加可能
+            }
+        else:
+            # データがない場合
+            response_data = {"earliest": None, "latest": None, "count": 0}
+
+        return flask.jsonify(response_data)
+
+    except Exception as e:
+        logging.exception("Error fetching data range")
+        return flask.jsonify({"error": "データ範囲の取得に失敗しました", "details": str(e)}), 500
+
+
 @blueprint.route("/api/graph/<path:graph_name>", methods=["GET"])
 def graph(graph_name):
     # デフォルト値を設定
