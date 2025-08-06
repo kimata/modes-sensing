@@ -11,6 +11,7 @@ Options:
   -D                : デバッグモードで動作します。
 """
 
+import atexit
 import concurrent.futures
 import datetime
 import hashlib
@@ -61,6 +62,50 @@ ALT_AXIS_LABEL = "高度 (m)"
 TEMP_AXIS_LABEL = "温度 (℃)"
 
 blueprint = flask.Blueprint("modes-sensing-graph", __name__)
+
+
+# グローバルプロセスプール管理（matplotlib マルチスレッド問題対応）
+class ProcessPoolManager:
+    """シングルトンパターンでプロセスプールを管理"""
+
+    _instance = None
+    _lock = multiprocessing.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance.pool = None
+        return cls._instance
+
+    def get_pool(self):
+        """プロセスプールを取得（必要に応じて作成）"""
+        if self.pool is None:
+            with self._lock:
+                if self.pool is None:
+                    # CPUコア数に基づいてプロセス数を決定（最大4、最小1）
+                    max_workers = min(max(multiprocessing.cpu_count() // 2, 1), 4)
+                    self.pool = multiprocessing.Pool(processes=max_workers)
+                    # アプリ終了時にプールをクリーンアップ
+                    atexit.register(self.cleanup)
+                    logging.info("Created global process pool with %d workers", max_workers)
+        return self.pool
+
+    def cleanup(self):
+        """プロセスプールのクリーンアップ"""
+        if self.pool is not None:
+            try:
+                self.pool.close()
+                self.pool.join()
+                self.pool = None
+                logging.info("Cleaned up global process pool")
+            except Exception as e:
+                logging.warning("Error cleaning up process pool: %s", e)
+
+
+# プロセスプールマネージャーのインスタンス
+_pool_manager = ProcessPoolManager()
 
 
 def connect_database(config):
@@ -878,18 +923,31 @@ def plot(config, graph_name, time_start, time_end):
     # グラフサイズを計算
     figsize = tuple(x / IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name]["size"])
 
-    # データ取得から描画まで全て子プロセスで実行
-    with multiprocessing.Pool(processes=1) as pool:
+    # グローバルプロセスプールを使用してデータ取得から描画まで実行
+    pool = _pool_manager.get_pool()
+    try:
         result = pool.apply(plot_in_subprocess, (config, graph_name, time_start, time_end, figsize))
+        image_bytes, elapsed = result
 
-    image_bytes, elapsed = result
+        if elapsed > 0:
+            logging.info("elapsed time: %s = %.3f sec", graph_name, elapsed)
+        else:
+            logging.info("No data available for %s", graph_name)
 
-    if elapsed > 0:
-        logging.info("elapsed time: %s = %.3f sec", graph_name, elapsed)
-    else:
-        logging.info("No data available for %s", graph_name)
-
-    return image_bytes
+        return image_bytes
+    except Exception:
+        logging.exception("Error in plot generation for %s", graph_name)
+        # エラー時は直接エラー画像を生成
+        try:
+            img = create_no_data_image(config, graph_name, "グラフの作成に失敗しました")
+            bytes_io = io.BytesIO()
+            img.save(bytes_io, "PNG")
+            bytes_io.seek(0)
+            return bytes_io.getvalue()
+        except Exception:
+            # 最終的にフォールバック画像を返す
+            logging.exception("Failed to create error image for %s", graph_name)
+            return b""
 
 
 @blueprint.route("/api/graph/<path:graph_name>", methods=["GET"])
