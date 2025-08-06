@@ -182,16 +182,34 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     }
   }, [])
 
-  // 初回マウント時に画像URLを設定（簡素化してCI環境安定性向上）
+  // 初回マウント時に画像URLを段階的に設定（ブラウザ同時接続制限対応）
   useEffect(() => {
-    const newImageUrls: { [key: string]: string } = {}
-    graphs.forEach(graph => {
-      const key = graph.endpoint
-      newImageUrls[key] = getImageUrl(graph, 0)
-    })
+    const loadImagesInBatches = async () => {
+      const BATCH_SIZE = 4 // ブラウザの同時接続制限を考慮
+      const BATCH_DELAY = 100 // バッチ間の遅延（ms）
 
-    // 一括設定に戻してCI環境での安定性を向上
-    setImageUrls(newImageUrls)
+      console.log('[Initial mount] Starting staged image loading for', graphs.length, 'images')
+
+      for (let i = 0; i < graphs.length; i += BATCH_SIZE) {
+        const batch = graphs.slice(i, i + BATCH_SIZE)
+        const batchUrls: { [key: string]: string } = {}
+
+        batch.forEach(graph => {
+          const key = graph.endpoint
+          batchUrls[key] = getImageUrl(graph, 0)
+        })
+
+        console.log(`[Initial mount] Loading batch ${Math.floor(i/BATCH_SIZE) + 1}:`, Object.keys(batchUrls))
+        setImageUrls(prev => ({ ...prev, ...batchUrls }))
+
+        // 最後のバッチでない場合は遅延
+        if (i + BATCH_SIZE < graphs.length) {
+          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY))
+        }
+      }
+    }
+
+    loadImagesInBatches()
   }, [])
 
   // パーマリンクコピー用の通知表示
@@ -293,6 +311,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
 
     const img = imageRefs.current[key]
     console.log(`[handleImageError] ${key}: image error occurred`)
+    console.log(`[handleImageError] ${key}: title = ${title}`)
     console.log(`[handleImageError] ${key}: img.src = ${img?.src}`)
     console.log(`[handleImageError] ${key}: img.complete = ${img?.complete}`)
     console.log(`[handleImageError] ${key}: img.naturalWidth = ${img?.naturalWidth}`)
@@ -423,8 +442,28 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     setRetryCount({})
     setLoadingTimers(newTimers)
 
-    // 画像URLを一括設定（簡素化してCI環境安定性向上）
-    setImageUrls(newImageUrls)
+    // 段階的設定（ブラウザ同時接続制限対応）
+    const setBatchUrls = async () => {
+      const BATCH_SIZE = 4
+      const BATCH_DELAY = 100
+
+      console.log('[Date change] Starting staged image loading for', Object.keys(newImageUrls).length, 'images')
+
+      const urlEntries = Object.entries(newImageUrls)
+      for (let i = 0; i < urlEntries.length; i += BATCH_SIZE) {
+        const batch = urlEntries.slice(i, i + BATCH_SIZE)
+        const batchUrls = Object.fromEntries(batch)
+
+        console.log(`[Date change] Loading batch ${Math.floor(i/BATCH_SIZE) + 1}:`, Object.keys(batchUrls))
+        setImageUrls(prev => ({ ...prev, ...batchUrls }))
+
+        if (i + BATCH_SIZE < urlEntries.length) {
+          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY))
+        }
+      }
+    }
+
+    setBatchUrls()
 
     // 既存のインターバルをクリア
     if (statusCheckIntervalRef.current) {
