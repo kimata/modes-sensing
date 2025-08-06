@@ -30,7 +30,7 @@ fragment_list = []
 should_terminate = threading.Event()
 
 # Isolation Forest用のデータ蓄積
-meteorological_history = collections.deque(maxlen=1000)  # 最大1000件のデータを保持
+meteorological_history = collections.deque(maxlen=10000)  # 最大10000件のデータを保持
 OUTLIER_DETECTION_MIN_SAMPLES = 100  # 外れ値検出を開始する最小サンプル数
 
 
@@ -235,11 +235,10 @@ def is_outlier_data(temperature, altitude, callsign=None):
         # 残差に対してIsolation Forestを適用
         residuals_2d = residuals.reshape(-1, 1)
         isolation_forest = sklearn.ensemble.IsolationForest(
-            contamination=0.02,  # 2%の外れ値を想定（航空機データは比較的信頼性が高い）
-            n_estimators=100,  # デフォルト値で十分な精度
+            contamination=0.01,
             max_samples="auto",  # 自動サンプリング
             bootstrap=False,  # 重複なしサンプリング
-            n_jobs=1,  # リアルタイム処理のため単一スレッド
+            n_jobs=4,
             random_state=42,  # 再現性のため固定
         )
         isolation_forest.fit(residuals_2d)

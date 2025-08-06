@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import styles from './GraphDisplay.module.css'
 
-// タイムアウトとリトライの設定
-const IMAGE_LOAD_TIMEOUT = 10000 // 10秒
+// タイムアウトとリトライの設定（CI環境対応）
+const IMAGE_LOAD_TIMEOUT = 20000 // 20秒（CI環境向け延長）
 const MAX_RETRY_COUNT = 2 // 最大2回リトライ
 
 interface GraphDisplayProps {
