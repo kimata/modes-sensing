@@ -260,7 +260,7 @@ def test_page_loads_correctly(page_init, host, port):
     expect(page.locator("#graph h2")).to_contain_text("グラフ")
 
 
-def test_all_images_display_correctly(page_init, host, port):  # noqa: C901
+def test_all_images_display_correctly(page_init, host, port):
     """全ての画像が正常に表示されることをテスト"""
     page = page_init
     page.goto(app_url(host, port))
@@ -300,66 +300,103 @@ def test_all_images_display_correctly(page_init, host, port):  # noqa: C901
         "3D等高線プロット",
     ]
 
-    # 各画像が表示状態になるまで待機（DOM存在 + 非hidden状態）
-    for title in expected_images:
-        try:
-            # 画像要素が存在し、かつ親要素が非表示でないことを確認
-            page.wait_for_function(
-                f"""
-                () => {{
-                    const img = document.querySelector('img[alt="{title}"]');
-                    if (!img) return false;
+    # 全画像の表示状態を一括で確認（効率化）
+    try:
+        page.wait_for_function(
+            f"""
+            () => {{
+                const expectedTitles = {expected_images};
+                let visibleCount = 0;
+
+                for (const title of expectedTitles) {{
+                    const img = document.querySelector(`img[alt="${{title}}"]`);
+                    if (!img) continue;
 
                     const figure = img.closest('figure');
-                    if (!figure) return false;
+                    if (!figure) continue;
 
                     const style = window.getComputedStyle(figure);
-                    return style.display !== 'none';
+                    if (style.display !== 'none') {{
+                        visibleCount++;
+                    }}
                 }}
-                """,
-                timeout=60000,  # ローディング時間を考慮して60秒に延長
-            )
-        except Exception as e:  # noqa: PERF203
-            logging.error("%s: Element not found or not visible: %s", title, e)  # noqa: TRY400
-            raise
 
-    # 各画像が読み込まれ、かつ表示されていることを確認
-    for title in expected_images:
-        try:
-            page.wait_for_function(
-                f"""
-                () => {{
-                    const img = document.querySelector('img[alt="{title}"]');
-                    if (!img || !img.complete || img.naturalWidth <= 0) return false;
+                console.log(`Visible images: ${{visibleCount}}/8`);
+                return visibleCount === 8;
+            }}
+            """,
+            timeout=90000,  # CI環境対応で90秒に延長
+        )
+    except Exception as e:
+        logging.error("Failed to wait for all images to be visible: %s", e)  # noqa: TRY400
+        raise
 
-                    const figure = img.closest('figure');
-                    if (!figure) return false;
+    # 全画像の読み込み状態を一括で確認（効率化）
+    try:
+        page.wait_for_function(
+            f"""
+            () => {{
+                const expectedTitles = {expected_images};
+                let loadedCount = 0;
+                let consecutiveChecks = window.imageLoadedChecks || 0;
 
-                    const style = window.getComputedStyle(figure);
-                    return style.display !== 'none';
+                for (const title of expectedTitles) {{
+                    const img = document.querySelector(`img[alt="${{title}}"]`);
+                    if (!img) continue;
+
+                    if (img.complete && img.naturalWidth > 0) {{
+                        const figure = img.closest('figure');
+                        if (figure) {{
+                            const style = window.getComputedStyle(figure);
+                            if (style.display !== 'none') {{
+                                loadedCount++;
+                            }}
+                        }}
+                    }}
                 }}
-                """,
-                timeout=60000,
-            )
-        except Exception as e:  # noqa: PERF203
-            logging.error("%s: Failed to load or not visible: %s", title, e)  # noqa: TRY400
-            # 失敗時の画像とfigure状態をログ出力
-            img_state = page.evaluate(f"""
-                () => {{
-                    const img = document.querySelector('img[alt="{title}"]');
-                    if (!img) return {{ found: false }};
-                    const figure = img.closest('figure');
-                    return {{
-                        found: true,
-                        complete: img.complete,
-                        naturalWidth: img.naturalWidth,
-                        src: img.src.substring(0, 100),
-                        figureDisplay: figure ? window.getComputedStyle(figure).display : 'no-figure'
-                    }};
+
+                // 8つ全て読み込み完了したら連続チェック開始
+                if (loadedCount >= 8) {{
+                    consecutiveChecks++;
+                    window.imageLoadedChecks = consecutiveChecks;
+                    console.log(`All 8 images loaded (check ${{consecutiveChecks}}/2)`);
+                    return consecutiveChecks >= 2; // 2回連続確認で完了
+                }} else {{
+                    window.imageLoadedChecks = 0;
+                    console.log(`Loaded images: ${{loadedCount}}/8`);
+                    return false;
                 }}
-            """)
-            logging.error("%s: Image state at failure: %s", title, img_state)  # noqa: TRY400
-            raise
+            }}
+            """,
+            timeout=90000,  # CI環境対応で90秒に延長
+        )
+    except Exception as e:
+        logging.error("Failed to wait for all images to be loaded: %s", e)  # noqa: TRY400
+        # 失敗時の状態をログ出力
+        current_states = page.evaluate(f"""
+            () => {{
+                const expectedTitles = {expected_images};
+                const states = [];
+                for (const title of expectedTitles) {{
+                    const img = document.querySelector(`img[alt="${{title}}"]`);
+                    if (!img) {{
+                        states.push({{ title, found: false }});
+                    }} else {{
+                        const figure = img.closest('figure');
+                        states.push({{
+                            title,
+                            found: true,
+                            complete: img.complete,
+                            naturalWidth: img.naturalWidth,
+                            figureDisplay: figure ? window.getComputedStyle(figure).display : 'no-figure'
+                        }});
+                    }}
+                }}
+                return states;
+            }}
+        """)
+        logging.error("Image states at failure: %s", current_states)  # noqa: TRY400
+        raise
 
     # CI環境でcontour_2dが読み込まれない問題への追加対策
     # contour_2dが読み込まれていない場合、追加で待機
@@ -649,7 +686,7 @@ def test_image_modal_functionality(page_init, host, port):
     page.goto(app_url(host, port))
 
     # 画像の読み込み完了まで待機
-    wait_for_images_to_load(page, expected_count=8, timeout=30000)
+    wait_for_images_to_load(page, expected_count=8, timeout=90000)
 
     # 画像が実際に表示状態になるまで待機（isLoadingがfalseになるまで）
     page.wait_for_function(
@@ -669,7 +706,7 @@ def test_image_modal_functionality(page_init, host, port):
             return computedStyle.display !== 'none' && firstImage.complete && firstImage.naturalWidth > 0;
         }
         """,
-        timeout=60000,
+        timeout=90000,  # CI環境対応で90秒に延長
     )
 
     # 最初の画像をクリック

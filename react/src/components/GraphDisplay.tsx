@@ -414,11 +414,11 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     setRetryCount({})
     setLoadingTimers(newTimers)
 
-    // 画像URLを段階的に設定して同時読み込みを制御
+    // 画像URLを段階的に設定して同時読み込みを制御（CI環境対応で遅延を短縮）
     Object.keys(newImageUrls).forEach((key, index) => {
       setTimeout(() => {
         setImageUrls(prev => ({ ...prev, [key]: newImageUrls[key] }))
-      }, index * 50) // 50msずつ遅延して設定
+      }, index * 25) // 25msずつ遅延して設定（CI環境対応で短縮）
     })
 
     // 既存のインターバルをクリア
@@ -429,7 +429,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     // 定期的な画像状態チェックを開始（onLoadイベント消失を補完）
     statusCheckIntervalRef.current = setInterval(() => {
       checkAllImagesStatus()
-    }, 1000) // 1秒ごとにチェック（負荷軽減のため間隔を調整）
+    }, 500) // 0.5秒ごとにチェック（CI環境対応で応答性向上）
 
     // クリーンアップ関数
     return () => {
