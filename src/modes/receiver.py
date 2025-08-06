@@ -235,9 +235,8 @@ def is_outlier_data(temperature, altitude, callsign=None):
         # 残差に対してIsolation Forestを適用
         residuals_2d = residuals.reshape(-1, 1)
         isolation_forest = sklearn.ensemble.IsolationForest(
-            contamination=0.01,
-            max_samples="auto",  # 自動サンプリング
-            bootstrap=False,  # 重複なしサンプリング
+            contamination=0.1,
+            max_samples=2000,  # 自動サンプリング
             n_jobs=4,
             random_state=42,  # 再現性のため固定
         )
