@@ -182,7 +182,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     }
   }, [])
 
-  // 初回マウント時に画像URLを設定（段階的に設定してCI環境対応）
+  // 初回マウント時に画像URLを設定（簡素化してCI環境安定性向上）
   useEffect(() => {
     const newImageUrls: { [key: string]: string } = {}
     graphs.forEach(graph => {
@@ -190,30 +190,8 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       newImageUrls[key] = getImageUrl(graph, 0)
     })
 
-    // 初回も段階的に設定して同時読み込みを制御
-    // graphsの順序を保持して確実に全画像を設定
-    const urlKeys = graphs.map(g => g.endpoint)
-    urlKeys.forEach((key, index) => {
-      setTimeout(() => {
-        setImageUrls(prev => ({ ...prev, [key]: newImageUrls[key] }))
-        if (index === urlKeys.length - 1) {
-          // 最後の画像URL設定後、確実に全てのURLが設定されていることを確認
-          setTimeout(() => {
-            setImageUrls(prev => {
-              const missingKeys = urlKeys.filter(k => !prev[k])
-              if (missingKeys.length > 0) {
-                const fixed = { ...prev }
-                missingKeys.forEach(k => {
-                  fixed[k] = newImageUrls[k]
-                })
-                return fixed
-              }
-              return prev
-            })
-          }, 50) // 追加の遅延で確実性を向上
-        }
-      }, index * 25) // 25msずつ遅延して設定
-    })
+    // 一括設定に戻してCI環境での安定性を向上
+    setImageUrls(newImageUrls)
   }, [])
 
   // パーマリンクコピー用の通知表示
@@ -445,30 +423,8 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     setRetryCount({})
     setLoadingTimers(newTimers)
 
-    // 画像URLを段階的に設定して同時読み込みを制御（CI環境対応で遅延を短縮）
-    // graphsの順序を保持して確実に全画像を設定
-    const urlKeys = graphs.map(g => g.endpoint)
-    urlKeys.forEach((key, index) => {
-      setTimeout(() => {
-        setImageUrls(prev => ({ ...prev, [key]: newImageUrls[key] }))
-        if (index === urlKeys.length - 1) {
-          // 最後の画像URL設定後、確実に全てのURLが設定されていることを確認
-          setTimeout(() => {
-            setImageUrls(prev => {
-              const missingKeys = urlKeys.filter(k => !prev[k])
-              if (missingKeys.length > 0) {
-                const fixed = { ...prev }
-                missingKeys.forEach(k => {
-                  fixed[k] = newImageUrls[k]
-                })
-                return fixed
-              }
-              return prev
-            })
-          }, 50) // 追加の遅延で確実性を向上
-        }
-      }, index * 25) // 25msずつ遅延して設定（CI環境対応で短縮）
-    })
+    // 画像URLを一括設定（簡素化してCI環境安定性向上）
+    setImageUrls(newImageUrls)
 
     // 既存のインターバルをクリア
     if (statusCheckIntervalRef.current) {
@@ -478,7 +434,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     // 定期的な画像状態チェックを開始（onLoadイベント消失を補完）
     statusCheckIntervalRef.current = setInterval(() => {
       checkAllImagesStatus()
-    }, 200) // 0.5秒ごとにチェック（CI環境対応で応答性向上）
+    }, 1000) // 1秒ごとにチェック（CI環境安定性重視）
 
     // クリーンアップ関数
     return () => {
