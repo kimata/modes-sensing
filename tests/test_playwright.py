@@ -628,9 +628,32 @@ def test_custom_date_range(page_init, host, port):
 
     # カスタムボタンをクリック
     page.click("button >> text='カスタム'")
+
+    # React状態更新の完了を待機
+    time.sleep(1)
+
+    # カスタムボタンがアクティブになることを確認
     custom_button = page.locator("button >> text='カスタム'")
-    class_attribute = custom_button.get_attribute("class")
-    assert "is-primary" in class_attribute, "カスタムボタンがアクティブになっていません"  # noqa: S101
+    try:
+        custom_button.wait_for(state="visible", timeout=5000)
+        # ボタンがis-primaryクラスを持つまで待機
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            class_attribute = custom_button.get_attribute("class")
+            if "is-primary" in class_attribute:
+                break
+            if attempt < max_attempts - 1:
+                time.sleep(0.5)
+                logging.info(
+                    "Waiting for custom button to become active, attempt %d/%d", attempt + 1, max_attempts
+                )
+
+        class_attribute = custom_button.get_attribute("class")
+        assert "is-primary" in class_attribute, "カスタムボタンがアクティブになっていません"  # noqa: S101
+    except Exception:
+        class_attribute = custom_button.get_attribute("class")
+        logging.exception("Custom button state: %s", class_attribute)
+        raise
 
     # 現在時刻から3日前〜1日前の範囲を設定
     end_date = datetime.now(timezone.utc) - timedelta(days=1)
