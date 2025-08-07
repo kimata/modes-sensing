@@ -84,7 +84,7 @@ function App() {
           </h1>
 
           {dataRangeSubtitle && (
-            <p className="subtitle is-6 has-text-centered" style={{ marginTop: '-0.5rem', marginBottom: '2rem' }}>
+            <p className="subtitle is-6 has-text-centered" style={{ marginTop: '0.5rem', marginBottom: '2rem' }}>
               {dataRangeSubtitle}
             </p>
           )}
