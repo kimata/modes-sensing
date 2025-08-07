@@ -185,7 +185,7 @@ def is_physically_reasonable(altitude, temperature, regression_model, tolerance_
 
 
 def detect_outlier_by_altitude_neighbors(  # noqa: PLR0913
-    altitude, temperature, altitudes, temperatures, callsign=None, n_neighbors=400, sigma_threshold=3
+    altitude, temperature, altitudes, temperatures, callsign=None, n_neighbors=400, sigma_threshold=4
 ):
     """
     高度近傍ベースの異常検知を実行
