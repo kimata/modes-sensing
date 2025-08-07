@@ -139,7 +139,7 @@ def calc_meteorological_data(  # noqa: PLR0913
     }
 
 
-def is_physically_reasonable(altitude, temperature, regression_model, tolerance_factor=2.5):
+def is_physically_reasonable(altitude, temperature, regression_model, tolerance_factor=3):
     """
     高度-温度の物理的相関が妥当かどうかを判定
 
@@ -160,7 +160,7 @@ def is_physically_reasonable(altitude, temperature, regression_model, tolerance_
         # 高度-温度の一般的な関係：高度が1000m上がると約6.5°C下がる
         # 標準大気での温度減率を考慮した許容範囲を設定
         standard_lapse_rate = 0.0065  # °C/m
-        altitude_diff_threshold = 100  # m（許容する高度差）
+        altitude_diff_threshold = 200  # m（許容する高度差）
         temp_tolerance = standard_lapse_rate * altitude_diff_threshold * tolerance_factor
 
         # 予測値との差が許容範囲内かチェック
