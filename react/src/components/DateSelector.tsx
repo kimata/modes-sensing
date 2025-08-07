@@ -29,7 +29,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
   const [hasChanges, setHasChanges] = useState(false)
   const [focusedField, setFocusedField] = useState<'start' | 'end' | null>(null)
   const [selectedPeriod, setSelectedPeriod] = useState<'1day' | '7days' | '30days' | '180days' | '365days' | 'custom'>('7days')
-  const [userSelectedPeriod, setUserSelectedPeriod] = useState<'1day' | '7days' | '30days' | '180days' | '365days' | 'custom' | null>(null) // ユーザーが明示的に選択した期間
+  const [userSelectedPeriod, setUserSelectedPeriod] = useState<'1day' | '7days' | '30days' | '180days' | '365days' | 'custom' | null>('7days') // デフォルトで7日間を明示的に設定
   const [isQuickSelectActive, setIsQuickSelectActive] = useState(false) // 期間ボタン押下後の自動判定を抑制
   const notificationRef = useRef<HTMLDivElement>(null)
 
@@ -86,6 +86,45 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
       setSelectedPeriod('custom')
     }
   }, [startDate, endDate, isQuickSelectActive, userSelectedPeriod])
+
+  // 初期表示時にdataRangeによる日付調整を適用
+  useEffect(() => {
+    if (dataRange && dataRange.earliest && dataRange.latest) {
+      const dataEarliest = new Date(dataRange.earliest)
+      const dataLatest = new Date(dataRange.latest)
+
+      let adjustedStart = new Date(startDate)
+      let adjustedEnd = new Date(endDate)
+      let needsAdjustment = false
+
+      // 終了日時が利用可能なデータの最新日時を超えている場合
+      if (adjustedEnd > dataLatest) {
+        adjustedEnd = new Date(dataLatest)
+        adjustedEnd.setSeconds(0, 0)
+        needsAdjustment = true
+      }
+
+      // 開始日時が利用可能なデータの最古日時を下回っている場合
+      if (adjustedStart < dataEarliest) {
+        adjustedStart = new Date(dataEarliest)
+        adjustedStart.setSeconds(0, 0)
+        needsAdjustment = true
+      }
+
+      // 7日間の期間を維持しようとする
+      const sevenDaysMs = 7 * 24 * 60 * 60 * 1000
+      const recalculatedStart = new Date(adjustedEnd.getTime() - sevenDaysMs)
+      if (recalculatedStart >= dataEarliest) {
+        adjustedStart = recalculatedStart
+        adjustedStart.setSeconds(0, 0)
+        needsAdjustment = true
+      }
+
+      if (needsAdjustment) {
+        onDateChange(adjustedStart, adjustedEnd)
+      }
+    }
+  }, [dataRange])
 
   // ページ読み込み時にハッシュがあれば該当要素にスクロール
   useEffect(() => {
