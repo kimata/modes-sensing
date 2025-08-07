@@ -139,7 +139,7 @@ def calc_meteorological_data(  # noqa: PLR0913
     }
 
 
-def is_physically_reasonable(altitude, temperature, regression_model, tolerance_factor=3):
+def is_physically_reasonable(altitude, temperature, regression_model, tolerance_factor=4):
     """
     高度-温度の物理的相関が妥当かどうかを判定
 
@@ -185,7 +185,7 @@ def is_physically_reasonable(altitude, temperature, regression_model, tolerance_
 
 
 def detect_outlier_by_altitude_neighbors(  # noqa: PLR0913
-    altitude, temperature, altitudes, temperatures, callsign=None, n_neighbors=200, sigma_threshold=2.5
+    altitude, temperature, altitudes, temperatures, callsign=None, n_neighbors=400, sigma_threshold=3
 ):
     """
     高度近傍ベースの異常検知を実行
