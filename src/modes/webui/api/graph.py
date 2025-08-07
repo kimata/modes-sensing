@@ -119,7 +119,7 @@ def connect_database(config):
 
 
 def set_title(title_text):
-    matplotlib.pyplot.title(title_text, fontsize=TITLE_SIZE, fontweight="bold", pad=16)
+    matplotlib.pyplot.title(title_text, fontsize=TITLE_SIZE, fontweight="bold", pad=20)
 
 
 def set_tick_label_size(ax, is_3d=False):
@@ -221,7 +221,7 @@ def create_figure(figsize=(12, 8)):
         left=0.08,  # 左余白
         bottom=0.08,  # 下余白
         right=0.94,  # 右余白（カラーバーの目盛テキスト用スペースを確保）
-        top=0.94,  # 上余白
+        top=0.90,  # 上余白（タイトル用スペースを拡大）
     )
 
     return fig, ax
@@ -351,7 +351,7 @@ def create_3d_figure(figsize=(12, 8)):
         left=0.02,  # 左余白
         bottom=0.05,  # 下余白
         right=0.94,  # 右余白（カラーバーをより右に、プロットエリアを拡大）
-        top=0.95,  # 上余白
+        top=0.91,  # 上余白（タイトル用スペースを拡大）
     )
 
     return fig, ax
