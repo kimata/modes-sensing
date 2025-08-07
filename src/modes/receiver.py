@@ -29,8 +29,8 @@ fragment_list = []
 
 should_terminate = threading.Event()
 
-# Isolation Forest用のデータ蓄積
-meteorological_history = collections.deque(maxlen=10000)  # 最大10000件のデータを保持
+HISTRY_SAMPLES = 10000
+meteorological_history = collections.deque(maxlen=HISTRY_SAMPLES)
 OUTLIER_DETECTION_MIN_SAMPLES = 100  # 外れ値検出を開始する最小サンプル数
 
 
@@ -488,6 +488,10 @@ def worker(host, port, queue, area_info):
         logging.exception("メッセージ受信でエラーが発生しました．")
 
     logging.warning("Stop receive worker")
+
+
+def init(data):
+    meteorological_history.extend(data)
 
 
 def start(host, port, queue, area_info):
