@@ -626,35 +626,7 @@ def test_custom_date_range(page_init, host, port):
     page = page_init
     page.goto(app_url(host, port))
 
-    # カスタムボタンをクリック
-    page.click("button >> text='カスタム'")
-
-    # React状態更新の完了を待機
-    time.sleep(1)
-
-    # カスタムボタンがアクティブになることを確認
-    custom_button = page.locator("button >> text='カスタム'")
-    try:
-        custom_button.wait_for(state="visible", timeout=5000)
-        # ボタンがis-primaryクラスを持つまで待機
-        max_attempts = 5
-        for attempt in range(max_attempts):
-            class_attribute = custom_button.get_attribute("class")
-            if "is-primary" in class_attribute:
-                break
-            if attempt < max_attempts - 1:
-                time.sleep(0.5)
-                logging.info(
-                    "Waiting for custom button to become active, attempt %d/%d", attempt + 1, max_attempts
-                )
-
-        class_attribute = custom_button.get_attribute("class")
-        assert "is-primary" in class_attribute, "カスタムボタンがアクティブになっていません"  # noqa: S101
-    except Exception:
-        class_attribute = custom_button.get_attribute("class")
-        logging.exception("Custom button state: %s", class_attribute)
-        raise
-
+    # まず日付入力を変更して、自動判定されない期間に設定する
     # データ範囲APIから利用可能な範囲を取得して設定
     data_range = page.evaluate("""
         async () => {
@@ -669,43 +641,58 @@ def test_custom_date_range(page_init, host, port):
     """)
 
     if data_range and data_range.get("earliest") and data_range.get("latest"):
-        # 利用可能なデータ範囲内で2日間の期間を設定
+        # 利用可能なデータ範囲内で非標準的な期間を設定（自動判定を回避）
         latest_date = datetime.fromisoformat(data_range["latest"].replace("Z", "+00:00"))
         earliest_date = datetime.fromisoformat(data_range["earliest"].replace("Z", "+00:00"))
 
-        # データ範囲内で適切な期間を設定
-        end_date = latest_date - timedelta(hours=1)  # 最新から1時間前
-        start_date = end_date - timedelta(days=1)  # そこから1日前
+        # 自動判定されない中途半端な期間を設定（例：3.5日間）
+        end_date = latest_date - timedelta(hours=2)  # 最新から2時間前
+        start_date = end_date - timedelta(days=3, hours=12)  # そこから3.5日前
 
         # 開始日が最古日より前の場合は調整
         if start_date < earliest_date:
             start_date = earliest_date
-            end_date = start_date + timedelta(days=1)
+            end_date = start_date + timedelta(days=3, hours=12)
             end_date = min(end_date, latest_date)
     else:
-        # データ範囲が取得できない場合のフォールバック
-        end_date = datetime.now(timezone.utc) - timedelta(days=1)
-        start_date = end_date - timedelta(days=1)
+        # データ範囲が取得できない場合のフォールバック（非標準期間）
+        end_date = datetime.now(timezone.utc) - timedelta(days=2)
+        start_date = end_date - timedelta(days=3, hours=12)  # 3.5日間
 
     # 日付フォーマット（datetime-local input用）
     start_str = start_date.strftime("%Y-%m-%dT%H:%M")
     end_str = end_date.strftime("%Y-%m-%dT%H:%M")
 
-    # 開始日時を設定
+    # 先に日付範囲を変更して、自動判定でカスタム期間になるようにする
     start_input = page.locator('input[type="datetime-local"]').first
     start_input.fill(start_str)
 
-    # 終了日時を設定
     end_input = page.locator('input[type="datetime-local"]').last
     end_input.fill(end_str)
 
-    # 確定ボタンが有効になることを確認
+    # 期間確定ボタンをクリック
     update_button = page.locator("button >> text='期間を確定して更新'")
     expect(update_button).to_be_enabled()
-    # CIではclass属性が取得できない場合があるため、ボタンが有効であることの確認のみとする
-
-    # 確定ボタンをクリック
     update_button.click()
+
+    # React状態が更新されるのを待機
+    time.sleep(2)
+
+    # この時点で自動判定によりカスタムになっているはず
+    custom_button_initial = page.locator("button >> text='カスタム'")
+    initial_class = custom_button_initial.get_attribute("class")
+    logging.info("Initial custom button class after date change: %s", initial_class)
+
+    # カスタムボタンをクリック（明示的な選択）
+    page.click("button >> text='カスタム'")
+
+    # React状態更新の完了を待機
+    time.sleep(1)
+
+    # カスタムボタンがアクティブになることを確認
+    custom_button = page.locator("button >> text='カスタム'")
+    class_attribute = custom_button.get_attribute("class")
+    assert "is-primary" in class_attribute, "カスタムボタンがアクティブになっていません"  # noqa: S101
 
     # 画像の読み込み完了まで待機
     time.sleep(5)
