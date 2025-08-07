@@ -655,9 +655,37 @@ def test_custom_date_range(page_init, host, port):
         logging.exception("Custom button state: %s", class_attribute)
         raise
 
-    # 現在時刻から3日前〜1日前の範囲を設定
-    end_date = datetime.now(timezone.utc) - timedelta(days=1)
-    start_date = end_date - timedelta(days=2)
+    # データ範囲APIから利用可能な範囲を取得して設定
+    data_range = page.evaluate("""
+        async () => {
+            try {
+                const response = await fetch('/modes-sensing/api/data-range');
+                const data = await response.json();
+                return data;
+            } catch (e) {
+                return null;
+            }
+        }
+    """)
+
+    if data_range and data_range.get("earliest") and data_range.get("latest"):
+        # 利用可能なデータ範囲内で2日間の期間を設定
+        latest_date = datetime.fromisoformat(data_range["latest"].replace("Z", "+00:00"))
+        earliest_date = datetime.fromisoformat(data_range["earliest"].replace("Z", "+00:00"))
+
+        # データ範囲内で適切な期間を設定
+        end_date = latest_date - timedelta(hours=1)  # 最新から1時間前
+        start_date = end_date - timedelta(days=1)  # そこから1日前
+
+        # 開始日が最古日より前の場合は調整
+        if start_date < earliest_date:
+            start_date = earliest_date
+            end_date = start_date + timedelta(days=1)
+            end_date = min(end_date, latest_date)
+    else:
+        # データ範囲が取得できない場合のフォールバック
+        end_date = datetime.now(timezone.utc) - timedelta(days=1)
+        start_date = end_date - timedelta(days=1)
 
     # 日付フォーマット（datetime-local input用）
     start_str = start_date.strftime("%Y-%m-%dT%H:%M")
