@@ -186,7 +186,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   useEffect(() => {
     const loadImagesInBatches = async () => {
       const BATCH_SIZE = 4 // ブラウザの同時接続制限を考慮
-      const BATCH_DELAY = 100 // バッチ間の遅延（ms）
+      const BATCH_DELAY = 50 // バッチ間の遅延（ms）
 
       console.log('[Initial mount] Starting staged image loading for', graphs.length, 'images')
 
