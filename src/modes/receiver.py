@@ -184,6 +184,85 @@ def is_physically_reasonable(altitude, temperature, regression_model, tolerance_
         return True  # エラー時は保守的に妥当とみなす
 
 
+def detect_outlier_by_residual(  # noqa: PLR0913
+    altitude, temperature, altitudes, temperatures, regression_model, callsign=None
+):
+    """
+    残差ベースの異常検知を実行
+
+    Args:
+        altitude (float): 検査対象の高度
+        temperature (float): 検査対象の気温
+        altitudes (np.array): 履歴データの高度配列
+        temperatures (np.array): 履歴データの温度配列
+        regression_model: 学習済み線形回帰モデル
+        callsign (str, optional): 航空機のコールサイン（ログ用）
+
+    Returns:
+        bool: 外れ値の場合True、正常値の場合False
+
+    """
+    # 全データの残差を計算
+    predicted_temps = regression_model.predict(altitudes)
+    residuals = temperatures - predicted_temps
+
+    # 新データの残差を計算
+    new_predicted_temp = regression_model.predict([[altitude]])[0]
+    new_residual = temperature - new_predicted_temp
+
+    # 残差に対してIsolation Forestを適用
+    residuals_2d = residuals.reshape(-1, 1)
+    isolation_forest = sklearn.ensemble.IsolationForest(
+        contamination=0.005,
+        n_estimators=300,
+        max_samples=2000,
+        n_jobs=4,
+        random_state=55,  # 再現性のため固定
+    )
+    isolation_forest.fit(residuals_2d)
+
+    # 新データの残差を検査（詳細情報付き）
+    prediction = isolation_forest.predict([[new_residual]])
+    # anomaly_score: 正の値ほど正常、負の値ほど異常（しきい値は0付近）
+    anomaly_score = isolation_forest.decision_function([[new_residual]])[0]
+    # path_length: 0.5以上で正常傾向、0.5未満で異常傾向（深い分離パス = 正常）
+    path_length = isolation_forest.score_samples([[new_residual]])[0]
+
+    is_outlier = prediction[0] == -1
+
+    # 判定結果をログ出力（形式統一）
+    if is_outlier:
+        logging.warning(
+            "%s: callsign=%s, altitude=%.1fm, temperature=%.1f°C, "
+            "predicted_temp=%.1f°C, residual=%.1f°C, anomaly_score=%.3f, path_length=%.3f "
+            "(anomaly_score > 0: 正常傾向, path_length > 0.5: 正常傾向)",
+            "外れ値検出",
+            callsign or "Unknown",
+            altitude,
+            temperature,
+            new_predicted_temp,
+            new_residual,
+            anomaly_score,
+            path_length,
+        )
+    else:
+        logging.info(
+            "%s: callsign=%s, altitude=%.1fm, temperature=%.1f°C, "
+            "predicted_temp=%.1f°C, residual=%.1f°C, anomaly_score=%.3f, path_length=%.3f "
+            "(anomaly_score > 0: 正常傾向, path_length > 0.5: 正常傾向)",
+            "正常値判定",
+            callsign or "Unknown",
+            altitude,
+            temperature,
+            new_predicted_temp,
+            new_residual,
+            anomaly_score,
+            path_length,
+        )
+
+    return is_outlier
+
+
 def is_outlier_data(temperature, altitude, callsign=None):
     """
     高度-温度相関を考慮してaltitudeとtemperatureのペアが外れ値かどうかを判定
@@ -230,67 +309,9 @@ def is_outlier_data(temperature, altitude, callsign=None):
             return False  # 物理的に妥当なので外れ値ではない
 
         # 第二段階：残差ベースの異常検知
-        # 全データの残差を計算
-        predicted_temps = regression_model.predict(altitudes)
-        residuals = temperatures - predicted_temps
-
-        # 新データの残差を計算
-        new_predicted_temp = regression_model.predict([[altitude]])[0]
-        new_residual = temperature - new_predicted_temp
-
-        # 残差に対してIsolation Forestを適用
-        residuals_2d = residuals.reshape(-1, 1)
-        isolation_forest = sklearn.ensemble.IsolationForest(
-            contamination=0.005,
-            n_estimators=300,
-            max_samples=2000,
-            n_jobs=4,
-            random_state=55,  # 再現性のため固定
+        return detect_outlier_by_residual(
+            altitude, temperature, altitudes, temperatures, regression_model, callsign
         )
-        isolation_forest.fit(residuals_2d)
-
-        # 新データの残差を検査（詳細情報付き）
-        prediction = isolation_forest.predict([[new_residual]])
-        # anomaly_score: 正の値ほど正常、負の値ほど異常（しきい値は0付近）
-        anomaly_score = isolation_forest.decision_function([[new_residual]])[0]
-        # path_length: 0.5以上で正常傾向、0.5未満で異常傾向（深い分離パス = 正常）
-        path_length = isolation_forest.score_samples([[new_residual]])[0]
-
-        is_outlier = prediction[0] == -1
-
-        # 予測温度と残差の情報を計算
-        predicted_temp = regression_model.predict([[altitude]])[0]
-
-        # 判定結果をログ出力（形式統一）
-        if is_outlier:
-            logging.warning(
-                "%s: callsign=%s, altitude=%.1fm, temperature=%.1f°C, "
-                "predicted_temp=%.1f°C, residual=%.1f°C, anomaly_score=%.3f, path_length=%.3f "
-                "(anomaly_score > 0: 正常傾向, path_length > 0.5: 正常傾向)",
-                "外れ値検出",
-                callsign or "Unknown",
-                altitude,
-                temperature,
-                predicted_temp,
-                new_residual,
-                anomaly_score,
-                path_length,
-            )
-        else:
-            logging.info(
-                "%s: callsign=%s, altitude=%.1fm, temperature=%.1f°C, "
-                "predicted_temp=%.1f°C, residual=%.1f°C, anomaly_score=%.3f, path_length=%.3f "
-                "(anomaly_score > 0: 正常傾向, path_length > 0.5: 正常傾向)",
-                "正常値判定",
-                callsign or "Unknown",
-                altitude,
-                temperature,
-                predicted_temp,
-                new_residual,
-                anomaly_score,
-                path_length,
-            )
-        return is_outlier
 
     except Exception as e:
         logging.warning("外れ値検出でエラーが発生しました: %s", e)
