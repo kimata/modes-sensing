@@ -37,19 +37,51 @@ def execute(config, liveness_file, count=0):
 
     measurement_queue = multiprocessing.Queue()
 
-    modes.receiver.start(
-        config["modes"]["decoder"]["host"],
-        config["modes"]["decoder"]["port"],
-        measurement_queue,
-        config["filter"]["area"],
-    )
-
     conn = modes.database_postgresql.open(
         config["database"]["host"],
         config["database"]["port"],
         config["database"]["name"],
         config["database"]["user"],
         config["database"]["pass"],
+    )
+
+    # 履歴データを取得してreceiver.pyの外れ値検出機能に初期データを提供
+    try:
+        logging.info("データベースから履歴データを取得中...")
+
+        # 外れ値検出に必要な最新の履歴データを取得（高度と温度のペア）
+        historical_records = modes.database_postgresql.fetch_latest(
+            conn,
+            modes.receiver.HISTRY_SAMPLES,
+            distance=config["filter"]["area"]["distance"],
+            columns=["altitude", "temperature"],
+        )
+
+        if historical_records:
+            # receiver.pyの履歴データ形式に変換
+            historical_data = [
+                {
+                    "altitude": record["altitude"],
+                    "temperature": record["temperature"],
+                }
+                for record in historical_records
+            ]
+
+            # receiver.pyの履歴データを初期化
+            modes.receiver.init(historical_data)
+            logging.info("履歴データを初期化しました: %d件", len(historical_data))
+        else:
+            logging.warning("履歴データが見つかりませんでした")
+
+    except Exception as e:
+        logging.warning("履歴データの取得に失敗しました: %s", e)
+        # エラーが発生しても処理を継続
+
+    modes.receiver.start(
+        config["modes"]["decoder"]["host"],
+        config["modes"]["decoder"]["port"],
+        measurement_queue,
+        config["filter"]["area"],
     )
 
     try:
