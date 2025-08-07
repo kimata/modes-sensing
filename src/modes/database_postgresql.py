@@ -220,6 +220,77 @@ def fetch_by_time(conn, time_start, time_end, distance, columns=None):
         return data
 
 
+def fetch_latest(conn, limit, distance=None, columns=None):
+    """
+    最新のデータを指定された件数取得する
+
+    Args:
+        conn: データベース接続
+        limit: 取得する最大件数
+        distance: 距離フィルタ（Noneの場合はフィルタなし）
+        columns: 取得するカラムのリスト。Noneの場合はデフォルト['time', 'altitude', 'temperature', 'distance']
+
+    Returns:
+        取得されたデータのリスト（時間の降順でソート）
+
+    """
+    if columns is None:
+        columns = ["time", "altitude", "temperature", "distance"]
+
+    # カラム名をサニタイズ（SQLインジェクション対策）
+    valid_columns = [
+        "time",
+        "callsign",
+        "distance",
+        "altitude",
+        "latitude",
+        "longitude",
+        "temperature",
+        "wind_x",
+        "wind_y",
+        "wind_angle",
+        "wind_speed",
+    ]
+    sanitized_columns = [col for col in columns if col in valid_columns]
+
+    if not sanitized_columns:
+        msg = "No valid columns specified"
+        raise ValueError(msg)
+
+    columns_str = ", ".join(sanitized_columns)
+
+    start = time.perf_counter()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        # 距離フィルタの有無で条件分岐
+        if distance is not None:
+            query = (
+                f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
+                f"WHERE altitude IS NOT NULL AND temperature IS NOT NULL "
+                f"AND temperature > -100 AND distance <= %s "
+                f"ORDER BY time DESC LIMIT %s"
+            )
+            cur.execute(query, (distance, limit))
+        else:
+            query = (
+                f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
+                f"WHERE altitude IS NOT NULL AND temperature IS NOT NULL "
+                f"AND temperature > -100 "
+                f"ORDER BY time DESC LIMIT %s"
+            )
+            cur.execute(query, (limit,))
+
+        data = cur.fetchall()
+
+        logging.info(
+            "Elapsed time: %.2f sec (selected %d columns, %s rows)",
+            time.perf_counter() - start,
+            len(sanitized_columns),
+            f"{len(data):,}",
+        )
+
+        return data
+
+
 if __name__ == "__main__":
     import multiprocessing
 
