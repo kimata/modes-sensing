@@ -22,8 +22,8 @@ filter:
 font:
     path: ./font
     map:
-        jp_medium: A-OTF-UDShinGoPr6N-Medium.otf
-        jp_bold: A-OTF-UDShinGoPr6N-Bold.otf
+        jp_medium: migmix-1p-regular.ttf
+        jp_bold: migmix-1p-bold.ttf
 
 webapp:
     static_dir_path: react/dist
