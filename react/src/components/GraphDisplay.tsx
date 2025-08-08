@@ -17,17 +17,19 @@ interface GraphInfo {
   endpoint: string
   title: string
   filename: string
+  size: [number, number]  // [width, height] in pixels
 }
 
+// graph.pyのGRAPH_DEF_MAPのsize定義をコピー
 const graphs: GraphInfo[] = [
-  { endpoint: '/modes-sensing/api/graph/scatter_2d', title: '2D散布図', filename: 'scatter_2d.png' },
-  { endpoint: '/modes-sensing/api/graph/contour_2d', title: '2D等高線プロット', filename: 'contour.png' },
-  { endpoint: '/modes-sensing/api/graph/density', title: '密度プロット', filename: 'density.png' },
-  { endpoint: '/modes-sensing/api/graph/heatmap', title: 'ヒートマップ', filename: 'heatmap.png' },
-  { endpoint: '/modes-sensing/api/graph/temperature', title: '高度別温度時系列', filename: 'temperature.png' },
-  { endpoint: '/modes-sensing/api/graph/wind_direction', title: '風向・風速分布', filename: 'wind_direction.png' },
-  { endpoint: '/modes-sensing/api/graph/scatter_3d', title: '3D散布図', filename: 'scatter_3d.png' },
-  { endpoint: '/modes-sensing/api/graph/contour_3d', title: '3D等高線プロット', filename: 'contour_3d.png' }
+  { endpoint: '/modes-sensing/api/graph/scatter_2d', title: '2D散布図', filename: 'scatter_2d.png', size: [2400, 1600] },
+  { endpoint: '/modes-sensing/api/graph/contour_2d', title: '2D等高線プロット', filename: 'contour.png', size: [2400, 1600] },
+  { endpoint: '/modes-sensing/api/graph/density', title: '密度プロット', filename: 'density.png', size: [2400, 1600] },
+  { endpoint: '/modes-sensing/api/graph/heatmap', title: 'ヒートマップ', filename: 'heatmap.png', size: [2400, 1600] },
+  { endpoint: '/modes-sensing/api/graph/temperature', title: '高度別温度時系列', filename: 'temperature.png', size: [2400, 1600] },
+  { endpoint: '/modes-sensing/api/graph/wind_direction', title: '風向・風速分布', filename: 'wind_direction.png', size: [2400, 1600] },
+  { endpoint: '/modes-sensing/api/graph/scatter_3d', title: '3D散布図', filename: 'scatter_3d.png', size: [2800, 2800] },
+  { endpoint: '/modes-sensing/api/graph/contour_3d', title: '3D等高線プロット', filename: 'contour_3d.png', size: [2800, 2800] }
 ]
 
 const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) => {
@@ -52,7 +54,6 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   const [loading, setLoading] = useState<{ [key: string]: boolean }>(initialLoading)
   const [errors, setErrors] = useState<{ [key: string]: string }>(initialErrors)
   const [imageUrls, setImageUrls] = useState<{ [key: string]: string }>(initialImageUrls)
-  const [imageVersion, setImageVersion] = useState(0)
   const [retryCount, setRetryCount] = useState<{ [key: string]: number }>({})
   const [loadingTimers, setLoadingTimers] = useState<{ [key: string]: number }>({})
   const imageRefs = useRef<{ [key: string]: HTMLImageElement | null }>({})
@@ -161,11 +162,24 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     return `${year}-${month}-${day} ${hours}:${minutes}`
   }
 
-  const getImageUrl = (graph: GraphInfo, version?: number) => {
+  const getImageUrl = (graph: GraphInfo, forceReload = false) => {
+    // リトライ時は強制リロード、通常時は10分間キャッシュが効くようにする
+    const now = new Date()
+    let timestamp: number
+
+    if (forceReload) {
+      // リトライ時は現在時刻をそのまま使用してキャッシュを回避
+      timestamp = now.getTime()
+    } else {
+      // 通常時は10分間隔のタイムスタンプでキャッシュ制御
+      const tenMinutesInMs = 10 * 60 * 1000  // 10分をミリ秒で
+      timestamp = Math.floor(now.getTime() / tenMinutesInMs) * tenMinutesInMs
+    }
+
     const params = new URLSearchParams({
       start: formatDateForAPI(dateRange.start),
       end: formatDateForAPI(dateRange.end),
-      v: (version !== undefined ? version : imageVersion).toString()  // キャッシュバスターを追加
+      _t: timestamp.toString()
     })
     return `${graph.endpoint}?${params}`
   }
@@ -196,7 +210,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
 
         batch.forEach(graph => {
           const key = graph.endpoint
-          batchUrls[key] = getImageUrl(graph, 0)
+          batchUrls[key] = getImageUrl(graph)  // 通常のキャッシュ制御
         })
 
         console.log(`[Initial mount] Loading batch ${Math.floor(i/BATCH_SIZE) + 1}:`, Object.keys(batchUrls))
@@ -347,14 +361,10 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       const nextRetryCount = actualRetryCount + 1
       setRetryCount(prev => ({ ...prev, [key]: nextRetryCount }))
 
-      // 新しいバージョンでURLを更新
-      const newVersion = imageVersion + 1
-      setImageVersion(newVersion)
-
-      // 該当する画像のURLを新しいバージョンで更新
+      // 該当する画像のURLを強制リロードで更新
       const graph = graphs.find(g => g.endpoint === key)
       if (graph) {
-        const newUrl = getImageUrl(graph, newVersion)
+        const newUrl = getImageUrl(graph, true)  // forceReload = true
         console.log(`[retryImageLoad] ${key}: setting new URL = ${newUrl}`)
         setImageUrls(prev => ({ ...prev, [key]: newUrl }))
         setLoading(prev => ({ ...prev, [key]: true }))
@@ -401,10 +411,6 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       return {}
     })
 
-    // バージョンを更新して画像の再読み込みを促す
-    const newVersion = imageVersion + 1
-    setImageVersion(newVersion)
-
     // 状態更新を同期的に処理するため、一度の更新にまとめる
     const newImageUrls: { [key: string]: string } = {}
     const newLoadingState: { [key: string]: boolean } = {}
@@ -413,7 +419,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
 
     graphs.forEach((graph) => {
       const key = graph.endpoint
-      newImageUrls[key] = getImageUrl(graph, newVersion)
+      newImageUrls[key] = getImageUrl(graph)  // 通常のキャッシュ制御
       newLoadingState[key] = true
       newErrorState[key] = ''
 
@@ -514,11 +520,31 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
           const error = errors[key]
           const imageUrl = imageUrls[key]
 
+          // グラフの実際のサイズからアスペクト比を計算して適切な高さを設定
+          const is3D = graph.endpoint.includes('3d')
+          const [width, height] = graph.size
+          const aspectRatio = height / width
+
+          // カラムの実際の幅を基準に高さを計算
+          // さらに控えめな幅を想定して、よりコンパクトなサイズに調整
+          const estimatedWidth = is3D ? 600 : 350  // 実質的なカラム幅（より小さく設定）
+          const calculatedHeight = estimatedWidth * aspectRatio
+
+          // 計算された高さをpxで設定
+          const containerHeight = calculatedHeight + 'px'
+
           return (
-            <div key={key} className={graph.endpoint.includes('3d') ? 'column is-full' : 'column is-half'}>
+            <div key={key} className={is3D ? 'column is-full' : 'column is-half'}>
               <div className="card">
-                <div className="card-content">
-                  <div className="image-container" style={{ minHeight: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div className="card-content" style={{ padding: '0.5rem' }}>  {/* paddingを小さく */}
+                  <div className="image-container" style={{
+                    height: containerHeight,  // 固定高さ
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    position: 'relative',
+                    overflow: 'hidden'  // はみ出した部分を隠す
+                  }}>
                     {isLoading && (
                       <div className="has-text-centered">
                         <div className="loader"></div>
@@ -536,14 +562,10 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
                             setRetryCount(prev => ({ ...prev, [key]: 0 }))
                             setLoading(prev => ({ ...prev, [key]: true }))
 
-                            // 新しいバージョンでURLを更新
-                            const newVersion = imageVersion + 1
-                            setImageVersion(newVersion)
-
-                            // 該当する画像のURLを新しいバージョンで更新
+                            // 該当する画像のURLを強制リロードで更新
                             const graph = graphs.find(g => g.endpoint === key)
                             if (graph) {
-                              setImageUrls(prev => ({ ...prev, [key]: getImageUrl(graph, newVersion) }))
+                              setImageUrls(prev => ({ ...prev, [key]: getImageUrl(graph, true) }))  // forceReload = true
                             }
                           }}
                         >
@@ -556,14 +578,21 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
                     )}
 
                     {imageUrl && (
-                      <figure className="image" style={{ display: isLoading ? 'none' : 'block' }}>
+                      <figure className="image" style={{
+                        display: isLoading ? 'none' : 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        height: '100%',
+                        margin: 0
+                      }}>
                         <img
                           ref={(el) => { imageRefs.current[key] = el }}
                           src={imageUrl}
                           alt={graph.title}
                           style={{
                             width: '100%',
-                            height: 'auto',
+                            height: '100%',
+                            objectFit: 'contain',  // アスペクト比を維持しながら収める
                             cursor: 'pointer'
                           }}
                           onClick={() => onImageClick(imageUrl)}
