@@ -570,7 +570,7 @@ def plot_heatmap(data, figsize, plot_time_start=None, plot_time_end=None):
     fig, ax = create_figure(figsize)
 
     im = ax.imshow(
-        grid["temp_grid"],
+        grid["temp_grid"].T,  # 転置して軸を正しく配置
         extent=[grid["time_min"], grid["time_max"], grid["alt_min"], grid["alt_max"]],
         aspect="auto",
         origin="lower",
