@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useLayoutEffect } from 'react'
 import styles from './GraphDisplay.module.css'
 
 // タイムアウトとリトライの設定（CI環境対応）
@@ -57,6 +57,8 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   const [retryCount, setRetryCount] = useState<{ [key: string]: number }>({})
   const [loadingTimers, setLoadingTimers] = useState<{ [key: string]: number }>({})
   const imageRefs = useRef<{ [key: string]: HTMLImageElement | null }>({})
+  const containerRefs = useRef<{ [key: string]: HTMLDivElement | null }>({})
+  const [containerWidths, setContainerWidths] = useState<{ [key: string]: number }>({})
 
   // 画像要素の実際の読み込み状態をチェックする関数
   const checkImageLoadingState = (key: string): boolean => {
@@ -79,6 +81,30 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   // 状態更新の排他制御用フラグ
   const isUpdatingStateRef = useRef(false)
   const statusCheckIntervalRef = useRef<number | null>(null)
+
+  // コンテナの実際の幅を測定する関数
+  const measureContainerWidths = () => {
+    const newWidths: { [key: string]: number } = {}
+    graphs.forEach(graph => {
+      const key = graph.endpoint
+      const container = containerRefs.current[key]
+      if (container) {
+        const rect = container.getBoundingClientRect()
+        newWidths[key] = rect.width
+      }
+    })
+    setContainerWidths(newWidths)
+  }
+
+  // 画像がロードされた時と同じ高さを計算する関数
+  const calculateActualHeight = (graph: GraphInfo, containerWidth: number): number => {
+    const [imageWidth, imageHeight] = graph.size
+    const aspectRatio = imageHeight / imageWidth
+
+    // 実際の表示幅は、画像が object-fit: contain でコンテナに収まる最大サイズ
+    const actualDisplayHeight = containerWidth * aspectRatio
+    return actualDisplayHeight
+  }
 
   // 全画像の状態を定期的にチェックして、onLoadイベント消失を補完
   const checkAllImagesStatus = () => {
@@ -183,6 +209,24 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     })
     return `${graph.endpoint}?${params}`
   }
+
+  // コンテナの幅を測定（レイアウト完了後）
+  useLayoutEffect(() => {
+    // 初回測定のために少し遅延させる
+    setTimeout(() => {
+      measureContainerWidths()
+    }, 100)
+  }, [])
+
+  // ウィンドウリサイズ時にコンテナ幅を再測定
+  useEffect(() => {
+    const handleResize = () => {
+      measureContainerWidths()
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   // ページ読み込み時にハッシュがあれば該当要素にスクロール
   useEffect(() => {
@@ -520,30 +564,44 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
           const error = errors[key]
           const imageUrl = imageUrls[key]
 
-          // グラフの実際のサイズからアスペクト比を計算して適切な高さを設定
+          // 実際のコンテナ幅から画像がロードされた時と同じ高さを計算
           const is3D = graph.endpoint.includes('3d')
-          const [width, height] = graph.size
-          const aspectRatio = height / width
+          const actualContainerWidth = containerWidths[key]
 
-          // カラムの実際の幅を基準に高さを計算
-          // さらに控えめな幅を想定して、よりコンパクトなサイズに調整
-          const estimatedWidth = is3D ? 600 : 350  // 実質的なカラム幅（より小さく設定）
-          const calculatedHeight = estimatedWidth * aspectRatio
+          let calculatedHeight: number
+          if (actualContainerWidth) {
+            // 実際の表示幅が測定済みの場合は、正確な高さを計算
+            calculatedHeight = calculateActualHeight(graph, actualContainerWidth)
+          } else {
+            // まだ測定されていない場合はフォールバック値を使用
+            const [width, height] = graph.size
+            const aspectRatio = height / width
+            const estimatedWidth = is3D ? 600 : 350
+            calculatedHeight = estimatedWidth * aspectRatio
+          }
 
-          // 計算された高さをpxで設定
+          // 計算された高さをpxで設定（card全体の一貫した高さを確保）
           const containerHeight = calculatedHeight + 'px'
+          const cardPadding = 16  // 0.5rem * 2 (上下) = 16px
+          const cardHeight = calculatedHeight + cardPadding + 'px'
 
           return (
-            <div key={key} className={is3D ? 'column is-full' : 'column is-half'}>
-              <div className="card">
-                <div className="card-content" style={{ padding: '0.5rem' }}>  {/* paddingを小さく */}
+            <div key={key} className={is3D ? 'column is-full' : 'column is-half'} ref={(el) => { containerRefs.current[key] = el }}>
+              <div className="card" style={{ height: cardHeight }}>
+                <div className="card-content" style={{
+                  padding: '0.5rem',
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column'
+                }}>
                   <div className="image-container" style={{
                     height: containerHeight,  // 固定高さ
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     position: 'relative',
-                    overflow: 'hidden'  // はみ出した部分を隠す
+                    overflow: 'hidden',  // はみ出した部分を隠す
+                    flex: '1 1 auto'  // flexboxで残りのスペースを占有
                   }}>
                     {isLoading && (
                       <div className="has-text-centered">
