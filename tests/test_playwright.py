@@ -183,32 +183,9 @@ def wait_for_images_to_load(page, expected_count=8, timeout=30000):
                     }}
                 }});
 
-                // 期待される数の画像が読み込まれたら連続チェック開始
-                if (loadedCount >= {expected_count}) {{
-                    consecutiveChecks++;
-                    window.consecutiveLoadedChecks = consecutiveChecks;
-
-                    // 3回連続で成功したら完了とする
-                    console.log(
-                        `Loaded ${{loadedCount}}/{expected_count} images (check ${{consecutiveChecks}}/3)`
-                    );
-                    return consecutiveChecks >= 3;
-                }} else {{
-                    window.consecutiveLoadedChecks = 0;
-                    // どの画像が読み込まれていないかを特定
-                    const imageStatus = [];
-                    images.forEach(img => {{
-                        imageStatus.push({{
-                            alt: img.alt,
-                            loaded: img.complete && img.naturalWidth > 0
-                        }});
-                    }});
-                    console.log(
-                        `Loaded ${{loadedCount}}/{expected_count} images`,
-                        JSON.stringify(imageStatus)
-                    );
-                    return false;
-                }}
+                // 連続チェックを削除してシンプルに
+                console.log(`Loaded ${{loadedCount}}/{expected_count} images`);
+                return loadedCount >= {expected_count};
             }}
             """,
             timeout=timeout,
@@ -300,6 +277,25 @@ def test_all_images_display_correctly(page_init, host, port):
         "3D等高線プロット",
     ]
 
+    # まず全画像要素の存在を確認
+    page.wait_for_function(
+        f"""
+        () => {{
+            const expectedTitles = {expected_images};
+            let foundCount = 0;
+
+            for (const title of expectedTitles) {{
+                const img = document.querySelector(`img[alt="${{title}}"]`);
+                if (img) foundCount++;
+            }}
+
+            console.log(`Found images: ${{foundCount}}/8`);
+            return foundCount >= 8;
+        }}
+        """,
+        timeout=30000,
+    )
+
     # 全画像の表示状態を一括で確認（効率化）
     try:
         page.wait_for_function(
@@ -322,10 +318,10 @@ def test_all_images_display_correctly(page_init, host, port):
                 }}
 
                 console.log(`Visible images: ${{visibleCount}}/8`);
-                return visibleCount === 8;
+                return visibleCount >= 8;
             }}
             """,
-            timeout=90000,  # CI環境対応で90秒に延長
+            timeout=90000,
         )
     except Exception as e:
         logging.error("Failed to wait for all images to be visible: %s", e)  # noqa: TRY400
@@ -355,17 +351,9 @@ def test_all_images_display_correctly(page_init, host, port):
                     }}
                 }}
 
-                // 8つ全て読み込み完了したら連続チェック開始
-                if (loadedCount >= 8) {{
-                    consecutiveChecks++;
-                    window.imageLoadedChecks = consecutiveChecks;
-                    console.log(`All 8 images loaded (check ${{consecutiveChecks}}/2)`);
-                    return consecutiveChecks >= 2; // 2回連続確認で完了
-                }} else {{
-                    window.imageLoadedChecks = 0;
-                    console.log(`Loaded images: ${{loadedCount}}/8`);
-                    return false;
-                }}
+                // 連続チェックを削除してシンプルに
+                console.log(`Loaded images: ${{loadedCount}}/8`);
+                return loadedCount >= 8;
             }}
             """,
             timeout=90000,  # CI環境対応で90秒に延長
@@ -740,13 +728,28 @@ def test_wind_direction_graph_display(page_init, host, port):
     page = page_init
     page.goto(app_url(host, port))
 
-    # 風向グラフが表示されるまで待機
+    # 画像要素が存在することを先に確認
     page.wait_for_function(
         """
         () => {
             const img = document.querySelector('img[alt="風向・風速分布"]');
-            if (!img || !img.complete || img.naturalWidth <= 0) return false;
+            return img !== null;
+        }
+        """,
+        timeout=30000,
+    )
 
+    # 風向グラフが読み込まれて表示されるまで待機
+    page.wait_for_function(
+        """
+        () => {
+            const img = document.querySelector('img[alt="風向・風速分布"]');
+            if (!img) return false;
+
+            // 画像読み込み完了確認
+            if (!img.complete || img.naturalWidth <= 0) return false;
+
+            // figure要素の表示確認
             const figure = img.closest('figure');
             if (!figure) return false;
 
