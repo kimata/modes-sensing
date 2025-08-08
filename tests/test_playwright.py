@@ -287,28 +287,10 @@ def test_all_images_display_correctly(page_init, host, port):
     page = page_init
     page.goto(app_url(host, port))
 
-    # 画像APIリクエストが開始されるまで待機（並列実行対応で短縮）
-    time.sleep(3)
+    # 画像APIリクエストが開始されるまで待機（さらに短縮）
+    time.sleep(1)
 
-    # より長いタイムアウトで全画像の読み込みを待機（2分から3分に延長）
-    # CI環境での不安定性対策：特定の画像の状態をデバッグ
-    contour_2d_debug = page.evaluate("""
-        () => {
-            const img = document.querySelector('img[alt="2D等高線プロット"]');
-            if (!img) return { found: false };
-            return {
-                found: true,
-                alt: img.alt,
-                src: img.src,
-                complete: img.complete,
-                naturalWidth: img.naturalWidth,
-                naturalHeight: img.naturalHeight,
-                display: window.getComputedStyle(img).display,
-                visibility: window.getComputedStyle(img).visibility
-            };
-        }
-    """)
-    logging.info("Debug - contour_2d image state: %s", contour_2d_debug)
+    # 全画像の読み込みを効率的に待機
 
     # 各画像を個別に確認する簡単なアプローチ
     expected_images = [
@@ -366,7 +348,7 @@ def test_all_images_display_correctly(page_init, host, port):
                 return visibleCount >= 8;
             }}
             """,
-            timeout=90000,
+            timeout=45000,  # 45秒に短縮
         )
     except Exception as e:
         logging.error("Failed to wait for all images to be visible: %s", e)  # noqa: TRY400
@@ -401,7 +383,7 @@ def test_all_images_display_correctly(page_init, host, port):
                 return loadedCount >= 8;
             }}
             """,
-            timeout=90000,  # CI環境対応で90秒に延長
+            timeout=45000,  # 45秒に短縮
         )
     except Exception as e:
         logging.error("Failed to wait for all images to be loaded: %s", e)  # noqa: TRY400
@@ -823,7 +805,7 @@ def test_image_modal_functionality(page_init, host, port):
     page.goto(app_url(host, port))
 
     # 画像の読み込み完了まで待機
-    wait_for_images_to_load(page, expected_count=8, timeout=90000)
+    wait_for_images_to_load(page, expected_count=8, timeout=45000)
 
     # 画像が実際に表示状態になるまで待機（isLoadingがfalseになるまで）
     page.wait_for_function(
@@ -843,7 +825,7 @@ def test_image_modal_functionality(page_init, host, port):
             return computedStyle.display !== 'none' && firstImage.complete && firstImage.naturalWidth > 0;
         }
         """,
-        timeout=90000,  # CI環境対応で90秒に延長
+        timeout=45000,  # 45秒に短縮
     )
 
     # 最初の画像をクリック
