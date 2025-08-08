@@ -817,10 +817,6 @@ def plot_wind_direction(data, figsize):
 
     set_title("航空機観測による風向・風速分布")
 
-    # デバッグ情報出力
-    logging.info("Wind direction plot: %d vectors calculated", len(grouped))
-    logging.info("Vector scales: u_scale=%s, v_scale=%s", u_scale, v_scale)
-
     img = conver_to_img(fig)
     return (img, time.perf_counter() - start)
 
