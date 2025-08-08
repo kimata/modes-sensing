@@ -110,23 +110,33 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   const checkAllImagesStatus = () => {
     // 状態更新中は重複実行を防ぐ
     if (isUpdatingStateRef.current) {
+      console.log('[DEBUG] checkAllImagesStatus skipped (updating state)')
       return
     }
 
     // 最新の状態を取得するため、setLoadingの中で判定
     setLoading(currentLoading => {
       const updatesNeeded: string[] = []
+      const currentStates: Array<{key: string, loading: boolean, imageState: boolean}> = []
 
       graphs.forEach(graph => {
         const key = graph.endpoint
+        const imageState = checkImageLoadingState(key)
+        currentStates.push({key, loading: currentLoading[key], imageState})
+
         // loading状態かつ実際には読み込み完了している場合のみ処理
-        if (currentLoading[key] && checkImageLoadingState(key)) {
+        if (currentLoading[key] && imageState) {
           updatesNeeded.push(key)
         }
       })
 
+      if (currentStates.length > 0) {
+        console.log('[DEBUG] checkAllImagesStatus - current states:', currentStates)
+      }
+
       // 一括で状態更新（競合回避）
       if (updatesNeeded.length > 0) {
+        console.log('[DEBUG] checkAllImagesStatus - updates needed:', updatesNeeded)
         isUpdatingStateRef.current = true
 
         // 必要な更新のみを含む新しいloading状態を返す
@@ -328,14 +338,24 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
 
   // 画像の読み込み状態を管理（排他制御付き）
   const handleImageLoad = (key: string) => {
+    console.log('[DEBUG] handleImageLoad called for', key)
     // 状態更新中は重複実行を防ぐ
     if (isUpdatingStateRef.current) {
+      console.log('[DEBUG] handleImageLoad skipped (updating state) for', key)
       return
     }
 
     const img = imageRefs.current[key]
+    console.log('[DEBUG] handleImageLoad - image state:', {
+      key,
+      imgExists: !!img,
+      complete: img?.complete,
+      naturalWidth: img?.naturalWidth,
+      src: img?.src?.substring(0, 50) + '...'
+    })
 
     if (img && img.complete && img.naturalWidth > 0) {
+      console.log('[DEBUG] handleImageLoad - image is valid, updating state for', key)
       isUpdatingStateRef.current = true
 
       // タイマーをクリア
@@ -349,30 +369,34 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       }
 
       // バッチ処理で一度に状態を更新
+      console.log('[DEBUG] handleImageLoad - setting loading to false for', key)
       setLoading(prev => ({ ...prev, [key]: false }))
       setRetryCount(prev => ({ ...prev, [key]: 0 }))
 
       // 状態更新完了後にフラグをリセット
       setTimeout(() => {
+        console.log('[DEBUG] handleImageLoad - state update completed for', key)
         isUpdatingStateRef.current = false
       }, 0)
     } else {
-      console.log(`[handleImageLoad] ${key}: invalid image state, not marking as loaded`)
+      console.log(`[DEBUG] handleImageLoad - ${key}: invalid image state, not marking as loaded`)
     }
   }
 
   const handleImageError = (key: string, title: string) => {
+    console.log('[DEBUG] handleImageError called for', key, title)
     // 状態更新中は重複実行を防ぐ
     if (isUpdatingStateRef.current) {
+      console.log('[DEBUG] handleImageError skipped (updating state) for', key)
       return
     }
 
     const img = imageRefs.current[key]
-    console.log(`[handleImageError] ${key}: image error occurred`)
-    console.log(`[handleImageError] ${key}: title = ${title}`)
-    console.log(`[handleImageError] ${key}: img.src = ${img?.src}`)
-    console.log(`[handleImageError] ${key}: img.complete = ${img?.complete}`)
-    console.log(`[handleImageError] ${key}: img.naturalWidth = ${img?.naturalWidth}`)
+    console.log(`[DEBUG] handleImageError - ${key}: image error occurred`)
+    console.log(`[DEBUG] handleImageError - ${key}: title = ${title}`)
+    console.log(`[DEBUG] handleImageError - ${key}: img.src = ${img?.src}`)
+    console.log(`[DEBUG] handleImageError - ${key}: img.complete = ${img?.complete}`)
+    console.log(`[DEBUG] handleImageError - ${key}: img.naturalWidth = ${img?.naturalWidth}`)
 
     isUpdatingStateRef.current = true
 
@@ -448,9 +472,15 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   }
 
   useEffect(() => {
+    console.log('[DEBUG] dateRange useEffect triggered:', {
+      start: dateRange.start.toISOString(),
+      end: dateRange.end.toISOString(),
+      timestamp: new Date().toISOString()
+    })
 
     // 既存のタイマーをクリア
     setLoadingTimers(prev => {
+      console.log('[DEBUG] Clearing existing timers:', Object.keys(prev))
       Object.values(prev).forEach(timer => clearTimeout(timer))
       return {}
     })
@@ -461,25 +491,41 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     const newErrorState: { [key: string]: string } = {}
     const newTimers: { [key: string]: number } = {}
 
+    console.log('[DEBUG] Generating new image URLs for graphs:', graphs.length)
+
     graphs.forEach((graph) => {
       const key = graph.endpoint
-      newImageUrls[key] = getImageUrl(graph)  // 通常のキャッシュ制御
+      const imageUrl = getImageUrl(graph)  // 通常のキャッシュ制御
+      newImageUrls[key] = imageUrl
       newLoadingState[key] = true
       newErrorState[key] = ''
+
+      console.log('[DEBUG] Generated URL for', key, ':', imageUrl)
 
       // 各画像に対してタイムアウトタイマーを設定（画像要素の実際の状態をチェック）
       newTimers[key] = window.setTimeout(() => {
         const img = imageRefs.current[key]
+        console.log('[DEBUG] Timeout check for', key, ':', {
+          imgExists: !!img,
+          src: img?.src?.substring(0, 50) + '...',
+          complete: img?.complete,
+          naturalWidth: img?.naturalWidth,
+          naturalHeight: img?.naturalHeight
+        })
 
         if (!img || !img.src) {
+          console.log('[DEBUG] Image element missing or no src for', key)
           retryImageLoad(key, 0)
         } else if (img.complete && img.naturalWidth > 0) {
+          console.log('[DEBUG] Image loaded successfully in timeout check for', key)
           // 実際には読み込み完了していた場合
           handleImageLoad(key)
         } else if (img.complete && img.naturalWidth === 0) {
+          console.log('[DEBUG] Image error detected in timeout check for', key)
           // エラー状態の検出
           handleImageError(key, graph.title)
         } else {
+          console.log('[DEBUG] Image still loading in timeout check for', key)
           // まだ読み込み中
           retryImageLoad(key, 0)
         }
@@ -487,10 +533,12 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     })
 
     // 状態を一括更新
+    console.log('[DEBUG] Updating states - loading:', Object.keys(newLoadingState))
     setLoading(newLoadingState)
     setErrors(newErrorState)
     setRetryCount({})
     setLoadingTimers(newTimers)
+    console.log('[DEBUG] States updated - timers set:', Object.keys(newTimers))
 
     // 段階的設定（ブラウザ同時接続制限対応）
     const setBatchUrls = async () => {
@@ -505,7 +553,12 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
         const batchUrls = Object.fromEntries(batch)
 
         console.log(`[Date change] Loading batch ${Math.floor(i/BATCH_SIZE) + 1}:`, Object.keys(batchUrls))
-        setImageUrls(prev => ({ ...prev, ...batchUrls }))
+        console.log('[DEBUG] Setting batch URLs:', batchUrls)
+        setImageUrls(prev => {
+          const newUrls = { ...prev, ...batchUrls }
+          console.log('[DEBUG] Updated imageUrls state:', Object.keys(newUrls))
+          return newUrls
+        })
 
         if (i + BATCH_SIZE < urlEntries.length) {
           await new Promise(resolve => setTimeout(resolve, BATCH_DELAY))
@@ -644,7 +697,10 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
                         margin: 0
                       }}>
                         <img
-                          ref={(el) => { imageRefs.current[key] = el }}
+                          ref={(el) => {
+                            console.log('[DEBUG] Setting image ref for', key, !!el)
+                            imageRefs.current[key] = el
+                          }}
                           src={imageUrl}
                           alt={graph.title}
                           style={{
@@ -655,9 +711,11 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
                           }}
                           onClick={() => onImageClick(imageUrl)}
                           onLoad={() => {
+                            console.log('[DEBUG] onLoad event fired for', key)
                             handleImageLoad(key)
                           }}
                           onError={() => {
+                            console.log('[DEBUG] onError event fired for', key)
                             handleImageError(key, graph.title)
                           }}
                           loading="eager"
