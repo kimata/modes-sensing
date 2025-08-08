@@ -671,7 +671,18 @@ def test_custom_date_range(page_init, host, port):
     end_input.fill(end_str)
 
     # 期間確定ボタンをクリック
-    update_button = page.locator("button >> text='期間を確定して更新'")
+    # ボタンテキストはhasChangesの状態により変わるため、セレクタを調整
+    update_button = page.locator("button.is-fullwidth")
+    # ボタンが有効になるまで待機（最大10秒）
+    page.wait_for_function(
+        """
+        () => {
+            const button = document.querySelector('button.is-fullwidth');
+            return button && !button.disabled && button.textContent.includes('期間を確定して更新');
+        }
+        """,
+        timeout=10000,
+    )
     expect(update_button).to_be_enabled()
     update_button.click()
 
