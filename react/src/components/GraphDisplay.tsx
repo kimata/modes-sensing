@@ -635,7 +635,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
                       </div>
                     )}
 
-                    {imageUrl && (
+                    {imageUrl && !error && (
                       <figure className="image" style={{
                         display: isLoading ? 'none' : 'flex',
                         alignItems: 'center',
