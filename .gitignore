@@ -41,6 +41,7 @@ testem.log
 /typings
 /data/
 /tests/evidence/
+/react/tests/evidence/
 .venv/
 *.db
 /font/

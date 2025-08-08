@@ -190,8 +190,12 @@ def append_colorbar(scatter, shrink=0.8, pad=0.01, aspect=35, fraction=0.046):
     return cbar
 
 
-def create_grid(time_numeric, altitudes, temperatures, grid_points=100):
-    time_min, time_max = time_numeric.min(), time_numeric.max()
+def create_grid(time_numeric, altitudes, temperatures, grid_points=100, time_range=None):
+    # グリッド範囲を指定できるようにするが、データは全範囲を使用
+    if time_range is not None:
+        time_min, time_max = time_range
+    else:
+        time_min, time_max = time_numeric.min(), time_numeric.max()
     alt_min, alt_max = ALT_MIN, ALT_MAX
 
     time_grid = numpy.linspace(time_min, time_max, grid_points)
@@ -429,12 +433,31 @@ def plot_density(data, figsize):
     return (img, time.perf_counter() - start)
 
 
-def plot_contour_2d(data, figsize):
+def plot_contour_2d(data, figsize, plot_time_start=None, plot_time_end=None):
     logging.info("Staring plot contour")
 
     start = time.perf_counter()
 
-    grid = create_grid(data["time_numeric"], data["altitudes"], data["temperatures"], grid_points=80)
+    # プロット時間範囲が指定されている場合は、グリッドをその範囲で作成
+    # ただし、実際のデータ範囲を超えないように制限
+    if plot_time_start and plot_time_end:
+        plot_time_min = matplotlib.dates.date2num(plot_time_start)
+        plot_time_max = matplotlib.dates.date2num(plot_time_end)
+        # 実際のデータ範囲内に制限
+        if len(data["time_numeric"]) > 0:
+            actual_min = data["time_numeric"].min()
+            actual_max = data["time_numeric"].max()
+            plot_time_min = max(plot_time_min, actual_min)
+            plot_time_max = min(plot_time_max, actual_max)
+        grid = create_grid(
+            data["time_numeric"],
+            data["altitudes"],
+            data["temperatures"],
+            grid_points=80,
+            time_range=(plot_time_min, plot_time_max),
+        )
+    else:
+        grid = create_grid(data["time_numeric"], data["altitudes"], data["temperatures"], grid_points=80)
 
     fig, ax = create_figure(figsize)
 
@@ -453,13 +476,16 @@ def plot_contour_2d(data, figsize):
 
     ax.clabel(contour, inline=True, fontsize=CONTOUR_SIZE, fmt="%d℃")
 
-    set_axis_2d_default(
-        ax,
-        [
+    # プロット時間範囲が指定されている場合はそれを使用、そうでなければグリッド範囲を使用
+    if plot_time_start and plot_time_end:
+        time_range = [plot_time_start, plot_time_end]
+    else:
+        time_range = [
             matplotlib.dates.num2date(grid["time_min"]),
             matplotlib.dates.num2date(grid["time_max"]),
-        ],
-    )
+        ]
+
+    set_axis_2d_default(ax, time_range)
 
     append_colorbar(contourf, shrink=1.0, pad=0.01, aspect=35, fraction=0.03)
 
@@ -470,12 +496,31 @@ def plot_contour_2d(data, figsize):
     return (img, time.perf_counter() - start)
 
 
-def plot_heatmap(data, figsize):
+def plot_heatmap(data, figsize, plot_time_start=None, plot_time_end=None):
     logging.info("Staring plot heatmap")
 
     start = time.perf_counter()
 
-    grid = create_grid(data["time_numeric"], data["altitudes"], data["temperatures"], grid_points=80)
+    # プロット時間範囲が指定されている場合は、グリッドをその範囲で作成
+    # ただし、実際のデータ範囲を超えないように制限
+    if plot_time_start and plot_time_end:
+        plot_time_min = matplotlib.dates.date2num(plot_time_start)
+        plot_time_max = matplotlib.dates.date2num(plot_time_end)
+        # 実際のデータ範囲内に制限
+        if len(data["time_numeric"]) > 0:
+            actual_min = data["time_numeric"].min()
+            actual_max = data["time_numeric"].max()
+            plot_time_min = max(plot_time_min, actual_min)
+            plot_time_max = min(plot_time_max, actual_max)
+        grid = create_grid(
+            data["time_numeric"],
+            data["altitudes"],
+            data["temperatures"],
+            grid_points=80,
+            time_range=(plot_time_min, plot_time_max),
+        )
+    else:
+        grid = create_grid(data["time_numeric"], data["altitudes"], data["temperatures"], grid_points=80)
 
     fig, ax = create_figure(figsize)
 
@@ -490,13 +535,16 @@ def plot_heatmap(data, figsize):
         vmax=TEMP_MAX,
     )
 
-    set_axis_2d_default(
-        ax,
-        [
+    # プロット時間範囲が指定されている場合はそれを使用、そうでなければグリッド範囲を使用
+    if plot_time_start and plot_time_end:
+        time_range = [plot_time_start, plot_time_end]
+    else:
+        time_range = [
             matplotlib.dates.num2date(grid["time_min"]),
             matplotlib.dates.num2date(grid["time_max"]),
-        ],
-    )
+        ]
+
+    set_axis_2d_default(ax, time_range)
 
     append_colorbar(im, shrink=1.0, pad=0.01, aspect=35, fraction=0.03)
 
@@ -868,10 +916,20 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize):
         # グラフ作成に必要な最小限のカラムのみ取得してパフォーマンス向上
         columns = ["time", "altitude", "temperature", "distance"]
 
+    # heatmapとcontourグラフの場合、端の部分のプロットを改善するためデータ取得範囲を10%拡張
+    if graph_name in ["heatmap", "contour_2d"]:
+        time_range = time_end - time_start
+        extension = time_range * 0.1  # 10%拡張
+        extended_time_start = time_start - extension
+        extended_time_end = time_end + extension
+    else:
+        extended_time_start = time_start
+        extended_time_end = time_end
+
     raw_data = modes.database_postgresql.fetch_by_time(
         conn,
-        time_start,
-        time_end,
+        extended_time_start,
+        extended_time_end,
         config["filter"]["area"]["distance"],
         columns=columns,
     )
@@ -899,7 +957,11 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize):
     set_font(config["font"])
 
     try:
-        img, elapsed = GRAPH_DEF_MAP[graph_name]["func"](data, figsize)
+        # heatmapとcontourグラフの場合、元の時間範囲を渡してプロット範囲を制限
+        if graph_name in ["heatmap", "contour_2d"]:
+            img, elapsed = GRAPH_DEF_MAP[graph_name]["func"](data, figsize, time_start, time_end)
+        else:
+            img, elapsed = GRAPH_DEF_MAP[graph_name]["func"](data, figsize)
     except Exception as e:
         logging.warning("Failed to generate %s: %s", graph_name, str(e))
         # エラー時は「データなし」画像を生成

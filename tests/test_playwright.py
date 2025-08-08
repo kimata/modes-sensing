@@ -15,14 +15,21 @@ def page_init(page, host, port, worker_id):
     """各テスト用のページ初期化（並列実行対応）"""
     wait_for_server_ready(host, port)
 
-    # 並列実行時の競合を避けるため、ワーカーごとに異なる遅延を設定
+    # 並列実行時の競合を避けるため、ワーカーごとに異なる遅延を設定（改良版）
+    import random
+
     if worker_id != "master":
         # worker_idから数値を抽出（例: "gw0" -> 0）
         worker_num = int(worker_id[2:]) if worker_id.startswith("gw") else 0
-        delay = 0.5 + (worker_num * 0.2)  # 0.5秒 + ワーカー番号 * 0.2秒
-        time.sleep(delay)
+        # ベース遅延 + ワーカー固有遅延 + ランダム要素
+        base_delay = 0.3
+        worker_delay = worker_num * 0.15
+        jitter = random.uniform(0.1, 0.3)  # noqa: S311
+        total_delay = base_delay + worker_delay + jitter
+        logging.info("ワーカー %s: %.2f秒待機", worker_id, total_delay)
+        time.sleep(total_delay)
     else:
-        time.sleep(1)
+        time.sleep(0.5)  # master の場合は短縮
 
     page.on("console", lambda msg: print(msg.text))  # noqa: T201
     page.set_viewport_size({"width": 2400, "height": 1600})
@@ -31,24 +38,62 @@ def page_init(page, host, port, worker_id):
 
 
 def wait_for_server_ready(host, port):
-    """サーバーの起動を待機（並列実行対応）"""
+    """サーバーの起動を待機（並列実行対応・改良版）"""
     TIMEOUT_SEC = 60
+    MAX_RETRIES = 3
 
     start_time = time.time()
+    retry_count = 0
+    backoff_delay = 1  # 初期遅延時間
+
     while time.time() - start_time < TIMEOUT_SEC:
         try:
-            res = requests.get(app_url(host, port), timeout=5)
+            # コネクションプールの設定を調整
+            session = requests.Session()
+            adapter = requests.adapters.HTTPAdapter(
+                pool_connections=1,  # 接続プールサイズを制限
+                pool_maxsize=1,
+                max_retries=0,  # requests レベルでのリトライは無効化
+            )
+            session.mount("http://", adapter)
+            session.mount("https://", adapter)
+
+            # タイムアウトを短めに設定
+            res = session.get(app_url(host, port), timeout=(2, 3))
+            session.close()
+
             if res.ok:
-                logging.info("サーバが %.1f 秒後に起動しました。", time.time() - start_time)
-                # 並列実行時は追加待機を短縮（初回起動後はサーバーは既に安定）
-                if time.time() - start_time < 5:  # 初回起動の場合のみ長めに待機
-                    time.sleep(10)
-                else:
-                    time.sleep(2)  # 既に起動済みの場合は短縮
+                elapsed = time.time() - start_time
+                logging.info("サーバが %.1f 秒後に起動しました。", elapsed)
+
+                # サーバー安定化のための待機時間を調整
+                if elapsed < 2:  # 初回起動の場合
+                    time.sleep(3)  # 短縮: 10→3秒
+                else:  # 既に起動済み
+                    time.sleep(0.5)  # 短縮: 2→0.5秒
                 return
-        except Exception:  # noqa: S110
-            pass
-        time.sleep(1)  # チェック間隔を短縮
+
+        except (
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+            requests.exceptions.RequestException,
+        ) as e:
+            retry_count += 1
+            if retry_count <= MAX_RETRIES:
+                logging.debug("サーバー接続リトライ %d/%d: %s", retry_count, MAX_RETRIES, e)
+            else:
+                # 最大リトライ数に達した場合はカウンタをリセット
+                retry_count = 0
+                backoff_delay = min(backoff_delay * 1.5, 5)  # 最大5秒まで
+        except Exception as e:
+            logging.warning("サーバー接続で予期しないエラー: %s", e)
+
+        # exponential backoff with jitter
+        import random
+
+        jitter = random.uniform(0.1, 0.3)  # noqa: S311
+        sleep_time = min(backoff_delay + jitter, 2.0)
+        time.sleep(sleep_time)
 
     raise RuntimeError(f"サーバーが {TIMEOUT_SEC}秒以内に起動しませんでした。")  # noqa: TRY003, EM102
 
