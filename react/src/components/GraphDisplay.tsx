@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useLayoutEffect, useCallback, memo } from 'react'
+import { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react'
 import styles from './GraphDisplay.module.css'
 
 // タイムアウトとリトライの設定（CI環境対応）
@@ -31,131 +31,6 @@ const graphs: GraphInfo[] = [
   { endpoint: '/modes-sensing/api/graph/scatter_3d', title: '3D散布図', filename: 'scatter_3d.png', size: [2800, 2800] },
   { endpoint: '/modes-sensing/api/graph/contour_3d', title: '3D等高線プロット', filename: 'contour_3d.png', size: [2800, 2800] }
 ]
-
-// Individual graph card component to prevent unnecessary re-renders
-const GraphCard = memo<{
-  graph: GraphInfo
-  isLoading: boolean
-  error: string
-  imageUrl: string
-  containerWidth: number
-  onImageClick: (imageUrl: string) => void
-  onImageLoad: (key: string) => void
-  onImageError: (key: string, title: string) => void
-  onReload: (key: string) => void
-  imageRefs: React.MutableRefObject<{ [key: string]: HTMLImageElement | null }>
-}>(({
-  graph,
-  isLoading,
-  error,
-  imageUrl,
-  containerWidth,
-  onImageClick,
-  onImageLoad,
-  onImageError,
-  onReload,
-  imageRefs
-}) => {
-  const key = graph.endpoint
-
-  // Calculate height using the same logic as before
-  const is3D = graph.endpoint.includes('3d')
-  let calculatedHeight: number
-  if (containerWidth) {
-    // Use actual measured width
-    calculatedHeight = calculateActualHeight(graph, containerWidth)
-  } else {
-    // Fallback value
-    const [width, height] = graph.size
-    const aspectRatio = height / width
-    const estimatedWidth = is3D ? 600 : 350
-    calculatedHeight = estimatedWidth * aspectRatio
-  }
-
-  const containerHeight = calculatedHeight + 'px'
-  const cardPadding = 16
-  const cardHeight = calculatedHeight + cardPadding + 'px'
-
-  return (
-    <div className={is3D ? 'column is-full' : 'column is-half'}>
-      <div className="card" style={{ height: cardHeight }}>
-        <div className="card-content" style={{
-          padding: '0.5rem',
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column'
-        }}>
-          <div className="image-container" style={{
-            height: containerHeight,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            position: 'relative',
-            overflow: 'hidden',
-            flex: '1 1 auto'
-          }}>
-            {isLoading && (
-              <div className="has-text-centered">
-                <div className="loader"></div>
-                <p className="mt-2">読み込み中...</p>
-              </div>
-            )}
-
-            {error && (
-              <div className="notification is-danger is-light">
-                <div>{error}</div>
-                <button
-                  className="button is-small is-danger mt-2"
-                  onClick={() => onReload(key)}
-                >
-                  <span className="icon">
-                    <i className="fas fa-redo"></i>
-                  </span>
-                  <span>リロード</span>
-                </button>
-              </div>
-            )}
-
-            {imageUrl && (
-              <figure className="image" style={{
-                display: isLoading ? 'none' : 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '100%',
-                margin: 0
-              }}>
-                <img
-                  ref={(el) => {
-                    console.log('[DEBUG] Setting image ref for', key, !!el)
-                    imageRefs.current[key] = el
-                  }}
-                  src={imageUrl}
-                  alt={graph.title}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'contain',
-                    cursor: 'pointer'
-                  }}
-                  onClick={() => onImageClick(imageUrl)}
-                  onLoad={() => {
-                    console.log('[DEBUG] onLoad event fired for', key)
-                    onImageLoad(key)
-                  }}
-                  onError={() => {
-                    console.log('[DEBUG] onError event fired for', key)
-                    onImageError(key, graph.title)
-                  }}
-                  loading="eager"
-                />
-              </figure>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-})
 
 // Helper function moved outside component
 const calculateActualHeight = (graph: GraphInfo, containerWidth: number): number => {
@@ -752,22 +627,111 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
           const isLoading = loading[key]
           const error = errors[key]
           const imageUrl = imageUrls[key]
-          const containerWidth = containerWidths[key] || 0
+
+          // 実際のコンテナ幅から画像がロードされた時と同じ高さを計算
+          const is3D = graph.endpoint.includes('3d')
+          const actualContainerWidth = containerWidths[key]
+
+          let calculatedHeight: number
+          if (actualContainerWidth) {
+            // 実際の表示幅が測定済みの場合は、正確な高さを計算
+            calculatedHeight = calculateActualHeight(graph, actualContainerWidth)
+          } else {
+            // まだ測定されていない場合はフォールバック値を使用
+            const [width, height] = graph.size
+            const aspectRatio = height / width
+            const estimatedWidth = is3D ? 600 : 350
+            calculatedHeight = estimatedWidth * aspectRatio
+          }
+
+          // 計算された高さをpxで設定（card全体の一貫した高さを確保）
+          const containerHeight = calculatedHeight + 'px'
+          const cardPadding = 16  // 0.5rem * 2 (上下) = 16px
+          const cardHeight = calculatedHeight + cardPadding + 'px'
 
           return (
-            <div key={key} ref={(el) => { containerRefs.current[key] = el }}>
-              <GraphCard
-                graph={graph}
-                isLoading={isLoading}
-                error={error}
-                imageUrl={imageUrl}
-                containerWidth={containerWidth}
-                onImageClick={onImageClick}
-                onImageLoad={handleImageLoad}
-                onImageError={handleImageError}
-                onReload={handleReload}
-                imageRefs={imageRefs}
-              />
+            <div key={key} className={is3D ? 'column is-full' : 'column is-half'} ref={(el) => { containerRefs.current[key] = el }}>
+              <div className="card" style={{ height: cardHeight }}>
+                <div className="card-content" style={{
+                  padding: '0.5rem',
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column'
+                }}>
+                  <div className="image-container" style={{
+                    height: containerHeight,  // 固定高さ
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    position: 'relative',
+                    overflow: 'hidden',  // はみ出した部分を隠す
+                    flex: '1 1 auto'  // flexboxで残りのスペースを占有
+                  }}>
+                    {isLoading && (
+                      <div className="has-text-centered">
+                        <div className="loader"></div>
+                        <p className="mt-2">読み込み中...</p>
+                      </div>
+                    )}
+
+                    {error && (
+                      <div className="notification is-danger is-light">
+                        <div>{error}</div>
+                        <button
+                          className="button is-small is-danger mt-2"
+                          onClick={() => handleReload(key)}
+                        >
+                          <span className="icon">
+                            <i className="fas fa-redo"></i>
+                          </span>
+                          <span>リロード</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {imageUrl && (
+                      <figure className="image" style={{
+                        display: isLoading ? 'none' : 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        height: '100%',
+                        margin: 0
+                      }}>
+                        <img
+                          key={`${key}-${imageUrl}`}
+                          ref={(el) => {
+                            if (el && imageRefs.current[key] !== el) {
+                              console.log('[DEBUG] Setting image ref for', key, !!el)
+                              imageRefs.current[key] = el
+                            } else if (!el && imageRefs.current[key]) {
+                              console.log('[DEBUG] Clearing image ref for', key)
+                              imageRefs.current[key] = null
+                            }
+                          }}
+                          src={imageUrl}
+                          alt={graph.title}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'contain',  // アスペクト比を維持しながら収める
+                            cursor: 'pointer'
+                          }}
+                          onClick={() => onImageClick(imageUrl)}
+                          onLoad={() => {
+                            console.log('[DEBUG] onLoad event fired for', key)
+                            handleImageLoad(key)
+                          }}
+                          onError={() => {
+                            console.log('[DEBUG] onError event fired for', key)
+                            handleImageError(key, graph.title)
+                          }}
+                          loading="eager"
+                        />
+                      </figure>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           )
         })}
