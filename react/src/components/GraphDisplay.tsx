@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback, memo } from 'react'
+import { useState, useEffect, useRef, useLayoutEffect, useCallback, memo } from 'react'
 import styles from './GraphDisplay.module.css'
 
 // タイムアウトとリトライの設定（CI環境対応）
