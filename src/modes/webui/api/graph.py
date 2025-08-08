@@ -769,8 +769,9 @@ def plot_wind_direction(data, figsize):
     v_scale = altitude_range / 30
 
     wind_magnitude = numpy.sqrt(grouped["wind_x"] ** 2 + grouped["wind_y"] ** 2)
-    grouped["u_normalized"] = (grouped["wind_x"] / wind_magnitude) * u_scale
-    grouped["v_normalized"] = (grouped["wind_y"] / wind_magnitude) * v_scale
+    # 風向きベクトルの符号を反転（wind_x, wind_yは風が来る方向、矢印は風が来る方向を指すべき）
+    grouped["u_normalized"] = -(grouped["wind_x"] / wind_magnitude) * u_scale
+    grouped["v_normalized"] = -(grouped["wind_y"] / wind_magnitude) * v_scale
 
     grouped = grouped.dropna()
     if len(grouped) == 0:
