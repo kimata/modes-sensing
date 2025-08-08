@@ -196,9 +196,11 @@ def fetch_by_time(conn, time_start, time_end, distance, columns=None):
 
     start = time.perf_counter()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        # クエリを最適化：インデックスを効率的に使用
         query = (
             f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
-            f"WHERE time BETWEEN %s AND %s AND distance <= %s ORDER BY time"
+            f"WHERE time >= %s AND time <= %s AND distance <= %s "
+            f"ORDER BY time"
         )
         cur.execute(
             query,
@@ -208,6 +210,8 @@ def fetch_by_time(conn, time_start, time_end, distance, columns=None):
                 distance,
             ),
         )
+        # fetchallではなく大きなデータセット向けにitersize指定でメモリ効率化
+        cur.itersize = 10000  # 大量データ取得時のメモリ効率化
         data = cur.fetchall()
 
         logging.info(

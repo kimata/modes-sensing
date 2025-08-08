@@ -198,12 +198,34 @@ def create_grid(time_numeric, altitudes, temperatures, grid_points=100, time_ran
         time_min, time_max = time_numeric.min(), time_numeric.max()
     alt_min, alt_max = ALT_MIN, ALT_MAX
 
+    # メモリ効率とキャッシュ効率を考慮したグリッド作成
     time_grid = numpy.linspace(time_min, time_max, grid_points)
     alt_grid = numpy.linspace(alt_min, alt_max, grid_points)
-    time_mesh, alt_mesh = numpy.meshgrid(time_grid, alt_grid)
+    time_mesh, alt_mesh = numpy.meshgrid(time_grid, alt_grid, indexing="ij")
 
-    points = numpy.column_stack((time_numeric, altitudes))
-    temp_grid = scipy.interpolate.griddata(points, temperatures, (time_mesh, alt_mesh), method="linear")
+    # データポイントの事前フィルタリング（範囲外データを除外）
+    valid_data_mask = (
+        (time_numeric >= time_min)
+        & (time_numeric <= time_max)
+        & (altitudes >= alt_min)
+        & (altitudes <= alt_max)
+        & numpy.isfinite(temperatures)
+    )
+
+    if valid_data_mask.sum() < 3:
+        # 補間に必要な最小データ数が不足
+        temp_grid = numpy.full_like(time_mesh, numpy.nan)
+    else:
+        # 有効なデータポイントのみで補間処理
+        valid_points = numpy.column_stack((time_numeric[valid_data_mask], altitudes[valid_data_mask]))
+        valid_temps = temperatures[valid_data_mask]
+
+        # scipy.interpolate.griddataの最適化：
+        # - method='linear'は最も高速
+        # - fill_valueを明示的に指定してwarningを回避
+        temp_grid = scipy.interpolate.griddata(
+            valid_points, valid_temps, (time_mesh, alt_mesh), method="linear", fill_value=numpy.nan
+        )
 
     return {
         "time_mesh": time_mesh,
@@ -283,26 +305,49 @@ def create_no_data_image(config, graph_name, text="データがありません")
 
 
 def prepare_data(raw_data):
-    filtered_data = [d for d in raw_data if d["temperature"] > TEMPERATURE_THRESHOLD]
-
-    if not filtered_data:
+    # リスト内包表記からnumpy配列への直接変換で高速化
+    if not raw_data:
         return {
             "count": 0,
-            "times": [],
-            "time_numeric": [],
-            "altitudes": [],
-            "temperatures": [],
-            "dataframe": [],
+            "times": numpy.array([]),
+            "time_numeric": numpy.array([]),
+            "altitudes": numpy.array([]),
+            "temperatures": numpy.array([]),
+            "dataframe": pandas.DataFrame(),
         }
 
+    # 温度フィルタリングを先に行い、有効なインデックスを特定
+    temperatures = numpy.array([d["temperature"] for d in raw_data])
+    valid_mask = temperatures > TEMPERATURE_THRESHOLD
+
+    if not valid_mask.any():
+        return {
+            "count": 0,
+            "times": numpy.array([]),
+            "time_numeric": numpy.array([]),
+            "altitudes": numpy.array([]),
+            "temperatures": numpy.array([]),
+            "dataframe": pandas.DataFrame(),
+        }
+
+    # 有効なデータのみを効率的に抽出
+    filtered_data = [raw_data[i] for i in numpy.where(valid_mask)[0]]
+
+    # pandas.DataFrameの作成を最小限に（dataframeが必要な場合のみ）
+    # 基本的な配列処理はnumpyで高速化
+    times_list = [d["time"] for d in filtered_data]
+    altitudes = numpy.array([d["altitude"] for d in filtered_data])
+    temperatures = temperatures[valid_mask]
+
+    # pandas.to_datetimeは比較的重いので、必要最小限で使用
+    times = pandas.to_datetime(times_list).to_numpy()
+
+    # matplotlib.dates.date2numをベクトル化して高速化
+    time_numeric = matplotlib.dates.date2num(times)
+
+    # DataFrameは風向・風速グラフでのみ必要
+    # filtered_dataには既に有効なデータのみが含まれている
     clean_df = pandas.DataFrame(filtered_data)
-    clean_df["time"] = pandas.to_datetime(clean_df["time"])
-
-    times = clean_df["time"].to_numpy()
-    altitudes = clean_df["altitude"].to_numpy()
-    temperatures = clean_df["temperature"].to_numpy()
-
-    time_numeric = numpy.array([matplotlib.dates.date2num(t) for t in times])
 
     return {
         "count": len(times),
