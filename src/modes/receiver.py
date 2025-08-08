@@ -185,7 +185,14 @@ def is_physically_reasonable(altitude, temperature, regression_model, tolerance_
 
 
 def detect_outlier_by_altitude_neighbors(  # noqa: PLR0913
-    altitude, temperature, altitudes, temperatures, callsign=None, n_neighbors=400, sigma_threshold=4
+    altitude,
+    temperature,
+    altitudes,
+    temperatures,
+    callsign=None,
+    n_neighbors=400,
+    deviation_threshold=12,
+    sigma_threshold=4,
 ):
     """
     高度近傍ベースの異常検知を実行
@@ -199,8 +206,9 @@ def detect_outlier_by_altitude_neighbors(  # noqa: PLR0913
         altitudes (np.array): 履歴データの高度配列
         temperatures (np.array): 履歴データの温度配列
         callsign (str, optional): 航空機のコールサイン（ログ用）
-        n_neighbors (int): 使用する近傍データ数（デフォルト: 200）
-        sigma_threshold (float): 異常値判定のシグマ閾値（デフォルト: 2.5）
+        n_neighbors (int): 使用する近傍データ数（デフォルト: 400）
+        deviation_threshold (float): 絶対偏差による異常値判定閾値（デフォルト: 12）
+        sigma_threshold (float): 異常値判定のシグマ閾値（デフォルト: 4）
 
     Returns:
         bool: 外れ値の場合True、正常値の場合False
@@ -227,14 +235,14 @@ def detect_outlier_by_altitude_neighbors(  # noqa: PLR0913
     z_score = temp_deviation / std_temp if std_temp > 0 else 0
 
     # 異常値判定
-    is_outlier = z_score > sigma_threshold
+    is_outlier = (temp_deviation > deviation_threshold) or (z_score > sigma_threshold)
 
     # 判定結果をログ出力
     if is_outlier:
         logging.warning(
             "%s: callsign=%s, altitude=%.1fm, temperature=%.1f°C, "
             "neighbor_mean_alt=%.1fm, neighbor_mean_temp=%.1f°C, neighbor_std=%.1f°C, "
-            "deviation=%.1f°C, z_score=%.2f (threshold=%.1f)",
+            "deviation=%.1f°C(threshold=%.1f), z_score=%.2f (threshold=%.1f)",
             "外れ値検出（高度近傍）",
             callsign or "Unknown",
             altitude,
@@ -243,6 +251,7 @@ def detect_outlier_by_altitude_neighbors(  # noqa: PLR0913
             mean_temp,
             std_temp,
             temp_deviation,
+            deviation_threshold,
             z_score,
             sigma_threshold,
         )
@@ -250,7 +259,7 @@ def detect_outlier_by_altitude_neighbors(  # noqa: PLR0913
         logging.info(
             "%s: callsign=%s, altitude=%.1fm, temperature=%.1f°C, "
             "neighbor_mean_alt=%.1fm, neighbor_mean_temp=%.1f°C, neighbor_std=%.1f°C, "
-            "deviation=%.1f°C, z_score=%.2f (threshold=%.1f)",
+            "deviation=%.1f°C(threshold=%.1f), z_score=%.2f (threshold=%.1f)",
             "正常値判定（高度近傍）",
             callsign or "Unknown",
             altitude,
@@ -259,6 +268,7 @@ def detect_outlier_by_altitude_neighbors(  # noqa: PLR0913
             mean_temp,
             std_temp,
             temp_deviation,
+            deviation_threshold,
             z_score,
             sigma_threshold,
         )
