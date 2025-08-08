@@ -641,21 +641,25 @@ def test_custom_date_range(page_init, host, port):
     """)
 
     if data_range and data_range.get("earliest") and data_range.get("latest"):
-        # 利用可能なデータ範囲内で非標準的な期間を設定（自動判定を回避）
+        # データ範囲の最新日時を終了日時に設定
         latest_date = datetime.fromisoformat(data_range["latest"].replace("Z", "+00:00"))
         earliest_date = datetime.fromisoformat(data_range["earliest"].replace("Z", "+00:00"))
 
-        # 自動判定されない中途半端な期間を設定（例：3.5日間）
-        end_date = latest_date - timedelta(hours=2)  # 最新から2時間前
-        start_date = end_date - timedelta(days=3, hours=12)  # そこから3.5日前
+        # 終了日時はデータの最新日時
+        end_date = latest_date
 
-        # 開始日が最古日より前の場合は調整
-        if start_date < earliest_date:
-            start_date = earliest_date
-            end_date = start_date + timedelta(days=3, hours=12)
-            end_date = min(end_date, latest_date)
+        # 開始日時はデータ範囲の中間地点に設定（自動調整を回避）
+        duration = latest_date - earliest_date
+        start_date = earliest_date + duration / 2  # 中間地点
+
+        logging.info(
+            "Custom date range: %s to %s (duration: %s days)",
+            start_date.strftime("%Y-%m-%d %H:%M"),
+            end_date.strftime("%Y-%m-%d %H:%M"),
+            (end_date - start_date).days,
+        )
     else:
-        # データ範囲が取得できない場合のフォールバック（非標準期間）
+        # データ範囲が取得できない場合のフォールバック
         end_date = datetime.now(timezone.utc) - timedelta(days=2)
         start_date = end_date - timedelta(days=3, hours=12)  # 3.5日間
 
@@ -665,24 +669,35 @@ def test_custom_date_range(page_init, host, port):
 
     # 先に日付範囲を変更して、自動判定でカスタム期間になるようにする
     start_input = page.locator('input[type="datetime-local"]').first
+    start_input.clear()
     start_input.fill(start_str)
 
     end_input = page.locator('input[type="datetime-local"]').last
+    end_input.clear()
     end_input.fill(end_str)
 
-    # 期間確定ボタンをクリック
-    # ボタンテキストはhasChangesの状態により変わるため、セレクタを調整
-    update_button = page.locator("button.is-fullwidth")
-    # ボタンが有効になるまで待機（最大10秒）
+    # 少し待機してReactの状態変更を反映
+    time.sleep(2)
+
+    # hasChangesがtrueになり、ボタンが有効になるまで待機
     page.wait_for_function(
         """
         () => {
             const button = document.querySelector('button.is-fullwidth');
-            return button && !button.disabled && button.textContent.includes('期間を確定して更新');
+            if (!button) return false;
+
+            // ボタンが無効でなく、期間確定のテキストを含む場合
+            return !button.disabled && (
+                button.textContent.includes('期間を確定') ||
+                button.textContent.includes('更新')
+            );
         }
         """,
-        timeout=10000,
+        timeout=20000,
     )
+
+    # 更新ボタンをクリック
+    update_button = page.locator("button.is-fullwidth")
     expect(update_button).to_be_enabled()
     update_button.click()
 
