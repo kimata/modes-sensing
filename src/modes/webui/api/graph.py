@@ -201,7 +201,7 @@ def create_grid(time_numeric, altitudes, temperatures, grid_points=100, time_ran
     # メモリ効率とキャッシュ効率を考慮したグリッド作成
     time_grid = numpy.linspace(time_min, time_max, grid_points)
     alt_grid = numpy.linspace(alt_min, alt_max, grid_points)
-    time_mesh, alt_mesh = numpy.meshgrid(time_grid, alt_grid, indexing="ij")
+    time_mesh, alt_mesh = numpy.meshgrid(time_grid, alt_grid, indexing="xy")
 
     # データポイントの事前フィルタリング（範囲外データを除外）
     valid_data_mask = (
@@ -570,7 +570,7 @@ def plot_heatmap(data, figsize, plot_time_start=None, plot_time_end=None):
     fig, ax = create_figure(figsize)
 
     im = ax.imshow(
-        grid["temp_grid"].T,  # 転置して軸を正しく配置
+        grid["temp_grid"],
         extent=[grid["time_min"], grid["time_max"], grid["alt_min"], grid["alt_max"]],
         aspect="auto",
         origin="lower",
