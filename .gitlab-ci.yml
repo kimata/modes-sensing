@@ -73,7 +73,7 @@ build-image:
         - docker buildx use ${BUILDER}
         - docker buildx inspect --bootstrap
         - >
-            docker buildx build --provenance=false --progress=plain --platform linux/amd64,linux/arm64/v8
+            docker buildx build --provenance=false --progress=plain --platform linux/amd64
             --cache-from type=registry,ref=${CI_REGISTRY_IMAGE}:cache
             --cache-from type=registry,ref=${CI_REGISTRY_IMAGE}:latest
             --cache-to type=inline --cache-to type=registry,ref=${CI_REGISTRY_IMAGE}:cache,mode=max
@@ -176,7 +176,7 @@ test-playwright:
             fi
 
         - >
-            uv run pytest --numprocesses=auto tests/test_playwright.py
+            uv run pytest tests/test_playwright.py
             --junit-xml=tests/evidence/playwright-junit.xml
     artifacts:
         when: always
@@ -281,7 +281,7 @@ test-playwright-docker:
 
         # Playwrightテストを実行（ホストからポート経由で接続）
         - >
-            uv run pytest --numprocesses=auto --tracing on --output tests/evidence/playwright
+            uv run pytest --output tests/evidence/playwright
             --junit-xml=tests/evidence/playwright-docker-junit.xml
             tests/test_playwright.py --host ${APP_HOST} --port ${APP_PORT}
 
