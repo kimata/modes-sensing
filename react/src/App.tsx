@@ -48,7 +48,11 @@ function App() {
               day: '2-digit'
             }).replace(/\//g, '年').replace(/年(\d+)年/, '年$1月') + '日'
 
-            setDataRangeSubtitle(`過去${daysDiff}日間（${startDateFormatted}〜）のデータが記録されています`)
+            // 件数をカンマ区切りでフォーマット
+            const countFormatted = range.count ? range.count.toLocaleString('ja-JP') : '0'
+            const daysFormatted = daysDiff.toLocaleString('ja-JP')
+
+            setDataRangeSubtitle(`過去${daysFormatted}日間（${startDateFormatted}〜）のデータ${countFormatted}件が記録されています`)
           }
         }
       } catch (error) {

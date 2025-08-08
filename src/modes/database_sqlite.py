@@ -150,6 +150,156 @@ def fetch_by_time(sqlite, time_start, time_end, distance, columns=None):
         f"{len(data):,}",
     )
 
+    return data
+
+
+def fetch_latest(conn, limit, distance=None, columns=None):
+    """
+    最新のデータを指定された件数取得する
+
+    Args:
+        conn: SQLite接続
+        limit: 取得する最大件数
+        distance: 距離フィルタ（Noneの場合はフィルタなし）
+        columns: 取得するカラムのリスト。Noneの場合はデフォルト['time', 'altitude', 'temperature', 'distance']
+
+    Returns:
+        取得されたデータのリスト（時間の降順でソート）
+
+    """
+    if columns is None:
+        columns = ["time", "altitude", "temperature", "distance"]
+
+    # カラム名をサニタイズ（SQLインジェクション対策）
+    valid_columns = [
+        "time",
+        "callsign",
+        "distance",
+        "altitude",
+        "latitude",
+        "longitude",
+        "temperature",
+        "wind_x",
+        "wind_y",
+        "wind_angle",
+        "wind_speed",
+    ]
+    sanitized_columns = [col for col in columns if col in valid_columns]
+
+    if not sanitized_columns:
+        msg = "No valid columns specified"
+        raise ValueError(msg)
+
+    columns_str = ", ".join(sanitized_columns)
+
+    start = time.perf_counter()
+    cur = conn.cursor()
+
+    # 距離フィルタの有無で条件分岐
+    if distance is not None:
+        query = (
+            f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
+            f"WHERE altitude IS NOT NULL AND temperature IS NOT NULL "
+            f"AND temperature > -100 AND distance <= ? "
+            f"ORDER BY time DESC LIMIT ?"
+        )
+        cur.execute(query, (distance, limit))
+    else:
+        query = (
+            f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
+            f"WHERE altitude IS NOT NULL AND temperature IS NOT NULL "
+            f"AND temperature > -100 "
+            f"ORDER BY time DESC LIMIT ?"
+        )
+        cur.execute(query, (limit,))
+
+    # SQLiteの時間データをdatetime型に変換
+    data = []
+    for row in cur.fetchall():
+        row_data = dict(row)
+        if row_data.get("time"):
+            # SQLiteのtimeカラムはUNIX timestampとして格納されている
+            if isinstance(row_data["time"], int):
+                row_data["time"] = datetime.datetime.fromtimestamp(
+                    row_data["time"], tz=datetime.timezone.utc
+                ) + datetime.timedelta(hours=9)
+            elif isinstance(row_data["time"], str):
+                row_data["time"] = datetime.datetime.strptime(row_data["time"], "%Y-%m-%d %H:%M:%S").replace(
+                    tzinfo=datetime.timezone.utc
+                ) + datetime.timedelta(hours=9)
+        data.append(row_data)
+
+    logging.info(
+        "Elapsed time: %.2f sec (selected %d columns, %s rows)",
+        time.perf_counter() - start,
+        len(sanitized_columns),
+        f"{len(data):,}",
+    )
+
+    return data
+
+
+def fetch_data_range(conn):
+    """
+    データベースの最古・最新データの日時とレコード数を取得する
+
+    Args:
+        conn: SQLite接続
+
+    Returns:
+        dict: earliest, latest, countを含む辞書
+
+    """
+    query = """
+    SELECT
+        MIN(time) as earliest,
+        MAX(time) as latest,
+        COUNT(*) as count
+    FROM meteorological_data
+    """
+
+    start = time.perf_counter()
+    cur = conn.cursor()
+    cur.execute(query)
+    result = cur.fetchone()
+
+    logging.info(
+        "Elapsed time: %.2f sec (data range query)",
+        time.perf_counter() - start,
+    )
+
+    if result and result["earliest"] and result["latest"]:
+        # SQLiteの時間データをdatetime型に変換
+        earliest = result["earliest"]
+        latest = result["latest"]
+
+        if isinstance(earliest, int):
+            earliest = datetime.datetime.fromtimestamp(
+                earliest, tz=datetime.timezone.utc
+            ) + datetime.timedelta(hours=9)
+        elif isinstance(earliest, str):
+            earliest = datetime.datetime.strptime(earliest, "%Y-%m-%d %H:%M:%S").replace(
+                tzinfo=datetime.timezone.utc
+            ) + datetime.timedelta(hours=9)
+
+        if isinstance(latest, int):
+            latest = datetime.datetime.fromtimestamp(latest, tz=datetime.timezone.utc) + datetime.timedelta(
+                hours=9
+            )
+        elif isinstance(latest, str):
+            latest = datetime.datetime.strptime(latest, "%Y-%m-%d %H:%M:%S").replace(
+                tzinfo=datetime.timezone.utc
+            ) + datetime.timedelta(hours=9)
+
+        return {
+            "earliest": earliest,
+            "latest": latest,
+            "count": result["count"],
+        }
+    else:
+        # データがない場合
+        return {"earliest": None, "latest": None, "count": 0}
+
 
 if __name__ == "__main__":
     import docopt
