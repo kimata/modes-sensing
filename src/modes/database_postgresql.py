@@ -291,6 +291,46 @@ def fetch_latest(conn, limit, distance=None, columns=None):
         return data
 
 
+def fetch_data_range(conn):
+    """
+    データベースの最古・最新データの日時とレコード数を取得する
+
+    Args:
+        conn: データベース接続
+
+    Returns:
+        dict: earliest, latest, countを含む辞書
+
+    """
+    query = """
+    SELECT
+        MIN(time) as earliest,
+        MAX(time) as latest,
+        COUNT(*) as count
+    FROM meteorological_data
+    """
+
+    start = time.perf_counter()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(query)
+        result = cur.fetchone()
+
+    logging.info(
+        "Elapsed time: %.2f sec (data range query)",
+        time.perf_counter() - start,
+    )
+
+    if result and result["earliest"] and result["latest"]:
+        return {
+            "earliest": result["earliest"],
+            "latest": result["latest"],
+            "count": result["count"],
+        }
+    else:
+        # データがない場合
+        return {"earliest": None, "latest": None, "count": 0}
+
+
 if __name__ == "__main__":
     import multiprocessing
 

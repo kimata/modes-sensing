@@ -957,23 +957,11 @@ def data_range():
         config = flask.current_app.config["CONFIG"]
         conn = connect_database(config)
 
-        # 最古・最新のデータを取得
-        query = """
-        SELECT
-            MIN(time) as earliest,
-            MAX(time) as latest
-        FROM meteorological_data
-        """
-
-        import psycopg2.extras
-
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(query)
-            result = cur.fetchone()
-
+        # データ範囲を取得
+        result = modes.database_postgresql.fetch_data_range(conn)
         conn.close()
 
-        if result and result["earliest"] and result["latest"]:
+        if result["earliest"] and result["latest"]:
             # タイムゾーン情報を追加してJSONシリアライゼーション可能にする
             earliest = result["earliest"]
             latest = result["latest"]
@@ -987,7 +975,7 @@ def data_range():
             response_data = {
                 "earliest": earliest.isoformat(),
                 "latest": latest.isoformat(),
-                "count": None,  # オプション：後でレコード数も追加可能
+                "count": result["count"],
             }
         else:
             # データがない場合
