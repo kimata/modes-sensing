@@ -1174,7 +1174,8 @@ def data_range():
             earliest = result["earliest"]
             latest = result["latest"]
 
-            # タイムゾーン情報がない場合はローカルタイムゾーンを適用
+            # データベースの時刻は実際にはJST（ローカルタイム）で保存されているため、
+            # タイムゾーン情報がない場合は直接ローカルタイムゾーンを適用
             if earliest.tzinfo is None:
                 earliest = earliest.replace(tzinfo=my_lib.time.get_zoneinfo())
             if latest.tzinfo is None:
