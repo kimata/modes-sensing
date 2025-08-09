@@ -52,7 +52,7 @@ function App() {
             const countFormatted = range.count ? range.count.toLocaleString('ja-JP') : '0'
             const daysFormatted = daysDiff.toLocaleString('ja-JP')
 
-            setDataRangeSubtitle(`過去${daysFormatted}日間（${startDateFormatted}〜）のデータ${countFormatted}件が記録されています`)
+            setDataRangeSubtitle(`過去${daysFormatted}日間（${startDateFormatted}〜）、計 ${countFormatted} 件のデータが記録されています`)
           }
         }
       } catch (error) {
@@ -99,7 +99,7 @@ function App() {
             }}>
               {/* 複数の改行ポイントで文字列を分割 */}
               {(() => {
-                // 「の」と「が」で分割して改行可能なセグメントを作成
+                // 「、」と「が」で分割して改行可能なセグメントを作成
                 const text = dataRangeSubtitle
                 const segments = []
 
@@ -108,19 +108,19 @@ function App() {
                 const beforeGa = mainParts[0] // 「〜が」より前
                 const afterGa = mainParts[1] // 「が」より後
 
-                // 「が」より前の部分を「の」でさらに分割
-                const beforeGaParts = beforeGa.split('の')
+                // 「が」より前の部分を「、」でさらに分割
+                const beforeGaParts = beforeGa.split('、')
 
                 // 最初の部分: 「過去4日間（2025年08月05日〜）」
                 if (beforeGaParts.length > 0) {
                   segments.push(
                     <span key="part1" style={{ whiteSpace: 'nowrap' }}>
-                      {beforeGaParts[0]}の
+                      {beforeGaParts[0]}、
                     </span>
                   )
                 }
 
-                // 真ん中の部分: 「データ85,090件」
+                // 真ん中の部分: 「計 85,090 件のデータ」
                 if (beforeGaParts.length > 1) {
                   segments.push(
                     <span key="part2" style={{ whiteSpace: 'nowrap' }}>
