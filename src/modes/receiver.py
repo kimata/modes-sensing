@@ -29,7 +29,7 @@ fragment_list = []
 
 should_terminate = threading.Event()
 
-HISTRY_SAMPLES = 10000
+HISTRY_SAMPLES = 30000
 meteorological_history = collections.deque(maxlen=HISTRY_SAMPLES)
 OUTLIER_DETECTION_MIN_SAMPLES = 100  # 外れ値検出を開始する最小サンプル数
 
