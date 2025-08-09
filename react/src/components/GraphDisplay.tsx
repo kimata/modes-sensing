@@ -274,7 +274,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
                       {isLoading && (
                         <div className="has-text-centered">
                           <div className="loader"></div>
-                          <p className="mt-2">読み込み中...</p>
+                          <p className="mt-2">グラフの生成中...</p>
                         </div>
                       )}
 
