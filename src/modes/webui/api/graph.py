@@ -14,7 +14,6 @@ Options:
 import atexit
 import concurrent.futures
 import datetime
-import hashlib
 import io
 import json
 import logging
@@ -1126,13 +1125,23 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize):
 
 
 def plot(config, graph_name, time_start, time_end):
+    logging.info("plot() called for %s", graph_name)
     # グラフサイズを計算
     figsize = tuple(x / IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name]["size"])
 
     # グローバルプロセスプールを使用してデータ取得から描画まで実行
     pool = _pool_manager.get_pool()
+    logging.info("Got process pool for %s, calling apply()", graph_name)
     try:
-        result = pool.apply(plot_in_subprocess, (config, graph_name, time_start, time_end, figsize))
+        # タイムアウト付きでプロセスプールを使用（ハング回避）
+        async_result = pool.apply_async(
+            plot_in_subprocess, (config, graph_name, time_start, time_end, figsize)
+        )
+        logging.info("Process pool apply_async() called for %s", graph_name)
+
+        # 30秒でタイムアウト
+        result = async_result.get(timeout=30)
+        logging.info("Process pool apply_async() returned for %s", graph_name)
         image_bytes, elapsed = result
 
         if elapsed > 0:
@@ -1140,7 +1149,14 @@ def plot(config, graph_name, time_start, time_end):
         else:
             logging.info("No data available for %s", graph_name)
 
+        logging.info(
+            "plot() returning for %s, size: %d bytes", graph_name, len(image_bytes) if image_bytes else 0
+        )
         return image_bytes
+    except multiprocessing.TimeoutError:
+        logging.exception("Timeout in plot generation for %s (30 seconds)", graph_name)
+        msg = f"Plot generation timed out for {graph_name}"
+        raise RuntimeError(msg) from None
     except Exception:
         logging.exception("Error in plot generation for %s", graph_name)
         # エラー時は直接エラー画像を生成
@@ -1221,26 +1237,62 @@ def graph(graph_name):
 
     logging.info("request: %s graph (start: %s, end: %s)", graph_name, time_start, time_end)
 
-    # ETag生成用のキーを作成（グラフ名+時間範囲+1分単位の時刻）
-    current_minute = my_lib.time.now().replace(second=0, microsecond=0)
-    etag_key = f"{graph_name}:{time_start.isoformat()}:{time_end.isoformat()}:{current_minute.isoformat()}"
-    etag = hashlib.md5(etag_key.encode()).hexdigest()  # noqa: S324
-
-    # クライアントのETagをチェック
-    if flask.request.headers.get("If-None-Match") == f'"{etag}"':
-        return flask.Response(status=304)  # Not Modified
-
     config = flask.current_app.config["CONFIG"]
 
-    image_bytes = plot(config, graph_name, time_start, time_end)
+    # グラフ生成を試行
+    try:
+        logging.info("Starting plot generation for %s", graph_name)
+        image_bytes = plot(config, graph_name, time_start, time_end)
+        logging.info(
+            "Plot generation completed for %s, image size: %d bytes",
+            graph_name,
+            len(image_bytes) if image_bytes else 0,
+        )
 
-    res = flask.Response(image_bytes, mimetype="image/png")
+        res = flask.Response(image_bytes, mimetype="image/png")
+        logging.info("Flask response created for %s", graph_name)
 
-    # キャッシュヘッダーを設定（1時間キャッシュ）
-    res.headers["Cache-Control"] = "public, max-age=3600"
-    res.headers["ETag"] = f'"{etag}"'
-    res.headers["Last-Modified"] = current_minute.strftime("%a, %d %b %Y %H:%M:%S GMT")
+        # 成功時は10分間キャッシュ
+        res.headers["Cache-Control"] = "public, max-age=600"
+        logging.info("Cache headers set for %s", graph_name)
 
+    except Exception as e:
+        logging.exception("Error generating graph %s", graph_name)
+
+        # エラー発生時はエラー画像を生成
+        import io
+
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(figsize=(12, 8))
+        ax.text(
+            0.5,
+            0.5,
+            f"Graph generation failed\n{graph_name}\nError: {str(e)[:100]}...",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            fontsize=14,
+            bbox={"boxstyle": "round,pad=0.3", "facecolor": "lightcoral", "alpha": 0.7},
+        )
+        ax.axis("off")
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor="white")
+        buf.seek(0)
+        error_image_bytes = buf.read()
+        buf.close()
+        plt.close(fig)
+
+        res = flask.Response(error_image_bytes, mimetype="image/png")
+
+        # エラー時はキャッシュしない
+        res.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        res.headers["Pragma"] = "no-cache"
+        res.headers["Expires"] = "0"
+        logging.info("Error response prepared for %s", graph_name)
+
+    logging.info("Returning response for %s", graph_name)
     return res
 
 
