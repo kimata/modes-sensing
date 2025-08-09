@@ -11,6 +11,7 @@
     font-size: 1.5rem;
     font-weight: 600;
     text-align: left;
+    flex-wrap: wrap; /* 必要に応じて改行を許可 */
 }
 
 .sectionHeader :global(.icon) {
@@ -22,6 +23,7 @@
     align-self: center;
     margin-bottom: 0;
     line-height: 1;
+    /* white-space: nowrapを削除し、flex-wrapで制御 */
 }
 
 /* パーマリンクアイコン */
@@ -66,5 +68,14 @@
 @media (max-width: 768px) {
     .sectionHeader h2 {
         font-size: 1.25rem;
+        /* モバイルでは改行を許可 */
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .sectionHeader h2 :global(.subtitle) {
+        /* モバイルでは日付範囲を改行可能にする */
+        min-width: 0;
+        flex-shrink: 1;
     }
 }

@@ -88,8 +88,58 @@ function App() {
           </h1>
 
           {dataRangeSubtitle && (
-            <p className="subtitle is-6 has-text-centered" style={{ marginTop: '0.5rem', marginBottom: '2rem' }}>
-              {dataRangeSubtitle}
+            <p className="subtitle is-6 has-text-centered" style={{
+              marginTop: '0.5rem',
+              marginBottom: '2rem',
+              display: 'flex',
+              flexWrap: 'wrap',
+              justifyContent: 'center',
+              gap: '0.25rem',
+              alignItems: 'baseline'
+            }}>
+              {/* 複数の改行ポイントで文字列を分割 */}
+              {(() => {
+                // 「の」と「が」で分割して改行可能なセグメントを作成
+                const text = dataRangeSubtitle
+                const segments = []
+
+                // まず「が」で分割
+                const mainParts = text.split('が')
+                const beforeGa = mainParts[0] // 「〜が」より前
+                const afterGa = mainParts[1] // 「が」より後
+
+                // 「が」より前の部分を「の」でさらに分割
+                const beforeGaParts = beforeGa.split('の')
+
+                // 最初の部分: 「過去4日間（2025年08月05日〜）」
+                if (beforeGaParts.length > 0) {
+                  segments.push(
+                    <span key="part1" style={{ whiteSpace: 'nowrap' }}>
+                      {beforeGaParts[0]}の
+                    </span>
+                  )
+                }
+
+                // 真ん中の部分: 「データ85,090件」
+                if (beforeGaParts.length > 1) {
+                  segments.push(
+                    <span key="part2" style={{ whiteSpace: 'nowrap' }}>
+                      {beforeGaParts[1]}が
+                    </span>
+                  )
+                }
+
+                // 最後の部分: 「記録されています」
+                if (afterGa) {
+                  segments.push(
+                    <span key="part3" style={{ whiteSpace: 'nowrap' }}>
+                      {afterGa}
+                    </span>
+                  )
+                }
+
+                return segments
+              })()}
             </p>
           )}
 
