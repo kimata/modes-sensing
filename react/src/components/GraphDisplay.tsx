@@ -609,9 +609,18 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
             <span className="icon" style={{ marginRight: '0.5em' }}>
               <i className="fas fa-chart-line"></i>
             </span>
-            グラフ
-            <span className="subtitle is-6 ml-2">
-              ({formatDateForDisplay(dateRange.start)} ～ {formatDateForDisplay(dateRange.end)})
+            <span style={{ whiteSpace: 'nowrap' }}>グラフ</span>
+            <span className="subtitle is-6 ml-2" style={{
+              display: 'flex',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '0.25rem'
+            }}>
+              <span>(</span>
+              <span style={{ whiteSpace: 'nowrap' }}>{formatDateForDisplay(dateRange.start)}</span>
+              <span style={{ whiteSpace: 'nowrap' }}>～</span>
+              <span style={{ whiteSpace: 'nowrap' }}>{formatDateForDisplay(dateRange.end)}</span>
+              <span>)</span>
             </span>
             <i
               className={`fas fa-link ${styles.permalinkIcon}`}

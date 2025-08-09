@@ -337,7 +337,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
     <>
       <div className="box" id="date-selector">
         <div className={styles.sectionHeader}>
-          <h2 className="title is-4">
+          <h2 className="title is-4" style={{ whiteSpace: 'nowrap' }}>  {/* 見出しの改行防止 */}
             <span className="icon" style={{ marginRight: '0.5em' }}>
               <i className="fas fa-calendar-alt"></i>
             </span>
@@ -357,6 +357,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
             <button
               className={`button is-small ${selectedPeriod === '1day' ? 'is-primary' : 'is-light'}`}
               onClick={() => handleQuickSelect(1, '1day')}
+              style={{ whiteSpace: 'nowrap' }}  /* ボタンテキストの改行防止 */
             >
               過去24時間
             </button>
@@ -365,6 +366,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
             <button
               className={`button is-small ${selectedPeriod === '7days' ? 'is-primary' : 'is-light'}`}
               onClick={() => handleQuickSelect(7, '7days')}
+              style={{ whiteSpace: 'nowrap' }}  /* ボタンテキストの改行防止 */
             >
               過去7日間
             </button>
@@ -373,6 +375,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
             <button
               className={`button is-small ${selectedPeriod === '30days' ? 'is-primary' : 'is-light'}`}
               onClick={() => handleQuickSelect(30, '30days')}
+              style={{ whiteSpace: 'nowrap' }}  /* ボタンテキストの改行防止 */
             >
               過去1ヶ月間
             </button>
@@ -381,6 +384,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
             <button
               className={`button is-small ${selectedPeriod === '180days' ? 'is-primary' : 'is-light'}`}
               onClick={() => handleQuickSelect(180, '180days')}
+              style={{ whiteSpace: 'nowrap' }}  /* ボタンテキストの改行防止 */
             >
               過去半年
             </button>
@@ -389,6 +393,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
             <button
               className={`button is-small ${selectedPeriod === '365days' ? 'is-primary' : 'is-light'}`}
               onClick={() => handleQuickSelect(365, '365days')}
+              style={{ whiteSpace: 'nowrap' }}  /* ボタンテキストの改行防止 */
             >
               過去1年
             </button>
@@ -397,6 +402,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
             <button
               className={`button is-small ${selectedPeriod === 'custom' ? 'is-primary' : 'is-light'}`}
               onClick={handleCustomButtonClick}
+              style={{ whiteSpace: 'nowrap' }}  /* ボタンテキストの改行防止 */
             >
               カスタム
             </button>
