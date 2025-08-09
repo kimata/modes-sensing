@@ -190,8 +190,8 @@ def detect_outlier_by_altitude_neighbors(  # noqa: PLR0913
     altitudes,
     temperatures,
     callsign=None,
-    n_neighbors=400,
-    deviation_threshold=12,
+    n_neighbors=200,
+    deviation_threshold=15,
     sigma_threshold=4,
 ):
     """
