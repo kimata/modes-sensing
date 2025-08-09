@@ -1,0 +1,909 @@
+modes-sensing 2025-08-09 21:21:23 INFO [config.py:47 load] Load config: /home/kimata/gitlab/sense-config/sense-modes.yaml (schema: /home/kimata/github/modes-sensing/config.schema)
+modes-sensing 2025-08-09 21:21:23 INFO [config.py:37 init] STATIC_DIR_PATH = /home/kimata/github/modes-sensing/react/dist
+modes-sensing 2025-08-09 21:21:23 INFO [config.py:38 init] SCHEDULE_FILE_PATH = None
+modes-sensing 2025-08-09 21:21:23 INFO [config.py:39 init] LOG_DIR_PATH = None
+modes-sensing 2025-08-09 21:21:23 INFO [config.py:40 init] STAT_DIR_PATH = None
+ * Serving Flask app 'modes-sensing'
+ * Debug mode: off
+modes-sensing 2025-08-09 21:21:24 INFO [config.py:47 load] Load config: /home/kimata/gitlab/sense-config/sense-modes.yaml (schema: /home/kimata/github/modes-sensing/config.schema)
+modes-sensing 2025-08-09 21:21:24 INFO [config.py:37 init] STATIC_DIR_PATH = /home/kimata/github/modes-sensing/react/dist
+modes-sensing 2025-08-09 21:21:24 INFO [config.py:38 init] SCHEDULE_FILE_PATH = None
+modes-sensing 2025-08-09 21:21:24 INFO [config.py:39 init] LOG_DIR_PATH = None
+modes-sensing 2025-08-09 21:21:24 INFO [config.py:40 init] STAT_DIR_PATH = None
+modes-sensing 2025-08-09 21:21:25 INFO [config.py:49 show_handler_list] path: /static/<path:filename> {'HEAD', 'GET', 'OPTIONS'} → static
+modes-sensing 2025-08-09 21:21:25 INFO [config.py:49 show_handler_list] path: /modes-sensing/ {'HEAD', 'GET', 'OPTIONS'} → webapp-base.webapp
+modes-sensing 2025-08-09 21:21:25 INFO [config.py:49 show_handler_list] path: /modes-sensing/<path:filename> {'HEAD', 'GET', 'OPTIONS'} → webapp-base.webapp
+modes-sensing 2025-08-09 21:21:25 INFO [config.py:49 show_handler_list] path: / {'HEAD', 'GET', 'OPTIONS'} → webapp-default.root
+modes-sensing 2025-08-09 21:21:25 INFO [config.py:49 show_handler_list] path: /modes-sensing/api/memory {'HEAD', 'GET', 'OPTIONS'} → webapp-util.print_memory
+modes-sensing 2025-08-09 21:21:25 INFO [config.py:49 show_handler_list] path: /modes-sensing/api/snapshot {'HEAD', 'GET', 'OPTIONS'} → webapp-util.snap
+modes-sensing 2025-08-09 21:21:25 INFO [config.py:49 show_handler_list] path: /modes-sensing/api/sysinfo {'HEAD', 'GET', 'OPTIONS'} → webapp-util.api_sysinfo
+modes-sensing 2025-08-09 21:21:25 INFO [config.py:49 show_handler_list] path: /modes-sensing/api/data-range {'HEAD', 'GET', 'OPTIONS'} → modes-sensing-graph.data_range
+modes-sensing 2025-08-09 21:21:25 INFO [config.py:49 show_handler_list] path: /modes-sensing/api/graph/<path:graph_name> {'HEAD', 'GET', 'OPTIONS'} → modes-sensing-graph.graph
+modes-sensing 2025-08-09 21:21:31 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1236 graph] request: scatter_2d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:21:00+09:00)
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1242 graph] Starting plot generation for scatter_2d
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1130 plot] plot() called for scatter_2d
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1236 graph] request: contour_2d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:21:00+09:00)
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1242 graph] Starting plot generation for contour_2d
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1130 plot] plot() called for contour_2d
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1236 graph] request: density graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:21:00+09:00)
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1242 graph] Starting plot generation for density
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1130 plot] plot() called for density
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1236 graph] request: heatmap graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:21:00+09:00)
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1242 graph] Starting plot generation for heatmap
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1130 plot] plot() called for heatmap
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:93 get_pool] Created global process pool with 8 workers
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1136 plot] Got process pool for scatter_2d, calling apply()
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1140 plot] Process pool apply_async() called for scatter_2d
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1136 plot] Got process pool for contour_2d, calling apply()
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1140 plot] Process pool apply_async() called for contour_2d
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1136 plot] Got process pool for density, calling apply()
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1140 plot] Process pool apply_async() called for density
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1136 plot] Got process pool for heatmap, calling apply()
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1140 plot] Process pool apply_async() called for heatmap
+modes-sensing 2025-08-09 21:21:31 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.05 sec (data range query)
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1236 graph] request: temperature graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:21:00+09:00)
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1242 graph] Starting plot generation for temperature
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1130 plot] plot() called for temperature
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1136 plot] Got process pool for temperature, calling apply()
+modes-sensing 2025-08-09 21:21:31 INFO [graph.py:1140 plot] Process pool apply_async() called for temperature
+modes-sensing 2025-08-09 21:21:32 INFO [graph.py:1236 graph] request: wind_direction graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:21:00+09:00)
+modes-sensing 2025-08-09 21:21:32 INFO [graph.py:1242 graph] Starting plot generation for wind_direction
+modes-sensing 2025-08-09 21:21:32 INFO [graph.py:1130 plot] plot() called for wind_direction
+modes-sensing 2025-08-09 21:21:32 INFO [graph.py:1136 plot] Got process pool for wind_direction, calling apply()
+modes-sensing 2025-08-09 21:21:32 INFO [graph.py:1140 plot] Process pool apply_async() called for wind_direction
+modes-sensing 2025-08-09 21:21:32 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.93 sec (selected 4 columns, 92,960 rows)
+modes-sensing 2025-08-09 21:21:32 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.04 sec (selected 4 columns, 92,947 rows)
+modes-sensing 2025-08-09 21:21:32 INFO [graph.py:530 plot_contour_2d] Staring plot contour
+modes-sensing 2025-08-09 21:21:32 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.57 sec (selected 4 columns, 92,947 rows)
+modes-sensing 2025-08-09 21:21:33 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.85 sec (selected 4 columns, 92,947 rows)
+modes-sensing 2025-08-09 21:21:33 INFO [graph.py:930 plot_temperature] Starting plot temperature timeseries
+modes-sensing 2025-08-09 21:21:33 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.87 sec (selected 4 columns, 92,960 rows)
+modes-sensing 2025-08-09 21:21:33 INFO [graph.py:496 plot_density] Staring plot density
+modes-sensing 2025-08-09 21:21:33 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.67 sec (selected 8 columns, 92,947 rows)
+modes-sensing 2025-08-09 21:21:33 INFO [graph.py:652 plot_scatter_2d] Staring plot 2d scatter
+modes-sensing 2025-08-09 21:21:33 INFO [graph.py:593 plot_heatmap] Staring plot heatmap
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1144 plot] Process pool apply_async() returned for temperature
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1148 plot] elapsed time: temperature = 0.684 sec
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1152 plot] plot() returning for temperature, size: 270629 bytes
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1244 graph] Plot generation completed for temperature, image size: 270629 bytes
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1247 graph] Flask response created for temperature
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1251 graph] Cache headers set for temperature
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1280 graph] Returning response for temperature
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1236 graph] request: scatter_3d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:21:00+09:00)
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1242 graph] Starting plot generation for scatter_3d
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1130 plot] plot() called for scatter_3d
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1136 plot] Got process pool for scatter_3d, calling apply()
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1140 plot] Process pool apply_async() called for scatter_3d
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:858 plot_wind_direction] Starting plot wind direction
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:864 plot_wind_direction] Available columns in dataframe: ['time', 'altitude', 'temperature', 'distance', 'wind_x', 'wind_y', 'wind_speed', 'wind_angle']
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:865 plot_wind_direction] Dataframe shape: (92613, 8)
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1144 plot] Process pool apply_async() returned for contour_2d
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1148 plot] elapsed time: contour_2d = 1.792 sec
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1152 plot] plot() returning for contour_2d, size: 331145 bytes
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1244 graph] Plot generation completed for contour_2d, image size: 331145 bytes
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1247 graph] Flask response created for contour_2d
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1251 graph] Cache headers set for contour_2d
+modes-sensing 2025-08-09 21:21:34 INFO [graph.py:1280 graph] Returning response for contour_2d
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1236 graph] request: contour_3d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:21:00+09:00)
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1242 graph] Starting plot generation for contour_3d
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1130 plot] plot() called for contour_3d
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1136 plot] Got process pool for contour_3d, calling apply()
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1140 plot] Process pool apply_async() called for contour_3d
+modes-sensing 2025-08-09 21:21:35 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.96 sec (selected 4 columns, 92,947 rows)
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:466 plot_scatter_3d] Staring plot scatter 3d
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1144 plot] Process pool apply_async() returned for heatmap
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1148 plot] elapsed time: heatmap = 1.470 sec
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1152 plot] plot() returning for heatmap, size: 89421 bytes
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1244 graph] Plot generation completed for heatmap, image size: 89421 bytes
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1247 graph] Flask response created for heatmap
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1251 graph] Cache headers set for heatmap
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1280 graph] Returning response for heatmap
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1144 plot] Process pool apply_async() returned for wind_direction
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1148 plot] elapsed time: wind_direction = 0.751 sec
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1152 plot] plot() returning for wind_direction, size: 626953 bytes
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1244 graph] Plot generation completed for wind_direction, image size: 626953 bytes
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1247 graph] Flask response created for wind_direction
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1251 graph] Cache headers set for wind_direction
+modes-sensing 2025-08-09 21:21:35 INFO [graph.py:1280 graph] Returning response for wind_direction
+modes-sensing 2025-08-09 21:21:36 INFO [graph.py:1144 plot] Process pool apply_async() returned for density
+modes-sensing 2025-08-09 21:21:36 INFO [graph.py:1148 plot] elapsed time: density = 2.285 sec
+modes-sensing 2025-08-09 21:21:36 INFO [graph.py:1152 plot] plot() returning for density, size: 458898 bytes
+modes-sensing 2025-08-09 21:21:36 INFO [graph.py:1244 graph] Plot generation completed for density, image size: 458898 bytes
+modes-sensing 2025-08-09 21:21:36 INFO [graph.py:1247 graph] Flask response created for density
+modes-sensing 2025-08-09 21:21:36 INFO [graph.py:1251 graph] Cache headers set for density
+modes-sensing 2025-08-09 21:21:36 INFO [graph.py:1280 graph] Returning response for density
+modes-sensing 2025-08-09 21:21:36 INFO [graph.py:1144 plot] Process pool apply_async() returned for scatter_2d
+modes-sensing 2025-08-09 21:21:36 INFO [graph.py:1148 plot] elapsed time: scatter_2d = 2.446 sec
+modes-sensing 2025-08-09 21:21:36 INFO [graph.py:1152 plot] plot() returning for scatter_2d, size: 1525505 bytes
+modes-sensing 2025-08-09 21:21:36 INFO [graph.py:1244 graph] Plot generation completed for scatter_2d, image size: 1525505 bytes
+modes-sensing 2025-08-09 21:21:36 INFO [graph.py:1247 graph] Flask response created for scatter_2d
+modes-sensing 2025-08-09 21:21:36 INFO [graph.py:1251 graph] Cache headers set for scatter_2d
+modes-sensing 2025-08-09 21:21:36 INFO [graph.py:1280 graph] Returning response for scatter_2d
+modes-sensing 2025-08-09 21:21:37 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 2.44 sec (selected 4 columns, 92,947 rows)
+modes-sensing 2025-08-09 21:21:38 INFO [graph.py:689 plot_contour_3d] Starting plot contour 3d
+modes-sensing 2025-08-09 21:21:39 INFO [graph.py:1144 plot] Process pool apply_async() returned for scatter_3d
+modes-sensing 2025-08-09 21:21:39 INFO [graph.py:1148 plot] elapsed time: scatter_3d = 3.079 sec
+modes-sensing 2025-08-09 21:21:39 INFO [graph.py:1152 plot] plot() returning for scatter_3d, size: 1610330 bytes
+modes-sensing 2025-08-09 21:21:39 INFO [graph.py:1244 graph] Plot generation completed for scatter_3d, image size: 1610330 bytes
+modes-sensing 2025-08-09 21:21:39 INFO [graph.py:1247 graph] Flask response created for scatter_3d
+modes-sensing 2025-08-09 21:21:39 INFO [graph.py:1251 graph] Cache headers set for scatter_3d
+modes-sensing 2025-08-09 21:21:39 INFO [graph.py:1280 graph] Returning response for scatter_3d
+modes-sensing 2025-08-09 21:21:40 INFO [graph.py:1144 plot] Process pool apply_async() returned for contour_3d
+modes-sensing 2025-08-09 21:21:40 INFO [graph.py:1148 plot] elapsed time: contour_3d = 2.327 sec
+modes-sensing 2025-08-09 21:21:40 INFO [graph.py:1152 plot] plot() returning for contour_3d, size: 1412720 bytes
+modes-sensing 2025-08-09 21:21:40 INFO [graph.py:1244 graph] Plot generation completed for contour_3d, image size: 1412720 bytes
+modes-sensing 2025-08-09 21:21:40 INFO [graph.py:1247 graph] Flask response created for contour_3d
+modes-sensing 2025-08-09 21:21:40 INFO [graph.py:1251 graph] Cache headers set for contour_3d
+modes-sensing 2025-08-09 21:21:40 INFO [graph.py:1280 graph] Returning response for contour_3d
+modes-sensing 2025-08-09 21:21:40 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.05 sec (data range query)
+modes-sensing 2025-08-09 21:21:40 INFO [graph.py:1236 graph] request: contour_3d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:21:00+09:00)
+modes-sensing 2025-08-09 21:21:40 INFO [graph.py:1242 graph] Starting plot generation for contour_3d
+modes-sensing 2025-08-09 21:21:40 INFO [graph.py:1130 plot] plot() called for contour_3d
+modes-sensing 2025-08-09 21:21:40 INFO [graph.py:1136 plot] Got process pool for contour_3d, calling apply()
+modes-sensing 2025-08-09 21:21:40 INFO [graph.py:1140 plot] Process pool apply_async() called for contour_3d
+modes-sensing 2025-08-09 21:21:40 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:21:41 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.78 sec (selected 4 columns, 92,947 rows)
+modes-sensing 2025-08-09 21:21:42 INFO [graph.py:689 plot_contour_3d] Starting plot contour 3d
+modes-sensing 2025-08-09 21:21:44 INFO [graph.py:1144 plot] Process pool apply_async() returned for contour_3d
+modes-sensing 2025-08-09 21:21:44 INFO [graph.py:1148 plot] elapsed time: contour_3d = 2.128 sec
+modes-sensing 2025-08-09 21:21:44 INFO [graph.py:1152 plot] plot() returning for contour_3d, size: 1412720 bytes
+modes-sensing 2025-08-09 21:21:44 INFO [graph.py:1244 graph] Plot generation completed for contour_3d, image size: 1412720 bytes
+modes-sensing 2025-08-09 21:21:44 INFO [graph.py:1247 graph] Flask response created for contour_3d
+modes-sensing 2025-08-09 21:21:44 INFO [graph.py:1251 graph] Cache headers set for contour_3d
+modes-sensing 2025-08-09 21:21:44 INFO [graph.py:1280 graph] Returning response for contour_3d
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1236 graph] request: scatter_2d graph (start: 2025-08-08 21:21:00+09:00, end: 2025-08-09 21:21:00+09:00)
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1242 graph] Starting plot generation for scatter_2d
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1130 plot] plot() called for scatter_2d
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1136 plot] Got process pool for scatter_2d, calling apply()
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1140 plot] Process pool apply_async() called for scatter_2d
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1236 graph] request: contour_2d graph (start: 2025-08-08 21:21:00+09:00, end: 2025-08-09 21:21:00+09:00)
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1242 graph] Starting plot generation for contour_2d
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1130 plot] plot() called for contour_2d
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1136 plot] Got process pool for contour_2d, calling apply()
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1140 plot] Process pool apply_async() called for contour_2d
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1236 graph] request: density graph (start: 2025-08-08 21:21:00+09:00, end: 2025-08-09 21:21:00+09:00)
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1242 graph] Starting plot generation for density
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1130 plot] plot() called for density
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1136 plot] Got process pool for density, calling apply()
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1140 plot] Process pool apply_async() called for density
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1236 graph] request: heatmap graph (start: 2025-08-08 21:21:00+09:00, end: 2025-08-09 21:21:00+09:00)
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1242 graph] Starting plot generation for heatmap
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1130 plot] plot() called for heatmap
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1136 plot] Got process pool for heatmap, calling apply()
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1140 plot] Process pool apply_async() called for heatmap
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1236 graph] request: wind_direction graph (start: 2025-08-08 21:21:00+09:00, end: 2025-08-09 21:21:00+09:00)
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1242 graph] Starting plot generation for wind_direction
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1130 plot] plot() called for wind_direction
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1136 plot] Got process pool for wind_direction, calling apply()
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1140 plot] Process pool apply_async() called for wind_direction
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1236 graph] request: temperature graph (start: 2025-08-08 21:21:00+09:00, end: 2025-08-09 21:21:00+09:00)
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1242 graph] Starting plot generation for temperature
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1130 plot] plot() called for temperature
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1136 plot] Got process pool for temperature, calling apply()
+modes-sensing 2025-08-09 21:21:53 INFO [graph.py:1140 plot] Process pool apply_async() called for temperature
+modes-sensing 2025-08-09 21:21:54 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.39 sec (selected 4 columns, 25,340 rows)
+modes-sensing 2025-08-09 21:21:54 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.39 sec (selected 4 columns, 25,340 rows)
+modes-sensing 2025-08-09 21:21:54 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.47 sec (selected 4 columns, 29,207 rows)
+modes-sensing 2025-08-09 21:21:54 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.46 sec (selected 4 columns, 29,207 rows)
+modes-sensing 2025-08-09 21:21:54 INFO [graph.py:652 plot_scatter_2d] Staring plot 2d scatter
+modes-sensing 2025-08-09 21:21:54 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.26 sec (selected 4 columns, 25,340 rows)
+modes-sensing 2025-08-09 21:21:54 INFO [graph.py:496 plot_density] Staring plot density
+modes-sensing 2025-08-09 21:21:54 INFO [graph.py:530 plot_contour_2d] Staring plot contour
+modes-sensing 2025-08-09 21:21:54 INFO [graph.py:930 plot_temperature] Starting plot temperature timeseries
+modes-sensing 2025-08-09 21:21:54 INFO [graph.py:593 plot_heatmap] Staring plot heatmap
+modes-sensing 2025-08-09 21:21:54 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.39 sec (selected 8 columns, 25,340 rows)
+modes-sensing 2025-08-09 21:21:54 INFO [graph.py:858 plot_wind_direction] Starting plot wind direction
+modes-sensing 2025-08-09 21:21:54 INFO [graph.py:864 plot_wind_direction] Available columns in dataframe: ['time', 'altitude', 'temperature', 'distance', 'wind_x', 'wind_y', 'wind_speed', 'wind_angle']
+modes-sensing 2025-08-09 21:21:54 INFO [graph.py:865 plot_wind_direction] Dataframe shape: (25298, 8)
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1144 plot] Process pool apply_async() returned for temperature
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1148 plot] elapsed time: temperature = 0.499 sec
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1152 plot] plot() returning for temperature, size: 182544 bytes
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1244 graph] Plot generation completed for temperature, image size: 182544 bytes
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1247 graph] Flask response created for temperature
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1251 graph] Cache headers set for temperature
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1280 graph] Returning response for temperature
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1236 graph] request: scatter_3d graph (start: 2025-08-08 21:21:00+09:00, end: 2025-08-09 21:21:00+09:00)
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1242 graph] Starting plot generation for scatter_3d
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1130 plot] plot() called for scatter_3d
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1136 plot] Got process pool for scatter_3d, calling apply()
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1140 plot] Process pool apply_async() called for scatter_3d
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1144 plot] Process pool apply_async() returned for contour_2d
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1148 plot] elapsed time: contour_2d = 0.843 sec
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1152 plot] plot() returning for contour_2d, size: 308560 bytes
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1244 graph] Plot generation completed for contour_2d, image size: 308560 bytes
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1247 graph] Flask response created for contour_2d
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1251 graph] Cache headers set for contour_2d
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1280 graph] Returning response for contour_2d
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1144 plot] Process pool apply_async() returned for density
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1148 plot] elapsed time: density = 0.943 sec
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1152 plot] plot() returning for density, size: 415563 bytes
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1244 graph] Plot generation completed for density, image size: 415563 bytes
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1247 graph] Flask response created for density
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1251 graph] Cache headers set for density
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1280 graph] Returning response for density
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1236 graph] request: contour_3d graph (start: 2025-08-08 21:21:00+09:00, end: 2025-08-09 21:21:00+09:00)
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1242 graph] Starting plot generation for contour_3d
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1130 plot] plot() called for contour_3d
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1136 plot] Got process pool for contour_3d, calling apply()
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1140 plot] Process pool apply_async() called for contour_3d
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1144 plot] Process pool apply_async() returned for heatmap
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1148 plot] elapsed time: heatmap = 0.918 sec
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1152 plot] plot() returning for heatmap, size: 89211 bytes
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1244 graph] Plot generation completed for heatmap, image size: 89211 bytes
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1247 graph] Flask response created for heatmap
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1251 graph] Cache headers set for heatmap
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1280 graph] Returning response for heatmap
+modes-sensing 2025-08-09 21:21:55 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.24 sec (selected 4 columns, 25,340 rows)
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1144 plot] Process pool apply_async() returned for scatter_2d
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1148 plot] elapsed time: scatter_2d = 1.020 sec
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1152 plot] plot() returning for scatter_2d, size: 960234 bytes
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1244 graph] Plot generation completed for scatter_2d, image size: 960234 bytes
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1247 graph] Flask response created for scatter_2d
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1251 graph] Cache headers set for scatter_2d
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1280 graph] Returning response for scatter_2d
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1144 plot] Process pool apply_async() returned for wind_direction
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1148 plot] elapsed time: wind_direction = 0.664 sec
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1152 plot] plot() returning for wind_direction, size: 1015542 bytes
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1244 graph] Plot generation completed for wind_direction, image size: 1015542 bytes
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1247 graph] Flask response created for wind_direction
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1251 graph] Cache headers set for wind_direction
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:1280 graph] Returning response for wind_direction
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:466 plot_scatter_3d] Staring plot scatter 3d
+modes-sensing 2025-08-09 21:21:55 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.28 sec (selected 4 columns, 25,340 rows)
+modes-sensing 2025-08-09 21:21:55 INFO [graph.py:689 plot_contour_3d] Starting plot contour 3d
+modes-sensing 2025-08-09 21:21:57 INFO [graph.py:1144 plot] Process pool apply_async() returned for scatter_3d
+modes-sensing 2025-08-09 21:21:57 INFO [graph.py:1148 plot] elapsed time: scatter_3d = 1.762 sec
+modes-sensing 2025-08-09 21:21:57 INFO [graph.py:1152 plot] plot() returning for scatter_3d, size: 1533892 bytes
+modes-sensing 2025-08-09 21:21:57 INFO [graph.py:1244 graph] Plot generation completed for scatter_3d, image size: 1533892 bytes
+modes-sensing 2025-08-09 21:21:57 INFO [graph.py:1247 graph] Flask response created for scatter_3d
+modes-sensing 2025-08-09 21:21:57 INFO [graph.py:1251 graph] Cache headers set for scatter_3d
+modes-sensing 2025-08-09 21:21:57 INFO [graph.py:1280 graph] Returning response for scatter_3d
+modes-sensing 2025-08-09 21:21:58 INFO [graph.py:1144 plot] Process pool apply_async() returned for contour_3d
+modes-sensing 2025-08-09 21:21:58 INFO [graph.py:1148 plot] elapsed time: contour_3d = 2.003 sec
+modes-sensing 2025-08-09 21:21:58 INFO [graph.py:1152 plot] plot() returning for contour_3d, size: 1466736 bytes
+modes-sensing 2025-08-09 21:21:58 INFO [graph.py:1244 graph] Plot generation completed for contour_3d, image size: 1466736 bytes
+modes-sensing 2025-08-09 21:21:58 INFO [graph.py:1247 graph] Flask response created for contour_3d
+modes-sensing 2025-08-09 21:21:58 INFO [graph.py:1251 graph] Cache headers set for contour_3d
+modes-sensing 2025-08-09 21:21:58 INFO [graph.py:1280 graph] Returning response for contour_3d
+modes-sensing 2025-08-09 21:22:04 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1236 graph] request: scatter_2d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:22:00+09:00)
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1242 graph] Starting plot generation for scatter_2d
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1130 plot] plot() called for scatter_2d
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1136 plot] Got process pool for scatter_2d, calling apply()
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1140 plot] Process pool apply_async() called for scatter_2d
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1236 graph] request: density graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:22:00+09:00)
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1242 graph] Starting plot generation for density
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1130 plot] plot() called for density
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1136 plot] Got process pool for density, calling apply()
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1140 plot] Process pool apply_async() called for density
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1236 graph] request: contour_2d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:22:00+09:00)
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1242 graph] Starting plot generation for contour_2d
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1130 plot] plot() called for contour_2d
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1136 plot] Got process pool for contour_2d, calling apply()
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1236 graph] request: heatmap graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:22:00+09:00)
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1140 plot] Process pool apply_async() called for contour_2d
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1242 graph] Starting plot generation for heatmap
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1130 plot] plot() called for heatmap
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1136 plot] Got process pool for heatmap, calling apply()
+modes-sensing 2025-08-09 21:22:04 INFO [graph.py:1140 plot] Process pool apply_async() called for heatmap
+modes-sensing 2025-08-09 21:22:05 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.08 sec (data range query)
+modes-sensing 2025-08-09 21:22:05 INFO [graph.py:1236 graph] request: temperature graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:22:00+09:00)
+modes-sensing 2025-08-09 21:22:05 INFO [graph.py:1242 graph] Starting plot generation for temperature
+modes-sensing 2025-08-09 21:22:05 INFO [graph.py:1130 plot] plot() called for temperature
+modes-sensing 2025-08-09 21:22:05 INFO [graph.py:1136 plot] Got process pool for temperature, calling apply()
+modes-sensing 2025-08-09 21:22:05 INFO [graph.py:1140 plot] Process pool apply_async() called for temperature
+modes-sensing 2025-08-09 21:22:05 INFO [graph.py:1236 graph] request: wind_direction graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:22:00+09:00)
+modes-sensing 2025-08-09 21:22:05 INFO [graph.py:1242 graph] Starting plot generation for wind_direction
+modes-sensing 2025-08-09 21:22:05 INFO [graph.py:1130 plot] plot() called for wind_direction
+modes-sensing 2025-08-09 21:22:05 INFO [graph.py:1136 plot] Got process pool for wind_direction, calling apply()
+modes-sensing 2025-08-09 21:22:05 INFO [graph.py:1140 plot] Process pool apply_async() called for wind_direction
+modes-sensing 2025-08-09 21:22:06 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.32 sec (selected 4 columns, 92,965 rows)
+modes-sensing 2025-08-09 21:22:06 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.34 sec (selected 4 columns, 92,965 rows)
+modes-sensing 2025-08-09 21:22:06 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.45 sec (selected 4 columns, 92,967 rows)
+modes-sensing 2025-08-09 21:22:06 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.59 sec (selected 4 columns, 92,967 rows)
+modes-sensing 2025-08-09 21:22:06 INFO [graph.py:652 plot_scatter_2d] Staring plot 2d scatter
+modes-sensing 2025-08-09 21:22:06 INFO [graph.py:496 plot_density] Staring plot density
+modes-sensing 2025-08-09 21:22:06 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.41 sec (selected 4 columns, 92,965 rows)
+modes-sensing 2025-08-09 21:22:06 INFO [graph.py:530 plot_contour_2d] Staring plot contour
+modes-sensing 2025-08-09 21:22:07 INFO [graph.py:593 plot_heatmap] Staring plot heatmap
+modes-sensing 2025-08-09 21:22:07 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.27 sec (selected 8 columns, 92,965 rows)
+modes-sensing 2025-08-09 21:22:07 INFO [graph.py:930 plot_temperature] Starting plot temperature timeseries
+modes-sensing 2025-08-09 21:22:07 INFO [graph.py:858 plot_wind_direction] Starting plot wind direction
+modes-sensing 2025-08-09 21:22:07 INFO [graph.py:864 plot_wind_direction] Available columns in dataframe: ['time', 'altitude', 'temperature', 'distance', 'wind_x', 'wind_y', 'wind_speed', 'wind_angle']
+modes-sensing 2025-08-09 21:22:07 INFO [graph.py:865 plot_wind_direction] Dataframe shape: (92631, 8)
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1144 plot] Process pool apply_async() returned for temperature
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1148 plot] elapsed time: temperature = 0.531 sec
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1152 plot] plot() returning for temperature, size: 271576 bytes
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1244 graph] Plot generation completed for temperature, image size: 271576 bytes
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1247 graph] Flask response created for temperature
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1251 graph] Cache headers set for temperature
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1280 graph] Returning response for temperature
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1144 plot] Process pool apply_async() returned for contour_2d
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1148 plot] elapsed time: contour_2d = 1.111 sec
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1152 plot] plot() returning for contour_2d, size: 330993 bytes
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1244 graph] Plot generation completed for contour_2d, image size: 330993 bytes
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1247 graph] Flask response created for contour_2d
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1251 graph] Cache headers set for contour_2d
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1280 graph] Returning response for contour_2d
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1236 graph] request: scatter_3d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:22:00+09:00)
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1242 graph] Starting plot generation for scatter_3d
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1130 plot] plot() called for scatter_3d
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1136 plot] Got process pool for scatter_3d, calling apply()
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1140 plot] Process pool apply_async() called for scatter_3d
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1236 graph] request: contour_3d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:22:00+09:00)
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1242 graph] Starting plot generation for contour_3d
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1130 plot] plot() called for contour_3d
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1136 plot] Got process pool for contour_3d, calling apply()
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1140 plot] Process pool apply_async() called for contour_3d
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1144 plot] Process pool apply_async() returned for heatmap
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1148 plot] elapsed time: heatmap = 1.200 sec
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1152 plot] plot() returning for heatmap, size: 89424 bytes
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1244 graph] Plot generation completed for heatmap, image size: 89424 bytes
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1247 graph] Flask response created for heatmap
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1251 graph] Cache headers set for heatmap
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1280 graph] Returning response for heatmap
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1144 plot] Process pool apply_async() returned for wind_direction
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1148 plot] elapsed time: wind_direction = 0.583 sec
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1152 plot] plot() returning for wind_direction, size: 627458 bytes
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1244 graph] Plot generation completed for wind_direction, image size: 627458 bytes
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1247 graph] Flask response created for wind_direction
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1251 graph] Cache headers set for wind_direction
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1280 graph] Returning response for wind_direction
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1144 plot] Process pool apply_async() returned for density
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1148 plot] elapsed time: density = 1.779 sec
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1152 plot] plot() returning for density, size: 459009 bytes
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1244 graph] Plot generation completed for density, image size: 459009 bytes
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1247 graph] Flask response created for density
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1251 graph] Cache headers set for density
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1280 graph] Returning response for density
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1144 plot] Process pool apply_async() returned for scatter_2d
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1148 plot] elapsed time: scatter_2d = 1.837 sec
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1152 plot] plot() returning for scatter_2d, size: 1525580 bytes
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1244 graph] Plot generation completed for scatter_2d, image size: 1525580 bytes
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1247 graph] Flask response created for scatter_2d
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1251 graph] Cache headers set for scatter_2d
+modes-sensing 2025-08-09 21:22:08 INFO [graph.py:1280 graph] Returning response for scatter_2d
+modes-sensing 2025-08-09 21:22:09 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.85 sec (selected 4 columns, 92,965 rows)
+modes-sensing 2025-08-09 21:22:09 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.90 sec (selected 4 columns, 92,965 rows)
+modes-sensing 2025-08-09 21:22:09 INFO [graph.py:466 plot_scatter_3d] Staring plot scatter 3d
+modes-sensing 2025-08-09 21:22:09 INFO [graph.py:689 plot_contour_3d] Starting plot contour 3d
+modes-sensing 2025-08-09 21:22:10 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:22:10 INFO [graph.py:1236 graph] request: contour_3d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:22:00+09:00)
+modes-sensing 2025-08-09 21:22:10 INFO [graph.py:1242 graph] Starting plot generation for contour_3d
+modes-sensing 2025-08-09 21:22:10 INFO [graph.py:1130 plot] plot() called for contour_3d
+modes-sensing 2025-08-09 21:22:10 INFO [graph.py:1136 plot] Got process pool for contour_3d, calling apply()
+modes-sensing 2025-08-09 21:22:10 INFO [graph.py:1140 plot] Process pool apply_async() called for contour_3d
+modes-sensing 2025-08-09 21:22:10 INFO [graph.py:1236 graph] request: scatter_3d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:22:00+09:00)
+modes-sensing 2025-08-09 21:22:10 INFO [graph.py:1242 graph] Starting plot generation for scatter_3d
+modes-sensing 2025-08-09 21:22:10 INFO [graph.py:1130 plot] plot() called for scatter_3d
+modes-sensing 2025-08-09 21:22:10 INFO [graph.py:1136 plot] Got process pool for scatter_3d, calling apply()
+modes-sensing 2025-08-09 21:22:10 INFO [graph.py:1140 plot] Process pool apply_async() called for scatter_3d
+modes-sensing 2025-08-09 21:22:10 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.05 sec (data range query)
+modes-sensing 2025-08-09 21:22:11 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.92 sec (selected 4 columns, 92,965 rows)
+modes-sensing 2025-08-09 21:22:11 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.97 sec (selected 4 columns, 92,965 rows)
+modes-sensing 2025-08-09 21:22:12 INFO [graph.py:466 plot_scatter_3d] Staring plot scatter 3d
+modes-sensing 2025-08-09 21:22:12 INFO [graph.py:689 plot_contour_3d] Starting plot contour 3d
+modes-sensing 2025-08-09 21:22:12 INFO [graph.py:1144 plot] Process pool apply_async() returned for contour_3d
+modes-sensing 2025-08-09 21:22:12 INFO [graph.py:1148 plot] elapsed time: contour_3d = 2.126 sec
+modes-sensing 2025-08-09 21:22:12 INFO [graph.py:1152 plot] plot() returning for contour_3d, size: 1413764 bytes
+modes-sensing 2025-08-09 21:22:12 INFO [graph.py:1244 graph] Plot generation completed for contour_3d, image size: 1413764 bytes
+modes-sensing 2025-08-09 21:22:12 INFO [graph.py:1247 graph] Flask response created for contour_3d
+modes-sensing 2025-08-09 21:22:12 INFO [graph.py:1251 graph] Cache headers set for contour_3d
+modes-sensing 2025-08-09 21:22:12 INFO [graph.py:1280 graph] Returning response for contour_3d
+modes-sensing 2025-08-09 21:22:13 INFO [graph.py:1144 plot] Process pool apply_async() returned for scatter_3d
+modes-sensing 2025-08-09 21:22:13 INFO [graph.py:1148 plot] elapsed time: scatter_3d = 3.487 sec
+modes-sensing 2025-08-09 21:22:13 INFO [graph.py:1152 plot] plot() returning for scatter_3d, size: 1610384 bytes
+modes-sensing 2025-08-09 21:22:13 INFO [graph.py:1244 graph] Plot generation completed for scatter_3d, image size: 1610384 bytes
+modes-sensing 2025-08-09 21:22:13 INFO [graph.py:1247 graph] Flask response created for scatter_3d
+modes-sensing 2025-08-09 21:22:13 INFO [graph.py:1251 graph] Cache headers set for scatter_3d
+modes-sensing 2025-08-09 21:22:13 INFO [graph.py:1280 graph] Returning response for scatter_3d
+modes-sensing 2025-08-09 21:22:15 INFO [graph.py:1144 plot] Process pool apply_async() returned for contour_3d
+modes-sensing 2025-08-09 21:22:15 INFO [graph.py:1148 plot] elapsed time: contour_3d = 2.392 sec
+modes-sensing 2025-08-09 21:22:15 INFO [graph.py:1152 plot] plot() returning for contour_3d, size: 1413764 bytes
+modes-sensing 2025-08-09 21:22:15 INFO [graph.py:1244 graph] Plot generation completed for contour_3d, image size: 1413764 bytes
+modes-sensing 2025-08-09 21:22:15 INFO [graph.py:1247 graph] Flask response created for contour_3d
+modes-sensing 2025-08-09 21:22:15 INFO [graph.py:1251 graph] Cache headers set for contour_3d
+modes-sensing 2025-08-09 21:22:15 INFO [graph.py:1280 graph] Returning response for contour_3d
+modes-sensing 2025-08-09 21:22:16 INFO [graph.py:1144 plot] Process pool apply_async() returned for scatter_3d
+modes-sensing 2025-08-09 21:22:16 INFO [graph.py:1148 plot] elapsed time: scatter_3d = 3.402 sec
+modes-sensing 2025-08-09 21:22:16 INFO [graph.py:1152 plot] plot() returning for scatter_3d, size: 1610384 bytes
+modes-sensing 2025-08-09 21:22:16 INFO [graph.py:1244 graph] Plot generation completed for scatter_3d, image size: 1610384 bytes
+modes-sensing 2025-08-09 21:22:16 INFO [graph.py:1247 graph] Flask response created for scatter_3d
+modes-sensing 2025-08-09 21:22:16 INFO [graph.py:1251 graph] Cache headers set for scatter_3d
+modes-sensing 2025-08-09 21:22:16 INFO [graph.py:1280 graph] Returning response for scatter_3d
+modes-sensing 2025-08-09 21:23:04 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.05 sec (data range query)
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1236 graph] request: scatter_2d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:23:00+09:00)
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1242 graph] Starting plot generation for scatter_2d
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1130 plot] plot() called for scatter_2d
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1136 plot] Got process pool for scatter_2d, calling apply()
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1140 plot] Process pool apply_async() called for scatter_2d
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1236 graph] request: contour_2d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:23:00+09:00)
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1242 graph] Starting plot generation for contour_2d
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1130 plot] plot() called for contour_2d
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1136 plot] Got process pool for contour_2d, calling apply()
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1140 plot] Process pool apply_async() called for contour_2d
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1236 graph] request: heatmap graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:23:00+09:00)
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1242 graph] Starting plot generation for heatmap
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1130 plot] plot() called for heatmap
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1136 plot] Got process pool for heatmap, calling apply()
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1140 plot] Process pool apply_async() called for heatmap
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1236 graph] request: density graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:23:00+09:00)
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1242 graph] Starting plot generation for density
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1130 plot] plot() called for density
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1136 plot] Got process pool for density, calling apply()
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1140 plot] Process pool apply_async() called for density
+modes-sensing 2025-08-09 21:23:04 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.08 sec (data range query)
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1236 graph] request: temperature graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:23:00+09:00)
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1242 graph] Starting plot generation for temperature
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1130 plot] plot() called for temperature
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1136 plot] Got process pool for temperature, calling apply()
+modes-sensing 2025-08-09 21:23:04 INFO [graph.py:1140 plot] Process pool apply_async() called for temperature
+modes-sensing 2025-08-09 21:23:05 INFO [graph.py:1236 graph] request: wind_direction graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:23:00+09:00)
+modes-sensing 2025-08-09 21:23:05 INFO [graph.py:1242 graph] Starting plot generation for wind_direction
+modes-sensing 2025-08-09 21:23:05 INFO [graph.py:1130 plot] plot() called for wind_direction
+modes-sensing 2025-08-09 21:23:05 INFO [graph.py:1136 plot] Got process pool for wind_direction, calling apply()
+modes-sensing 2025-08-09 21:23:05 INFO [graph.py:1140 plot] Process pool apply_async() called for wind_direction
+modes-sensing 2025-08-09 21:23:05 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.98 sec (selected 4 columns, 92,976 rows)
+modes-sensing 2025-08-09 21:23:05 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.17 sec (selected 4 columns, 92,977 rows)
+modes-sensing 2025-08-09 21:23:05 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.35 sec (selected 4 columns, 92,976 rows)
+modes-sensing 2025-08-09 21:23:05 INFO [graph.py:496 plot_density] Staring plot density
+modes-sensing 2025-08-09 21:23:05 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.87 sec (selected 4 columns, 92,976 rows)
+modes-sensing 2025-08-09 21:23:05 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.63 sec (selected 4 columns, 92,977 rows)
+modes-sensing 2025-08-09 21:23:06 INFO [graph.py:593 plot_heatmap] Staring plot heatmap
+modes-sensing 2025-08-09 21:23:06 INFO [graph.py:930 plot_temperature] Starting plot temperature timeseries
+modes-sensing 2025-08-09 21:23:06 INFO [graph.py:652 plot_scatter_2d] Staring plot 2d scatter
+modes-sensing 2025-08-09 21:23:06 INFO [graph.py:530 plot_contour_2d] Staring plot contour
+modes-sensing 2025-08-09 21:23:06 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.36 sec (selected 8 columns, 92,976 rows)
+modes-sensing 2025-08-09 21:23:06 INFO [graph.py:1144 plot] Process pool apply_async() returned for temperature
+modes-sensing 2025-08-09 21:23:06 INFO [graph.py:1148 plot] elapsed time: temperature = 0.421 sec
+modes-sensing 2025-08-09 21:23:06 INFO [graph.py:1152 plot] plot() returning for temperature, size: 271858 bytes
+modes-sensing 2025-08-09 21:23:06 INFO [graph.py:1244 graph] Plot generation completed for temperature, image size: 271858 bytes
+modes-sensing 2025-08-09 21:23:06 INFO [graph.py:1247 graph] Flask response created for temperature
+modes-sensing 2025-08-09 21:23:06 INFO [graph.py:1251 graph] Cache headers set for temperature
+modes-sensing 2025-08-09 21:23:06 INFO [graph.py:1280 graph] Returning response for temperature
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1236 graph] request: scatter_3d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:23:00+09:00)
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1242 graph] Starting plot generation for scatter_3d
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1130 plot] plot() called for scatter_3d
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1136 plot] Got process pool for scatter_3d, calling apply()
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1140 plot] Process pool apply_async() called for scatter_3d
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:858 plot_wind_direction] Starting plot wind direction
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:864 plot_wind_direction] Available columns in dataframe: ['time', 'altitude', 'temperature', 'distance', 'wind_x', 'wind_y', 'wind_speed', 'wind_angle']
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:865 plot_wind_direction] Dataframe shape: (92642, 8)
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1144 plot] Process pool apply_async() returned for heatmap
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1148 plot] elapsed time: heatmap = 1.207 sec
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1152 plot] plot() returning for heatmap, size: 89397 bytes
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1244 graph] Plot generation completed for heatmap, image size: 89397 bytes
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1247 graph] Flask response created for heatmap
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1251 graph] Cache headers set for heatmap
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1280 graph] Returning response for heatmap
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1236 graph] request: contour_3d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:23:00+09:00)
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1242 graph] Starting plot generation for contour_3d
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1130 plot] plot() called for contour_3d
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1136 plot] Got process pool for contour_3d, calling apply()
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1140 plot] Process pool apply_async() called for contour_3d
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1144 plot] Process pool apply_async() returned for contour_2d
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1148 plot] elapsed time: contour_2d = 1.159 sec
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1152 plot] plot() returning for contour_2d, size: 330860 bytes
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1244 graph] Plot generation completed for contour_2d, image size: 330860 bytes
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1247 graph] Flask response created for contour_2d
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1251 graph] Cache headers set for contour_2d
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1280 graph] Returning response for contour_2d
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1144 plot] Process pool apply_async() returned for density
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1148 plot] elapsed time: density = 1.892 sec
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1152 plot] plot() returning for density, size: 458912 bytes
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1244 graph] Plot generation completed for density, image size: 458912 bytes
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1247 graph] Flask response created for density
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1251 graph] Cache headers set for density
+modes-sensing 2025-08-09 21:23:07 INFO [graph.py:1280 graph] Returning response for density
+modes-sensing 2025-08-09 21:23:07 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.86 sec (selected 4 columns, 92,976 rows)
+modes-sensing 2025-08-09 21:23:08 INFO [graph.py:1144 plot] Process pool apply_async() returned for wind_direction
+modes-sensing 2025-08-09 21:23:08 INFO [graph.py:1148 plot] elapsed time: wind_direction = 0.572 sec
+modes-sensing 2025-08-09 21:23:08 INFO [graph.py:1152 plot] plot() returning for wind_direction, size: 627786 bytes
+modes-sensing 2025-08-09 21:23:08 INFO [graph.py:1244 graph] Plot generation completed for wind_direction, image size: 627786 bytes
+modes-sensing 2025-08-09 21:23:08 INFO [graph.py:1247 graph] Flask response created for wind_direction
+modes-sensing 2025-08-09 21:23:08 INFO [graph.py:1251 graph] Cache headers set for wind_direction
+modes-sensing 2025-08-09 21:23:08 INFO [graph.py:1280 graph] Returning response for wind_direction
+modes-sensing 2025-08-09 21:23:08 INFO [graph.py:466 plot_scatter_3d] Staring plot scatter 3d
+modes-sensing 2025-08-09 21:23:08 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.99 sec (selected 4 columns, 92,976 rows)
+modes-sensing 2025-08-09 21:23:08 INFO [graph.py:1144 plot] Process pool apply_async() returned for scatter_2d
+modes-sensing 2025-08-09 21:23:08 INFO [graph.py:1148 plot] elapsed time: scatter_2d = 2.045 sec
+modes-sensing 2025-08-09 21:23:08 INFO [graph.py:1152 plot] plot() returning for scatter_2d, size: 1525291 bytes
+modes-sensing 2025-08-09 21:23:08 INFO [graph.py:1244 graph] Plot generation completed for scatter_2d, image size: 1525291 bytes
+modes-sensing 2025-08-09 21:23:08 INFO [graph.py:1247 graph] Flask response created for scatter_2d
+modes-sensing 2025-08-09 21:23:08 INFO [graph.py:1251 graph] Cache headers set for scatter_2d
+modes-sensing 2025-08-09 21:23:08 INFO [graph.py:1280 graph] Returning response for scatter_2d
+modes-sensing 2025-08-09 21:23:09 INFO [graph.py:689 plot_contour_3d] Starting plot contour 3d
+modes-sensing 2025-08-09 21:23:11 INFO [graph.py:1144 plot] Process pool apply_async() returned for contour_3d
+modes-sensing 2025-08-09 21:23:11 INFO [graph.py:1148 plot] elapsed time: contour_3d = 2.011 sec
+modes-sensing 2025-08-09 21:23:11 INFO [graph.py:1152 plot] plot() returning for contour_3d, size: 1413203 bytes
+modes-sensing 2025-08-09 21:23:11 INFO [graph.py:1244 graph] Plot generation completed for contour_3d, image size: 1413203 bytes
+modes-sensing 2025-08-09 21:23:11 INFO [graph.py:1247 graph] Flask response created for contour_3d
+modes-sensing 2025-08-09 21:23:11 INFO [graph.py:1251 graph] Cache headers set for contour_3d
+modes-sensing 2025-08-09 21:23:11 INFO [graph.py:1280 graph] Returning response for contour_3d
+modes-sensing 2025-08-09 21:23:11 INFO [graph.py:1144 plot] Process pool apply_async() returned for scatter_3d
+modes-sensing 2025-08-09 21:23:11 INFO [graph.py:1148 plot] elapsed time: scatter_3d = 2.974 sec
+modes-sensing 2025-08-09 21:23:11 INFO [graph.py:1152 plot] plot() returning for scatter_3d, size: 1610551 bytes
+modes-sensing 2025-08-09 21:23:11 INFO [graph.py:1244 graph] Plot generation completed for scatter_3d, image size: 1610551 bytes
+modes-sensing 2025-08-09 21:23:11 INFO [graph.py:1247 graph] Flask response created for scatter_3d
+modes-sensing 2025-08-09 21:23:11 INFO [graph.py:1251 graph] Cache headers set for scatter_3d
+modes-sensing 2025-08-09 21:23:11 INFO [graph.py:1280 graph] Returning response for scatter_3d
+modes-sensing 2025-08-09 21:23:21 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:23:21 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:29:09 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:29:09 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.05 sec (data range query)
+modes-sensing 2025-08-09 21:29:34 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.05 sec (data range query)
+modes-sensing 2025-08-09 21:29:34 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:30:00 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:30:01 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:30:13 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.05 sec (data range query)
+modes-sensing 2025-08-09 21:30:14 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:31:13 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:31:13 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:31:22 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:31:22 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:33:49 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1236 graph] request: scatter_2d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:33:00+09:00)
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1242 graph] Starting plot generation for scatter_2d
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1130 plot] plot() called for scatter_2d
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1136 plot] Got process pool for scatter_2d, calling apply()
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1140 plot] Process pool apply_async() called for scatter_2d
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1236 graph] request: density graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:33:00+09:00)
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1242 graph] Starting plot generation for density
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1130 plot] plot() called for density
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1136 plot] Got process pool for density, calling apply()
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1140 plot] Process pool apply_async() called for density
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1236 graph] request: contour_2d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:33:00+09:00)
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1242 graph] Starting plot generation for contour_2d
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1130 plot] plot() called for contour_2d
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1136 plot] Got process pool for contour_2d, calling apply()
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1140 plot] Process pool apply_async() called for contour_2d
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1236 graph] request: heatmap graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:33:00+09:00)
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1242 graph] Starting plot generation for heatmap
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1130 plot] plot() called for heatmap
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1136 plot] Got process pool for heatmap, calling apply()
+modes-sensing 2025-08-09 21:33:49 INFO [graph.py:1140 plot] Process pool apply_async() called for heatmap
+modes-sensing 2025-08-09 21:33:50 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.14 sec (data range query)
+modes-sensing 2025-08-09 21:33:50 INFO [graph.py:1236 graph] request: temperature graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:33:00+09:00)
+modes-sensing 2025-08-09 21:33:50 INFO [graph.py:1242 graph] Starting plot generation for temperature
+modes-sensing 2025-08-09 21:33:50 INFO [graph.py:1130 plot] plot() called for temperature
+modes-sensing 2025-08-09 21:33:50 INFO [graph.py:1136 plot] Got process pool for temperature, calling apply()
+modes-sensing 2025-08-09 21:33:50 INFO [graph.py:1140 plot] Process pool apply_async() called for temperature
+modes-sensing 2025-08-09 21:33:50 INFO [graph.py:1236 graph] request: wind_direction graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:33:00+09:00)
+modes-sensing 2025-08-09 21:33:50 INFO [graph.py:1242 graph] Starting plot generation for wind_direction
+modes-sensing 2025-08-09 21:33:50 INFO [graph.py:1130 plot] plot() called for wind_direction
+modes-sensing 2025-08-09 21:33:50 INFO [graph.py:1136 plot] Got process pool for wind_direction, calling apply()
+modes-sensing 2025-08-09 21:33:50 INFO [graph.py:1140 plot] Process pool apply_async() called for wind_direction
+modes-sensing 2025-08-09 21:33:50 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.95 sec (selected 4 columns, 93,195 rows)
+modes-sensing 2025-08-09 21:33:51 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.01 sec (selected 4 columns, 93,179 rows)
+modes-sensing 2025-08-09 21:33:51 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.52 sec (selected 4 columns, 93,179 rows)
+modes-sensing 2025-08-09 21:33:51 INFO [graph.py:530 plot_contour_2d] Staring plot contour
+modes-sensing 2025-08-09 21:33:51 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.72 sec (selected 4 columns, 93,195 rows)
+modes-sensing 2025-08-09 21:33:51 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.74 sec (selected 4 columns, 93,179 rows)
+modes-sensing 2025-08-09 21:33:51 INFO [graph.py:930 plot_temperature] Starting plot temperature timeseries
+modes-sensing 2025-08-09 21:33:51 INFO [graph.py:496 plot_density] Staring plot density
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:593 plot_heatmap] Staring plot heatmap
+modes-sensing 2025-08-09 21:33:52 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.31 sec (selected 8 columns, 93,179 rows)
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:652 plot_scatter_2d] Staring plot 2d scatter
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1144 plot] Process pool apply_async() returned for temperature
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1148 plot] elapsed time: temperature = 0.422 sec
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1152 plot] plot() returning for temperature, size: 271877 bytes
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1244 graph] Plot generation completed for temperature, image size: 271877 bytes
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1247 graph] Flask response created for temperature
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1251 graph] Cache headers set for temperature
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1280 graph] Returning response for temperature
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1236 graph] request: scatter_3d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:33:00+09:00)
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1242 graph] Starting plot generation for scatter_3d
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1130 plot] plot() called for scatter_3d
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1136 plot] Got process pool for scatter_3d, calling apply()
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1140 plot] Process pool apply_async() called for scatter_3d
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:858 plot_wind_direction] Starting plot wind direction
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:864 plot_wind_direction] Available columns in dataframe: ['time', 'altitude', 'temperature', 'distance', 'wind_x', 'wind_y', 'wind_speed', 'wind_angle']
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:865 plot_wind_direction] Dataframe shape: (92845, 8)
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1144 plot] Process pool apply_async() returned for contour_2d
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1148 plot] elapsed time: contour_2d = 1.118 sec
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1152 plot] plot() returning for contour_2d, size: 331057 bytes
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1244 graph] Plot generation completed for contour_2d, image size: 331057 bytes
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1247 graph] Flask response created for contour_2d
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1251 graph] Cache headers set for contour_2d
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1280 graph] Returning response for contour_2d
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1236 graph] request: contour_3d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:33:00+09:00)
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1242 graph] Starting plot generation for contour_3d
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1130 plot] plot() called for contour_3d
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1136 plot] Got process pool for contour_3d, calling apply()
+modes-sensing 2025-08-09 21:33:52 INFO [graph.py:1140 plot] Process pool apply_async() called for contour_3d
+modes-sensing 2025-08-09 21:33:53 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.81 sec (selected 4 columns, 93,179 rows)
+modes-sensing 2025-08-09 21:33:53 INFO [graph.py:1144 plot] Process pool apply_async() returned for heatmap
+modes-sensing 2025-08-09 21:33:53 INFO [graph.py:1148 plot] elapsed time: heatmap = 1.376 sec
+modes-sensing 2025-08-09 21:33:53 INFO [graph.py:1152 plot] plot() returning for heatmap, size: 89401 bytes
+modes-sensing 2025-08-09 21:33:53 INFO [graph.py:1244 graph] Plot generation completed for heatmap, image size: 89401 bytes
+modes-sensing 2025-08-09 21:33:53 INFO [graph.py:1247 graph] Flask response created for heatmap
+modes-sensing 2025-08-09 21:33:53 INFO [graph.py:1251 graph] Cache headers set for heatmap
+modes-sensing 2025-08-09 21:33:53 INFO [graph.py:1280 graph] Returning response for heatmap
+modes-sensing 2025-08-09 21:33:53 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.72 sec (selected 4 columns, 93,179 rows)
+modes-sensing 2025-08-09 21:33:53 INFO [graph.py:1144 plot] Process pool apply_async() returned for wind_direction
+modes-sensing 2025-08-09 21:33:53 INFO [graph.py:1148 plot] elapsed time: wind_direction = 0.838 sec
+modes-sensing 2025-08-09 21:33:53 INFO [graph.py:1152 plot] plot() returning for wind_direction, size: 626470 bytes
+modes-sensing 2025-08-09 21:33:53 INFO [graph.py:1244 graph] Plot generation completed for wind_direction, image size: 626470 bytes
+modes-sensing 2025-08-09 21:33:53 INFO [graph.py:1247 graph] Flask response created for wind_direction
+modes-sensing 2025-08-09 21:33:53 INFO [graph.py:1251 graph] Cache headers set for wind_direction
+modes-sensing 2025-08-09 21:33:53 INFO [graph.py:1280 graph] Returning response for wind_direction
+modes-sensing 2025-08-09 21:33:54 INFO [graph.py:466 plot_scatter_3d] Staring plot scatter 3d
+modes-sensing 2025-08-09 21:33:54 INFO [graph.py:1144 plot] Process pool apply_async() returned for density
+modes-sensing 2025-08-09 21:33:54 INFO [graph.py:1148 plot] elapsed time: density = 2.057 sec
+modes-sensing 2025-08-09 21:33:54 INFO [graph.py:1152 plot] plot() returning for density, size: 458693 bytes
+modes-sensing 2025-08-09 21:33:54 INFO [graph.py:1244 graph] Plot generation completed for density, image size: 458693 bytes
+modes-sensing 2025-08-09 21:33:54 INFO [graph.py:1247 graph] Flask response created for density
+modes-sensing 2025-08-09 21:33:54 INFO [graph.py:1251 graph] Cache headers set for density
+modes-sensing 2025-08-09 21:33:54 INFO [graph.py:1280 graph] Returning response for density
+modes-sensing 2025-08-09 21:33:54 INFO [graph.py:689 plot_contour_3d] Starting plot contour 3d
+modes-sensing 2025-08-09 21:33:54 INFO [graph.py:1144 plot] Process pool apply_async() returned for scatter_2d
+modes-sensing 2025-08-09 21:33:54 INFO [graph.py:1148 plot] elapsed time: scatter_2d = 2.182 sec
+modes-sensing 2025-08-09 21:33:54 INFO [graph.py:1152 plot] plot() returning for scatter_2d, size: 1526430 bytes
+modes-sensing 2025-08-09 21:33:54 INFO [graph.py:1244 graph] Plot generation completed for scatter_2d, image size: 1526430 bytes
+modes-sensing 2025-08-09 21:33:54 INFO [graph.py:1247 graph] Flask response created for scatter_2d
+modes-sensing 2025-08-09 21:33:54 INFO [graph.py:1251 graph] Cache headers set for scatter_2d
+modes-sensing 2025-08-09 21:33:54 INFO [graph.py:1280 graph] Returning response for scatter_2d
+modes-sensing 2025-08-09 21:33:57 INFO [graph.py:1144 plot] Process pool apply_async() returned for contour_3d
+modes-sensing 2025-08-09 21:33:57 INFO [graph.py:1148 plot] elapsed time: contour_3d = 2.203 sec
+modes-sensing 2025-08-09 21:33:57 INFO [graph.py:1152 plot] plot() returning for contour_3d, size: 1411555 bytes
+modes-sensing 2025-08-09 21:33:57 INFO [graph.py:1244 graph] Plot generation completed for contour_3d, image size: 1411555 bytes
+modes-sensing 2025-08-09 21:33:57 INFO [graph.py:1247 graph] Flask response created for contour_3d
+modes-sensing 2025-08-09 21:33:57 INFO [graph.py:1251 graph] Cache headers set for contour_3d
+modes-sensing 2025-08-09 21:33:57 INFO [graph.py:1280 graph] Returning response for contour_3d
+modes-sensing 2025-08-09 21:33:57 INFO [graph.py:1144 plot] Process pool apply_async() returned for scatter_3d
+modes-sensing 2025-08-09 21:33:57 INFO [graph.py:1148 plot] elapsed time: scatter_3d = 3.339 sec
+modes-sensing 2025-08-09 21:33:57 INFO [graph.py:1152 plot] plot() returning for scatter_3d, size: 1610133 bytes
+modes-sensing 2025-08-09 21:33:57 INFO [graph.py:1244 graph] Plot generation completed for scatter_3d, image size: 1610133 bytes
+modes-sensing 2025-08-09 21:33:57 INFO [graph.py:1247 graph] Flask response created for scatter_3d
+modes-sensing 2025-08-09 21:33:57 INFO [graph.py:1251 graph] Cache headers set for scatter_3d
+modes-sensing 2025-08-09 21:33:57 INFO [graph.py:1280 graph] Returning response for scatter_3d
+modes-sensing 2025-08-09 21:33:59 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:33:59 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:34:01 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:34:01 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:34:02 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.04 sec (data range query)
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1236 graph] request: scatter_2d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:34:00+09:00)
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1242 graph] Starting plot generation for scatter_2d
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1130 plot] plot() called for scatter_2d
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1136 plot] Got process pool for scatter_2d, calling apply()
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1140 plot] Process pool apply_async() called for scatter_2d
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1236 graph] request: contour_2d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:34:00+09:00)
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1236 graph] request: heatmap graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:34:00+09:00)
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1236 graph] request: density graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:34:00+09:00)
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1242 graph] Starting plot generation for contour_2d
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1242 graph] Starting plot generation for heatmap
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1242 graph] Starting plot generation for density
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1130 plot] plot() called for contour_2d
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1130 plot] plot() called for heatmap
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1130 plot] plot() called for density
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1136 plot] Got process pool for contour_2d, calling apply()
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1136 plot] Got process pool for heatmap, calling apply()
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1136 plot] Got process pool for density, calling apply()
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1140 plot] Process pool apply_async() called for contour_2d
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1140 plot] Process pool apply_async() called for heatmap
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1140 plot] Process pool apply_async() called for density
+modes-sensing 2025-08-09 21:34:02 INFO [database_postgresql.py:345 fetch_data_range] Elapsed time: 0.09 sec (data range query)
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1236 graph] request: temperature graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:34:00+09:00)
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1242 graph] Starting plot generation for temperature
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1130 plot] plot() called for temperature
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1136 plot] Got process pool for temperature, calling apply()
+modes-sensing 2025-08-09 21:34:02 INFO [graph.py:1140 plot] Process pool apply_async() called for temperature
+modes-sensing 2025-08-09 21:34:03 INFO [graph.py:1236 graph] request: wind_direction graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:34:00+09:00)
+modes-sensing 2025-08-09 21:34:03 INFO [graph.py:1242 graph] Starting plot generation for wind_direction
+modes-sensing 2025-08-09 21:34:03 INFO [graph.py:1130 plot] plot() called for wind_direction
+modes-sensing 2025-08-09 21:34:03 INFO [graph.py:1136 plot] Got process pool for wind_direction, calling apply()
+modes-sensing 2025-08-09 21:34:03 INFO [graph.py:1140 plot] Process pool apply_async() called for wind_direction
+modes-sensing 2025-08-09 21:34:03 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.13 sec (selected 4 columns, 93,200 rows)
+modes-sensing 2025-08-09 21:34:03 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.23 sec (selected 4 columns, 93,199 rows)
+modes-sensing 2025-08-09 21:34:03 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.31 sec (selected 4 columns, 93,199 rows)
+modes-sensing 2025-08-09 21:34:03 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.13 sec (selected 4 columns, 93,199 rows)
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:652 plot_scatter_2d] Staring plot 2d scatter
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:530 plot_contour_2d] Staring plot contour
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:496 plot_density] Staring plot density
+modes-sensing 2025-08-09 21:34:04 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.84 sec (selected 4 columns, 93,200 rows)
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:930 plot_temperature] Starting plot temperature timeseries
+modes-sensing 2025-08-09 21:34:04 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 1.14 sec (selected 8 columns, 93,199 rows)
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:593 plot_heatmap] Staring plot heatmap
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:858 plot_wind_direction] Starting plot wind direction
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:864 plot_wind_direction] Available columns in dataframe: ['time', 'altitude', 'temperature', 'distance', 'wind_x', 'wind_y', 'wind_speed', 'wind_angle']
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:865 plot_wind_direction] Dataframe shape: (92865, 8)
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:1144 plot] Process pool apply_async() returned for temperature
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:1148 plot] elapsed time: temperature = 0.432 sec
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:1152 plot] plot() returning for temperature, size: 271877 bytes
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:1244 graph] Plot generation completed for temperature, image size: 271877 bytes
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:1247 graph] Flask response created for temperature
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:1251 graph] Cache headers set for temperature
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:1280 graph] Returning response for temperature
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:1236 graph] request: scatter_3d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:34:00+09:00)
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:1242 graph] Starting plot generation for scatter_3d
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:1130 plot] plot() called for scatter_3d
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:1136 plot] Got process pool for scatter_3d, calling apply()
+modes-sensing 2025-08-09 21:34:04 INFO [graph.py:1140 plot] Process pool apply_async() called for scatter_3d
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1144 plot] Process pool apply_async() returned for contour_2d
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1148 plot] elapsed time: contour_2d = 1.064 sec
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1152 plot] plot() returning for contour_2d, size: 330964 bytes
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1244 graph] Plot generation completed for contour_2d, image size: 330964 bytes
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1247 graph] Flask response created for contour_2d
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1251 graph] Cache headers set for contour_2d
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1280 graph] Returning response for contour_2d
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1236 graph] request: contour_3d graph (start: 2025-08-05 19:35:00+09:00, end: 2025-08-09 21:34:00+09:00)
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1242 graph] Starting plot generation for contour_3d
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1130 plot] plot() called for contour_3d
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1136 plot] Got process pool for contour_3d, calling apply()
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1140 plot] Process pool apply_async() called for contour_3d
+modes-sensing 2025-08-09 21:34:05 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.67 sec (selected 4 columns, 93,199 rows)
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1144 plot] Process pool apply_async() returned for wind_direction
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1148 plot] elapsed time: wind_direction = 0.585 sec
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1152 plot] plot() returning for wind_direction, size: 626128 bytes
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1244 graph] Plot generation completed for wind_direction, image size: 626128 bytes
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1247 graph] Flask response created for wind_direction
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1251 graph] Cache headers set for wind_direction
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1280 graph] Returning response for wind_direction
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1144 plot] Process pool apply_async() returned for heatmap
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1148 plot] elapsed time: heatmap = 1.268 sec
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1152 plot] plot() returning for heatmap, size: 89402 bytes
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1244 graph] Plot generation completed for heatmap, image size: 89402 bytes
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1247 graph] Flask response created for heatmap
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1251 graph] Cache headers set for heatmap
+modes-sensing 2025-08-09 21:34:05 INFO [graph.py:1280 graph] Returning response for heatmap
+modes-sensing 2025-08-09 21:34:06 INFO [graph.py:466 plot_scatter_3d] Staring plot scatter 3d
+modes-sensing 2025-08-09 21:34:06 INFO [graph.py:1144 plot] Process pool apply_async() returned for density
+modes-sensing 2025-08-09 21:34:06 INFO [graph.py:1148 plot] elapsed time: density = 1.753 sec
+modes-sensing 2025-08-09 21:34:06 INFO [graph.py:1152 plot] plot() returning for density, size: 458683 bytes
+modes-sensing 2025-08-09 21:34:06 INFO [graph.py:1244 graph] Plot generation completed for density, image size: 458683 bytes
+modes-sensing 2025-08-09 21:34:06 INFO [graph.py:1247 graph] Flask response created for density
+modes-sensing 2025-08-09 21:34:06 INFO [graph.py:1251 graph] Cache headers set for density
+modes-sensing 2025-08-09 21:34:06 INFO [graph.py:1280 graph] Returning response for density
+modes-sensing 2025-08-09 21:34:06 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.85 sec (selected 4 columns, 93,199 rows)
+modes-sensing 2025-08-09 21:34:06 INFO [graph.py:689 plot_contour_3d] Starting plot contour 3d
+modes-sensing 2025-08-09 21:34:06 INFO [graph.py:1144 plot] Process pool apply_async() returned for scatter_2d
+modes-sensing 2025-08-09 21:34:06 INFO [graph.py:1148 plot] elapsed time: scatter_2d = 2.477 sec
+modes-sensing 2025-08-09 21:34:06 INFO [graph.py:1152 plot] plot() returning for scatter_2d, size: 1527484 bytes
+modes-sensing 2025-08-09 21:34:06 INFO [graph.py:1244 graph] Plot generation completed for scatter_2d, image size: 1527484 bytes
+modes-sensing 2025-08-09 21:34:06 INFO [graph.py:1247 graph] Flask response created for scatter_2d
+modes-sensing 2025-08-09 21:34:06 INFO [graph.py:1251 graph] Cache headers set for scatter_2d
+modes-sensing 2025-08-09 21:34:06 INFO [graph.py:1280 graph] Returning response for scatter_2d
+modes-sensing 2025-08-09 21:34:09 INFO [graph.py:1144 plot] Process pool apply_async() returned for contour_3d
+modes-sensing 2025-08-09 21:34:09 INFO [graph.py:1148 plot] elapsed time: contour_3d = 1.858 sec
+modes-sensing 2025-08-09 21:34:09 INFO [graph.py:1152 plot] plot() returning for contour_3d, size: 1412557 bytes
+modes-sensing 2025-08-09 21:34:09 INFO [graph.py:1244 graph] Plot generation completed for contour_3d, image size: 1412557 bytes
+modes-sensing 2025-08-09 21:34:09 INFO [graph.py:1247 graph] Flask response created for contour_3d
+modes-sensing 2025-08-09 21:34:09 INFO [graph.py:1251 graph] Cache headers set for contour_3d
+modes-sensing 2025-08-09 21:34:09 INFO [graph.py:1280 graph] Returning response for contour_3d
+modes-sensing 2025-08-09 21:34:09 INFO [graph.py:1144 plot] Process pool apply_async() returned for scatter_3d
+modes-sensing 2025-08-09 21:34:09 INFO [graph.py:1148 plot] elapsed time: scatter_3d = 2.894 sec
+modes-sensing 2025-08-09 21:34:09 INFO [graph.py:1152 plot] plot() returning for scatter_3d, size: 1609864 bytes
+modes-sensing 2025-08-09 21:34:09 INFO [graph.py:1244 graph] Plot generation completed for scatter_3d, image size: 1609864 bytes
+modes-sensing 2025-08-09 21:34:09 INFO [graph.py:1247 graph] Flask response created for scatter_3d
+modes-sensing 2025-08-09 21:34:09 INFO [graph.py:1251 graph] Cache headers set for scatter_3d
+modes-sensing 2025-08-09 21:34:09 INFO [graph.py:1280 graph] Returning response for scatter_3d
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1236 graph] request: contour_2d graph (start: 2025-08-08 21:34:00+09:00, end: 2025-08-09 21:34:00+09:00)
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1242 graph] Starting plot generation for contour_2d
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1130 plot] plot() called for contour_2d
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1136 plot] Got process pool for contour_2d, calling apply()
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1140 plot] Process pool apply_async() called for contour_2d
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1236 graph] request: scatter_2d graph (start: 2025-08-08 21:34:00+09:00, end: 2025-08-09 21:34:00+09:00)
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1242 graph] Starting plot generation for scatter_2d
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1130 plot] plot() called for scatter_2d
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1136 plot] Got process pool for scatter_2d, calling apply()
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1140 plot] Process pool apply_async() called for scatter_2d
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1236 graph] request: heatmap graph (start: 2025-08-08 21:34:00+09:00, end: 2025-08-09 21:34:00+09:00)
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1242 graph] Starting plot generation for heatmap
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1130 plot] plot() called for heatmap
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1136 plot] Got process pool for heatmap, calling apply()
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1140 plot] Process pool apply_async() called for heatmap
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1236 graph] request: density graph (start: 2025-08-08 21:34:00+09:00, end: 2025-08-09 21:34:00+09:00)
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1242 graph] Starting plot generation for density
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1130 plot] plot() called for density
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1136 plot] Got process pool for density, calling apply()
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1140 plot] Process pool apply_async() called for density
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1236 graph] request: wind_direction graph (start: 2025-08-08 21:34:00+09:00, end: 2025-08-09 21:34:00+09:00)
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1242 graph] Starting plot generation for wind_direction
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1130 plot] plot() called for wind_direction
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1136 plot] Got process pool for wind_direction, calling apply()
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1140 plot] Process pool apply_async() called for wind_direction
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1236 graph] request: temperature graph (start: 2025-08-08 21:34:00+09:00, end: 2025-08-09 21:34:00+09:00)
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1242 graph] Starting plot generation for temperature
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1130 plot] plot() called for temperature
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1136 plot] Got process pool for temperature, calling apply()
+modes-sensing 2025-08-09 21:35:06 INFO [graph.py:1140 plot] Process pool apply_async() called for temperature
+modes-sensing 2025-08-09 21:35:07 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.43 sec (selected 4 columns, 25,392 rows)
+modes-sensing 2025-08-09 21:35:07 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.45 sec (selected 4 columns, 25,392 rows)
+modes-sensing 2025-08-09 21:35:07 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.51 sec (selected 4 columns, 25,392 rows)
+modes-sensing 2025-08-09 21:35:07 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.53 sec (selected 4 columns, 29,161 rows)
+modes-sensing 2025-08-09 21:35:07 INFO [graph.py:496 plot_density] Staring plot density
+modes-sensing 2025-08-09 21:35:07 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.57 sec (selected 4 columns, 29,161 rows)
+modes-sensing 2025-08-09 21:35:07 INFO [graph.py:652 plot_scatter_2d] Staring plot 2d scatter
+modes-sensing 2025-08-09 21:35:07 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.67 sec (selected 8 columns, 25,392 rows)
+modes-sensing 2025-08-09 21:35:07 INFO [graph.py:930 plot_temperature] Starting plot temperature timeseries
+modes-sensing 2025-08-09 21:35:07 INFO [graph.py:593 plot_heatmap] Staring plot heatmap
+modes-sensing 2025-08-09 21:35:07 INFO [graph.py:530 plot_contour_2d] Staring plot contour
+modes-sensing 2025-08-09 21:35:07 INFO [graph.py:858 plot_wind_direction] Starting plot wind direction
+modes-sensing 2025-08-09 21:35:07 INFO [graph.py:864 plot_wind_direction] Available columns in dataframe: ['time', 'altitude', 'temperature', 'distance', 'wind_x', 'wind_y', 'wind_speed', 'wind_angle']
+modes-sensing 2025-08-09 21:35:07 INFO [graph.py:865 plot_wind_direction] Dataframe shape: (25350, 8)
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1144 plot] Process pool apply_async() returned for temperature
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1148 plot] elapsed time: temperature = 0.460 sec
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1152 plot] plot() returning for temperature, size: 182569 bytes
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1244 graph] Plot generation completed for temperature, image size: 182569 bytes
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1247 graph] Flask response created for temperature
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1251 graph] Cache headers set for temperature
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1280 graph] Returning response for temperature
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1236 graph] request: scatter_3d graph (start: 2025-08-08 21:34:00+09:00, end: 2025-08-09 21:34:00+09:00)
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1242 graph] Starting plot generation for scatter_3d
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1130 plot] plot() called for scatter_3d
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1136 plot] Got process pool for scatter_3d, calling apply()
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1140 plot] Process pool apply_async() called for scatter_3d
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1144 plot] Process pool apply_async() returned for heatmap
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1148 plot] elapsed time: heatmap = 0.696 sec
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1152 plot] plot() returning for heatmap, size: 87932 bytes
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1244 graph] Plot generation completed for heatmap, image size: 87932 bytes
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1247 graph] Flask response created for heatmap
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1251 graph] Cache headers set for heatmap
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1280 graph] Returning response for heatmap
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1236 graph] request: contour_3d graph (start: 2025-08-08 21:34:00+09:00, end: 2025-08-09 21:34:00+09:00)
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1242 graph] Starting plot generation for contour_3d
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1130 plot] plot() called for contour_3d
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1136 plot] Got process pool for contour_3d, calling apply()
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1140 plot] Process pool apply_async() called for contour_3d
+modes-sensing 2025-08-09 21:35:08 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.23 sec (selected 4 columns, 25,392 rows)
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1144 plot] Process pool apply_async() returned for density
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1148 plot] elapsed time: density = 0.937 sec
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1152 plot] plot() returning for density, size: 415745 bytes
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1244 graph] Plot generation completed for density, image size: 415745 bytes
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1247 graph] Flask response created for density
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1251 graph] Cache headers set for density
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1280 graph] Returning response for density
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:466 plot_scatter_3d] Staring plot scatter 3d
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1144 plot] Process pool apply_async() returned for contour_2d
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1148 plot] elapsed time: contour_2d = 0.776 sec
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1152 plot] plot() returning for contour_2d, size: 311025 bytes
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1244 graph] Plot generation completed for contour_2d, image size: 311025 bytes
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1247 graph] Flask response created for contour_2d
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1251 graph] Cache headers set for contour_2d
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1280 graph] Returning response for contour_2d
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1144 plot] Process pool apply_async() returned for wind_direction
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1148 plot] elapsed time: wind_direction = 0.777 sec
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1152 plot] plot() returning for wind_direction, size: 1012859 bytes
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1244 graph] Plot generation completed for wind_direction, image size: 1012859 bytes
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1247 graph] Flask response created for wind_direction
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1251 graph] Cache headers set for wind_direction
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1280 graph] Returning response for wind_direction
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1144 plot] Process pool apply_async() returned for scatter_2d
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1148 plot] elapsed time: scatter_2d = 1.048 sec
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1152 plot] plot() returning for scatter_2d, size: 962151 bytes
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1244 graph] Plot generation completed for scatter_2d, image size: 962151 bytes
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1247 graph] Flask response created for scatter_2d
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1251 graph] Cache headers set for scatter_2d
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:1280 graph] Returning response for scatter_2d
+modes-sensing 2025-08-09 21:35:08 INFO [database_postgresql.py:240 fetch_by_time] Elapsed time: 0.32 sec (selected 4 columns, 25,392 rows)
+modes-sensing 2025-08-09 21:35:08 INFO [graph.py:689 plot_contour_3d] Starting plot contour 3d
+modes-sensing 2025-08-09 21:35:10 INFO [graph.py:1144 plot] Process pool apply_async() returned for scatter_3d
+modes-sensing 2025-08-09 21:35:10 INFO [graph.py:1148 plot] elapsed time: scatter_3d = 1.448 sec
+modes-sensing 2025-08-09 21:35:10 INFO [graph.py:1152 plot] plot() returning for scatter_3d, size: 1534377 bytes
+modes-sensing 2025-08-09 21:35:10 INFO [graph.py:1244 graph] Plot generation completed for scatter_3d, image size: 1534377 bytes
+modes-sensing 2025-08-09 21:35:10 INFO [graph.py:1247 graph] Flask response created for scatter_3d
+modes-sensing 2025-08-09 21:35:10 INFO [graph.py:1251 graph] Cache headers set for scatter_3d
+modes-sensing 2025-08-09 21:35:10 INFO [graph.py:1280 graph] Returning response for scatter_3d
+modes-sensing 2025-08-09 21:35:11 INFO [graph.py:1144 plot] Process pool apply_async() returned for contour_3d
+modes-sensing 2025-08-09 21:35:11 INFO [graph.py:1148 plot] elapsed time: contour_3d = 1.673 sec
+modes-sensing 2025-08-09 21:35:11 INFO [graph.py:1152 plot] plot() returning for contour_3d, size: 1455042 bytes
+modes-sensing 2025-08-09 21:35:11 INFO [graph.py:1244 graph] Plot generation completed for contour_3d, image size: 1455042 bytes
+modes-sensing 2025-08-09 21:35:11 INFO [graph.py:1247 graph] Flask response created for contour_3d
+modes-sensing 2025-08-09 21:35:11 INFO [graph.py:1251 graph] Cache headers set for contour_3d
+modes-sensing 2025-08-09 21:35:11 INFO [graph.py:1280 graph] Returning response for contour_3d
+modes-sensing 2025-08-09 21:39:34 INFO [graph.py:103 cleanup] Cleaned up global process pool
+modes-sensing 2025-08-09 21:39:34 INFO [config.py:47 load] Load config: /home/kimata/gitlab/sense-config/sense-modes.yaml (schema: /home/kimata/github/modes-sensing/config.schema)
+modes-sensing 2025-08-09 21:39:34 INFO [config.py:37 init] STATIC_DIR_PATH = /home/kimata/github/modes-sensing/react/dist
+modes-sensing 2025-08-09 21:39:34 INFO [config.py:38 init] SCHEDULE_FILE_PATH = None
+modes-sensing 2025-08-09 21:39:34 INFO [config.py:39 init] LOG_DIR_PATH = None
+modes-sensing 2025-08-09 21:39:34 INFO [config.py:40 init] STAT_DIR_PATH = None
+modes-sensing 2025-08-09 21:39:35 INFO [config.py:49 show_handler_list] path: /static/<path:filename> {'HEAD', 'OPTIONS', 'GET'} → static
+modes-sensing 2025-08-09 21:39:35 INFO [config.py:49 show_handler_list] path: /modes-sensing/ {'HEAD', 'OPTIONS', 'GET'} → webapp-base.webapp
+modes-sensing 2025-08-09 21:39:35 INFO [config.py:49 show_handler_list] path: /modes-sensing/<path:filename> {'HEAD', 'OPTIONS', 'GET'} → webapp-base.webapp
+modes-sensing 2025-08-09 21:39:35 INFO [config.py:49 show_handler_list] path: / {'HEAD', 'OPTIONS', 'GET'} → webapp-default.root
+modes-sensing 2025-08-09 21:39:35 INFO [config.py:49 show_handler_list] path: /modes-sensing/api/memory {'HEAD', 'OPTIONS', 'GET'} → webapp-util.print_memory
+modes-sensing 2025-08-09 21:39:35 INFO [config.py:49 show_handler_list] path: /modes-sensing/api/snapshot {'HEAD', 'OPTIONS', 'GET'} → webapp-util.snap
+modes-sensing 2025-08-09 21:39:35 INFO [config.py:49 show_handler_list] path: /modes-sensing/api/sysinfo {'HEAD', 'OPTIONS', 'GET'} → webapp-util.api_sysinfo
+modes-sensing 2025-08-09 21:39:35 INFO [config.py:49 show_handler_list] path: /modes-sensing/api/data-range {'HEAD', 'OPTIONS', 'GET'} → modes-sensing-graph.data_range
+modes-sensing 2025-08-09 21:39:35 INFO [config.py:49 show_handler_list] path: /modes-sensing/api/graph/<path:graph_name> {'HEAD', 'OPTIONS', 'GET'} → modes-sensing-graph.graph

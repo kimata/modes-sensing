@@ -20,11 +20,12 @@ function App() {
   }
 
   const [dateRange, setDateRange] = useState(getInitialDate())
+  const [isInitialDateRangeSet, setIsInitialDateRangeSet] = useState(false)
   const [modalImage, setModalImage] = useState<string | null>(null)
   const [dataRange, setDataRange] = useState<DataRange | null>(null)
   const [dataRangeSubtitle, setDataRangeSubtitle] = useState<string>('')
 
-  // データ範囲を取得
+  // データ範囲を取得し、初期日付範囲を調整
   useEffect(() => {
     const fetchDataRange = async () => {
       try {
@@ -32,6 +33,57 @@ function App() {
         if (response.ok) {
           const range: DataRange = await response.json()
           setDataRange(range)
+
+          // 初期日付範囲をデータ範囲に基づいて調整
+          if (range.earliest && range.latest && !isInitialDateRangeSet) {
+            const currentRange = getInitialDate()
+            const dataEarliest = new Date(range.earliest)
+            const dataLatest = new Date(range.latest)
+
+            let adjustedStart = new Date(currentRange.start)
+            let adjustedEnd = new Date(currentRange.end)
+            let needsAdjustment = false
+
+            console.log('[App] Initial date range adjustment check:', {
+              currentStart: adjustedStart.toISOString(),
+              currentEnd: adjustedEnd.toISOString(),
+              dataEarliest: dataEarliest.toISOString(),
+              dataLatest: dataLatest.toISOString()
+            })
+
+            // 終了日時が利用可能なデータの最新日時を超えている場合
+            if (adjustedEnd > dataLatest) {
+              adjustedEnd = new Date(dataLatest)
+              adjustedEnd.setSeconds(0, 0)
+              needsAdjustment = true
+            }
+
+            // 開始日時が利用可能なデータの最古日時を下回っている場合
+            if (adjustedStart < dataEarliest) {
+              adjustedStart = new Date(dataEarliest)
+              adjustedStart.setSeconds(0, 0)
+              needsAdjustment = true
+            }
+
+            // 7日間の期間を維持しようとする
+            const sevenDaysMs = 7 * 24 * 60 * 60 * 1000
+            const recalculatedStart = new Date(adjustedEnd.getTime() - sevenDaysMs)
+            if (recalculatedStart >= dataEarliest) {
+              adjustedStart = recalculatedStart
+              adjustedStart.setSeconds(0, 0)
+              needsAdjustment = true
+            }
+
+            if (needsAdjustment) {
+              console.log('[App] Adjusting initial date range:', {
+                from: { start: currentRange.start.toISOString(), end: currentRange.end.toISOString() },
+                to: { start: adjustedStart.toISOString(), end: adjustedEnd.toISOString() }
+              })
+              setDateRange({ start: adjustedStart, end: adjustedEnd })
+            }
+
+            setIsInitialDateRangeSet(true)
+          }
 
           // サブタイトルを生成（参考ファイルのフォーマットに従う）
           if (range.earliest && range.latest) {
@@ -54,14 +106,19 @@ function App() {
 
             setDataRangeSubtitle(`過去${daysFormatted}日間（${startDateFormatted}〜）、計 ${countFormatted} 件のデータが記録されています`)
           }
+        } else {
+          // データ範囲の取得に失敗した場合も初期化を完了させる
+          setIsInitialDateRangeSet(true)
         }
       } catch (error) {
         console.error('データ範囲の取得に失敗しました:', error)
+        // エラー時も初期化を完了させる
+        setIsInitialDateRangeSet(true)
       }
     }
 
     fetchDataRange()
-  }, [])
+  }, [isInitialDateRangeSet])
 
   const handleDateChange = (start: Date, end: Date) => {
     setDateRange({ start, end })
@@ -150,10 +207,19 @@ function App() {
             dataRange={dataRange}
           />
 
-          <GraphDisplay
-            dateRange={dateRange}
-            onImageClick={handleImageClick}
-          />
+          {isInitialDateRangeSet ? (
+            <GraphDisplay
+              dateRange={dateRange}
+              onImageClick={handleImageClick}
+            />
+          ) : (
+            <div className="box">
+              <div className="has-text-centered">
+                <div className="loader"></div>
+                <p className="mt-2">データ範囲を確認中...</p>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 
