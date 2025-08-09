@@ -998,10 +998,8 @@ def plot_temperature(data, figsize):
     ax.set_ylabel("温度 (℃)")
     ax.grid(True, alpha=0.7)
 
-    # 時間軸の書式設定
-    ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%m/%d\n%H:%M"))
-    ax.xaxis.set_major_locator(matplotlib.dates.HourLocator(interval=6))
-    ax.xaxis.set_minor_locator(matplotlib.dates.HourLocator(interval=2))
+    time_range = data["time_numeric"].max() - data["time_numeric"].min()
+    apply_time_axis_format(ax, time_range)
 
     # Y軸の範囲設定
     ax.set_ylim(-20, 30)
