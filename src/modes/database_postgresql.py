@@ -77,26 +77,48 @@ def open(host, port, database, user, password):  # noqa: A001
             ");"
         )
 
-        # 個別インデックス（単一カラムでの範囲検索用）
+        # インデックス設計方針:
+        # - グラフ描画クエリの最適化を重視（distance <= 100, temperature > -100の条件が多い）
+        # - 部分インデックス（WHERE句付き）により、メンテナンスオーバーヘッドを削減
+        # - 使用頻度の低い位置情報系インデックス（latitude, longitude）は削除
+
+        # 基本インデックス（単一カラムでの範囲検索用）
         cur.execute("CREATE INDEX IF NOT EXISTS idx_time ON meteorological_data (time);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_distance ON meteorological_data (distance);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_altitude ON meteorological_data (altitude);")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_latitude ON meteorological_data (latitude);")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_longitude ON meteorological_data (longitude);")
 
         # 複合インデックス（よく使われる組み合わせ）
         # 時刻と距離の組み合わせ（メインクエリ用）
         cur.execute("CREATE INDEX IF NOT EXISTS idx_time_distance ON meteorological_data (time, distance);")
-        # 時刻と位置情報の組み合わせ
-        cur.execute(
-            "CREATE INDEX IF NOT EXISTS idx_time_lat_lon ON meteorological_data (time, latitude, longitude);"
-        )
+        # 時刻と高度の組み合わせ（グラフ表示用）
         cur.execute("CREATE INDEX IF NOT EXISTS idx_time_alt ON meteorological_data (time, altitude);")
 
-        # 位置情報の組み合わせ（地理的範囲検索用）
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_lat_lon ON meteorological_data (latitude, longitude);")
+        # 高効率部分インデックス（グラフ描画用 - 条件付きインデックスで効率化）
+        # fetch_by_time関数で最も頻繁に使用される条件に特化
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_optimized_fetch
+            ON meteorological_data (time, distance)
+            WHERE distance <= 100 AND temperature > -100 AND altitude IS NOT NULL;
+        """)
 
-        # BRIN インデックス（時系列データに効果的）
+        # 風向データ専用インデックス（風向グラフ用）
+        # 風向グラフ生成時の高速化（wind_speed > 0.1で無風データを除外）
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_wind_data
+            ON meteorological_data (time, altitude, wind_x, wind_y, wind_speed, wind_angle)
+            WHERE distance <= 100 AND wind_speed > 0.1;
+        """)
+
+        # 温度・高度データ用複合インデックス（グラフ生成の高速化）
+        # 等高線、ヒートマップ、散布図の生成で使用
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_time_distance_temp_alt
+            ON meteorological_data (time, distance, temperature, altitude)
+            WHERE distance <= 100 AND temperature > -100;
+        """)
+
+        # BRIN インデックス（時系列データに効果的、メモリ効率良い）
+        # 大量の時系列データでの範囲検索で効果的、メモリ使用量が少ない
         cur.execute("CREATE INDEX IF NOT EXISTS idx_time_brin ON meteorological_data USING BRIN (time);")
 
     return conn
@@ -196,10 +218,11 @@ def fetch_by_time(conn, time_start, time_end, distance, columns=None):
 
     start = time.perf_counter()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        # クエリを最適化：インデックスを効率的に使用
+        # クエリを最適化：インデックスを効率的に使用し、不要なデータを事前フィルタ
         query = (
             f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
             f"WHERE time >= %s AND time <= %s AND distance <= %s "
+            f"AND temperature > -100 AND altitude IS NOT NULL "
             f"ORDER BY time"
         )
         cur.execute(
