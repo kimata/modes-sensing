@@ -1174,8 +1174,9 @@ def data_range():
             earliest = result["earliest"]
             latest = result["latest"]
 
-            # データベースの時刻は実際にはJST（ローカルタイム）で保存されているため、
+            # データベースの時刻は現在JST（ローカルタイム）で保存されているため、
             # タイムゾーン情報がない場合は直接ローカルタイムゾーンを適用
+            # NOTE: PostgreSQLのタイムゾーン設定がAsia/Tokyoに変更されたら、UTC変換処理に変更する
             if earliest.tzinfo is None:
                 earliest = earliest.replace(tzinfo=my_lib.time.get_zoneinfo())
             if latest.tzinfo is None:
