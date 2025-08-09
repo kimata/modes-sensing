@@ -191,7 +191,7 @@ def detect_outlier_by_altitude_neighbors(  # noqa: PLR0913
     temperatures,
     callsign=None,
     n_neighbors=200,
-    deviation_threshold=15,
+    deviation_threshold=20,
     sigma_threshold=4,
 ):
     """
@@ -207,7 +207,7 @@ def detect_outlier_by_altitude_neighbors(  # noqa: PLR0913
         temperatures (np.array): 履歴データの温度配列
         callsign (str, optional): 航空機のコールサイン（ログ用）
         n_neighbors (int): 使用する近傍データ数（デフォルト: 400）
-        deviation_threshold (float): 絶対偏差による異常値判定閾値（デフォルト: 12）
+        deviation_threshold (float): 絶対偏差による異常値判定閾値（デフォルト: 20）
         sigma_threshold (float): 異常値判定のシグマ閾値（デフォルト: 4）
 
     Returns:
