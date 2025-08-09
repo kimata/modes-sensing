@@ -19,11 +19,11 @@ def port(request):
 
 @pytest.fixture
 def page(playwright):
+    from playwright.sync_api import expect
+
     browser = playwright.chromium.launch()
     context = browser.new_context()
     page = context.new_page()
-
-    from playwright.sync_api import expect
 
     timeout = 90000  # CI環境対応で90秒に延長
     page.set_default_navigation_timeout(timeout)
