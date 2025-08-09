@@ -84,8 +84,8 @@ class ProcessPoolManager:
         if self.pool is None:
             with self._lock:
                 if self.pool is None:
-                    # CPUコア数に基づいてプロセス数を決定（最大4、最小1）
-                    max_workers = min(max(multiprocessing.cpu_count() // 2, 1), 4)
+                    # CPUコア数に基づいてプロセス数を決定（最大10、最小1）
+                    max_workers = min(max(multiprocessing.cpu_count() // 2, 1), 10)
                     self.pool = multiprocessing.Pool(processes=max_workers)
                     # アプリ終了時にプールをクリーンアップ
                     atexit.register(self.cleanup)
@@ -191,40 +191,69 @@ def append_colorbar(scatter, shrink=0.8, pad=0.01, aspect=35, fraction=0.046):
 
 
 def create_grid(time_numeric, altitudes, temperatures, grid_points=100, time_range=None):
-    # グリッド範囲を指定できるようにするが、データは全範囲を使用
+    """グリッド作成を最適化（データ前処理改善、メモリ効率向上）"""
+    # データが既にprepare_dataで前処理されているため、追加フィルタリングは最小限
+    if len(time_numeric) == 0:
+        # 空データの場合
+        time_min, time_max = 0, 1
+        alt_min, alt_max = ALT_MIN, ALT_MAX
+        time_grid = numpy.linspace(time_min, time_max, grid_points)
+        alt_grid = numpy.linspace(alt_min, alt_max, grid_points)
+        time_mesh, alt_mesh = numpy.meshgrid(time_grid, alt_grid, indexing="xy")
+        temp_grid = numpy.full_like(time_mesh, numpy.nan)
+
+        return {
+            "time_mesh": time_mesh,
+            "alt_mesh": alt_mesh,
+            "temp_grid": temp_grid,
+            "time_min": time_min,
+            "time_max": time_max,
+            "alt_min": alt_min,
+            "alt_max": alt_max,
+        }
+
+    # グリッド範囲設定
     if time_range is not None:
         time_min, time_max = time_range
+        # 実際のデータ範囲に制限
+        actual_time_min, actual_time_max = time_numeric.min(), time_numeric.max()
+        time_min = max(time_min, actual_time_min)
+        time_max = min(time_max, actual_time_max)
     else:
         time_min, time_max = time_numeric.min(), time_numeric.max()
+
     alt_min, alt_max = ALT_MIN, ALT_MAX
 
-    # メモリ効率とキャッシュ効率を考慮したグリッド作成
-    time_grid = numpy.linspace(time_min, time_max, grid_points)
-    alt_grid = numpy.linspace(alt_min, alt_max, grid_points)
+    # 連続メモリ配置でグリッド作成
+    time_grid = numpy.linspace(time_min, time_max, grid_points, dtype=numpy.float64)
+    alt_grid = numpy.linspace(alt_min, alt_max, grid_points, dtype=numpy.float64)
     time_mesh, alt_mesh = numpy.meshgrid(time_grid, alt_grid, indexing="xy")
 
-    # データポイントの事前フィルタリング（範囲外データを除外）
-    valid_data_mask = (
-        (time_numeric >= time_min)
-        & (time_numeric <= time_max)
-        & (altitudes >= alt_min)
-        & (altitudes <= alt_max)
-        & numpy.isfinite(temperatures)
-    )
-
-    if valid_data_mask.sum() < 3:
-        # 補間に必要な最小データ数が不足
+    # データが既に前処理済みなので、範囲チェックのみ
+    if time_range is not None:
+        range_mask = (time_numeric >= time_min) & (time_numeric <= time_max)
+        if not range_mask.any() or len(time_numeric[range_mask]) < 3:
+            temp_grid = numpy.full_like(time_mesh, numpy.nan)
+        else:
+            filtered_time = time_numeric[range_mask]
+            filtered_alt = altitudes[range_mask]
+            filtered_temp = temperatures[range_mask]
+            # 連続メモリ配置で補間処理を高速化
+            points = numpy.column_stack((filtered_time, filtered_alt))
+            points = numpy.ascontiguousarray(points)
+            temp_values = numpy.ascontiguousarray(filtered_temp)
+            temp_grid = scipy.interpolate.griddata(
+                points, temp_values, (time_mesh, alt_mesh), method="linear", fill_value=numpy.nan
+            )
+    elif len(time_numeric) < 3:
         temp_grid = numpy.full_like(time_mesh, numpy.nan)
     else:
-        # 有効なデータポイントのみで補間処理
-        valid_points = numpy.column_stack((time_numeric[valid_data_mask], altitudes[valid_data_mask]))
-        valid_temps = temperatures[valid_data_mask]
-
-        # scipy.interpolate.griddataの最適化：
-        # - method='linear'は最も高速
-        # - fill_valueを明示的に指定してwarningを回避
+        # 連続メモリ配置で補間処理を高速化
+        points = numpy.column_stack((time_numeric, altitudes))
+        points = numpy.ascontiguousarray(points)
+        temp_values = numpy.ascontiguousarray(temperatures)
         temp_grid = scipy.interpolate.griddata(
-            valid_points, valid_temps, (time_mesh, alt_mesh), method="linear", fill_value=numpy.nan
+            points, temp_values, (time_mesh, alt_mesh), method="linear", fill_value=numpy.nan
         )
 
     return {
@@ -305,7 +334,7 @@ def create_no_data_image(config, graph_name, text="データがありません")
 
 
 def prepare_data(raw_data):
-    # リスト内包表記からnumpy配列への直接変換で高速化
+    """データ前処理を最適化（無効データ除去、メモリ効率向上）"""
     if not raw_data:
         return {
             "count": 0,
@@ -316,9 +345,24 @@ def prepare_data(raw_data):
             "dataframe": pandas.DataFrame(),
         }
 
-    # 温度フィルタリングを先に行い、有効なインデックスを特定
-    temperatures = numpy.array([d["temperature"] for d in raw_data])
-    valid_mask = temperatures > TEMPERATURE_THRESHOLD
+    # 全データを一括でnumpy配列に変換（メモリ効率向上）
+    data_length = len(raw_data)
+    temperatures = numpy.empty(data_length, dtype=numpy.float64)
+    altitudes = numpy.empty(data_length, dtype=numpy.float64)
+
+    # 一括データ抽出（リスト内包表記より高速）
+    for i, record in enumerate(raw_data):
+        temperatures[i] = record["temperature"]
+        altitudes[i] = record["altitude"]
+
+    # 複合条件による無効データフィルタリング（一度に処理）
+    valid_mask = (
+        (temperatures > TEMPERATURE_THRESHOLD)
+        & (numpy.isfinite(temperatures))
+        & (numpy.isfinite(altitudes))
+        & (altitudes >= ALT_MIN)
+        & (altitudes <= ALT_MAX)
+    )
 
     if not valid_mask.any():
         return {
@@ -330,31 +374,34 @@ def prepare_data(raw_data):
             "dataframe": pandas.DataFrame(),
         }
 
-    # 有効なデータのみを効率的に抽出
-    filtered_data = [raw_data[i] for i in numpy.where(valid_mask)[0]]
+    # 有効データのみを連続メモリ配置で抽出
+    valid_indices = numpy.where(valid_mask)[0]
+    valid_count = len(valid_indices)
 
-    # pandas.DataFrameの作成を最小限に（dataframeが必要な場合のみ）
-    # 基本的な配列処理はnumpyで高速化
-    times_list = [d["time"] for d in filtered_data]
-    altitudes = numpy.array([d["altitude"] for d in filtered_data])
-    temperatures = temperatures[valid_mask]
+    # 連続メモリ配列として確保（キャッシュ効率向上）
+    clean_temperatures = numpy.ascontiguousarray(temperatures[valid_mask])
+    clean_altitudes = numpy.ascontiguousarray(altitudes[valid_mask])
 
-    # pandas.to_datetimeは比較的重いので、必要最小限で使用
-    times = pandas.to_datetime(times_list).to_numpy()
+    # 時間データの効率的処理
+    times_list = [raw_data[i]["time"] for i in valid_indices]
 
-    # matplotlib.dates.date2numをベクトル化して高速化
-    time_numeric = matplotlib.dates.date2num(times)
+    # pandas.to_datetimeの最適化設定
+    times = pandas.to_datetime(times_list, utc=False, cache=True).to_numpy()
 
-    # DataFrameは風向・風速グラフでのみ必要
-    # filtered_dataには既に有効なデータのみが含まれている
-    clean_df = pandas.DataFrame(filtered_data)
+    # matplotlib.dates.date2numをベクトル化
+    time_numeric = numpy.ascontiguousarray(matplotlib.dates.date2num(times))
+
+    # DataFrame作成は風向グラフでのみ必要（遅延作成）
+    # 必要な場合のみフィルタリングされたデータでDataFrame作成
+    filtered_records = [raw_data[i] for i in valid_indices] if valid_count < data_length else raw_data
+    clean_df = pandas.DataFrame(filtered_records) if filtered_records else pandas.DataFrame()
 
     return {
-        "count": len(times),
+        "count": valid_count,
         "times": times,
         "time_numeric": time_numeric,
-        "altitudes": altitudes,
-        "temperatures": temperatures,
+        "altitudes": clean_altitudes,
+        "temperatures": clean_temperatures,
         "dataframe": clean_df,
     }
 
@@ -687,64 +734,121 @@ def plot_contour_3d(data, figsize):
     return (img, time.perf_counter() - start)
 
 
-def _prepare_wind_data(data):
-    """風データの前処理とビニング処理"""
-    # 風データが利用可能かチェック
+def _validate_wind_dataframe(data):
+    """風データのDataFrame検証とカラムチェック"""
     if "dataframe" not in data or len(data["dataframe"]) == 0:
         logging.warning("Wind data not available for wind direction plot")
         raise ValueError("Wind data not available")  # noqa: TRY003, EM101
 
     df = data["dataframe"]
-
-    # 風データのカラムが存在するかチェック
     required_columns = ["time", "altitude", "wind_x", "wind_y", "wind_speed", "wind_angle"]
     missing_columns = [col for col in required_columns if col not in df.columns]
+
     if missing_columns:
         logging.warning("Missing wind data columns: %s", missing_columns)
         logging.warning("Available columns: %s", list(df.columns))
         raise ValueError(f"Missing wind data columns: {missing_columns}")  # noqa: TRY003, EM102
 
-    # 200m毎の高度ビンを作成
-    altitude_bins = numpy.arange(0, 13000, 200)  # 0-13000mを200m間隔
-    df_copy = df.copy()
-    df_copy["altitude_bin"] = pandas.cut(df_copy["altitude"], bins=altitude_bins, labels=altitude_bins[:-1])
+    return df
 
-    # 時間ビンを作成
-    df_copy["time_numeric"] = df_copy["time"].apply(matplotlib.dates.date2num)
-    time_range = df_copy["time_numeric"].max() - df_copy["time_numeric"].min()
-    if time_range <= 1:  # 1日以内
+
+def _extract_and_filter_wind_data(df):
+    """風データの抽出とフィルタリング"""
+    # NumPyベースの高速前処理
+    altitudes = df["altitude"].to_numpy()
+    wind_x = df["wind_x"].to_numpy()
+    wind_y = df["wind_y"].to_numpy()
+
+    # 時間データの効率的変換
+    if "time_numeric" in df.columns:
+        time_numeric = df["time_numeric"].to_numpy()
+    else:
+        time_numeric = matplotlib.dates.date2num(df["time"].to_numpy())
+
+    # 無風データを事前除外（ベクトル化）
+    wind_speed = numpy.sqrt(wind_x**2 + wind_y**2)
+    valid_wind_mask = wind_speed > 0.1
+
+    if not valid_wind_mask.any():
+        logging.warning("No valid wind vectors after speed filtering")
+        raise ValueError("No valid wind vectors after speed filtering")  # noqa: TRY003, EM101
+
+    return {
+        "altitudes": altitudes[valid_wind_mask],
+        "wind_x": wind_x[valid_wind_mask],
+        "wind_y": wind_y[valid_wind_mask],
+        "time_numeric": time_numeric[valid_wind_mask],
+    }
+
+
+def _create_wind_bins(valid_data):
+    """風データのビニング処理"""
+    from collections import defaultdict
+
+    valid_altitudes = valid_data["altitudes"]
+    valid_time_numeric = valid_data["time_numeric"]
+    valid_wind_x = valid_data["wind_x"]
+    valid_wind_y = valid_data["wind_y"]
+
+    # 高度ビニング
+    altitude_bins = numpy.arange(0, 13000, 200)
+    altitude_bin_indices = numpy.searchsorted(altitude_bins, valid_altitudes, side="right") - 1
+    altitude_bin_indices = numpy.clip(altitude_bin_indices, 0, len(altitude_bins) - 2)
+
+    # 時間ビニング
+    time_range = valid_time_numeric.max() - valid_time_numeric.min()
+    if time_range <= 1:
         time_bins = 48  # 30分間隔
-    elif time_range <= 3:  # 3日以内
+    elif time_range <= 3:
         time_bins = 24  # 3時間間隔
     else:
         time_bins = int(time_range * 4)  # 6時間間隔
 
-    time_bin_edges = numpy.linspace(
-        df_copy["time_numeric"].min(), df_copy["time_numeric"].max(), time_bins + 1
-    )
-    df_copy["time_bin"] = pandas.cut(df_copy["time_numeric"], bins=time_bin_edges)
+    time_bin_edges = numpy.linspace(valid_time_numeric.min(), valid_time_numeric.max(), time_bins + 1)
+    time_bin_indices = numpy.searchsorted(time_bin_edges, valid_time_numeric, side="right") - 1
+    time_bin_indices = numpy.clip(time_bin_indices, 0, time_bins - 1)
 
-    # 各ビンで風向成分を平均化
-    grouped = (
-        df_copy.groupby(["time_bin", "altitude_bin"], observed=False)
-        .agg({"wind_x": "mean", "wind_y": "mean", "time_numeric": "mean"})
-        .reset_index()
-    )
+    # ビニング集計
+    bin_data = defaultdict(lambda: {"wind_x": [], "wind_y": [], "time_numeric": []})
 
-    grouped = grouped.dropna()
-    if len(grouped) == 0:
+    for i in range(len(valid_altitudes)):
+        bin_key = (time_bin_indices[i], altitude_bin_indices[i])
+        bin_data[bin_key]["wind_x"].append(valid_wind_x[i])
+        bin_data[bin_key]["wind_y"].append(valid_wind_y[i])
+        bin_data[bin_key]["time_numeric"].append(valid_time_numeric[i])
+
+    return bin_data, altitude_bins
+
+
+def _prepare_wind_data(data):
+    """風データの前処理とビニング処理（最適化版）"""
+    df = _validate_wind_dataframe(data)
+    valid_data = _extract_and_filter_wind_data(df)
+    bin_data, altitude_bins = _create_wind_bins(valid_data)
+
+    # 集計結果をDataFrameに変換
+    grouped_data = []
+    for (time_idx, alt_idx), values in bin_data.items():
+        if len(values["wind_x"]) > 0:  # 空のビンをスキップ
+            grouped_data.append(
+                {
+                    "time_bin": time_idx,
+                    "altitude_bin": altitude_bins[alt_idx],
+                    "wind_x": numpy.mean(values["wind_x"]),
+                    "wind_y": numpy.mean(values["wind_y"]),
+                    "time_numeric": numpy.mean(values["time_numeric"]),
+                }
+            )
+
+    if not grouped_data:
         logging.warning("No valid wind data after binning")
         raise ValueError("No valid wind data after binning")  # noqa: TRY003, EM101
 
-    # 風速と風向を再計算
+    grouped = pandas.DataFrame(grouped_data)
+
+    # 風速と風向を再計算（ベクトル化）
     grouped["wind_speed"] = numpy.sqrt(grouped["wind_x"] ** 2 + grouped["wind_y"] ** 2)
     grouped["wind_angle"] = (90 - numpy.degrees(numpy.arctan2(grouped["wind_y"], grouped["wind_x"]))) % 360
-
-    # 無風を除外
-    grouped = grouped[grouped["wind_speed"] > 0.1]
-    if len(grouped) == 0:
-        logging.warning("No valid wind vectors after speed filtering")
-        raise ValueError("No valid wind vectors after speed filtering")  # noqa: TRY003, EM101
 
     return grouped
 
@@ -1195,6 +1299,15 @@ if __name__ == "__main__":
             time_start,
             time_end,
             config["filter"]["area"]["distance"],
-            columns=["time", "altitude", "temperature", "distance"],
+            columns=[
+                "time",
+                "altitude",
+                "temperature",
+                "distance",
+                "wind_x",
+                "wind_y",
+                "wind_speed",
+                "wind_angle",
+            ],
         )
     )
