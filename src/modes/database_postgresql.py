@@ -222,7 +222,7 @@ def fetch_by_time(conn, time_start, time_end, distance, columns=None):
         query = (
             f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
             f"WHERE time >= %s AND time <= %s AND distance <= %s "
-            f"AND temperature > -100 AND altitude IS NOT NULL "
+            f"AND altitude IS NOT NULL "
             f"ORDER BY time"
         )
         cur.execute(
