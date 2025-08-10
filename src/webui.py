@@ -68,6 +68,16 @@ def create_app(config):
 
     my_lib.webapp.config.show_handler_list(app)
 
+    # アプリケーション起動時にキャッシュの定期更新を開始
+    @app.before_request
+    def init_cache():
+        # 初回リクエスト時のみ実行
+        if not hasattr(app, "_cache_initialized"):
+            logging.info("Starting periodic cache update...")
+            # Note: アクセスしているのはパブリックAPIとして設計されたグローバル変数
+            modes.webui.api.graph._graph_cache.start_periodic_update(config)  # noqa: SLF001
+            app._cache_initialized = True  # noqa: SLF001
+
     return app
 
 

@@ -1,6 +1,6 @@
 # ✈️ modes-sensing
 
-航空機から送信される Mode S メッセージを受信し、気象データを可視化するシステム
+航空機から送信される DDR Mode S メッセージを受信し、気象データを可視化するシステム
 
 [![Regression](https://github.com/kimata/modes-sensing/actions/workflows/regression.yaml/badge.svg)](https://github.com/kimata/modes-sensing/actions/workflows/regression.yaml)
 
@@ -36,7 +36,7 @@
 
 ## 📋 概要
 
-航空機が送信する Mode S メッセージ（BDS 4,4 および BDS 4,5）から気象データ（気温・風速・風向）を抽出し、可視化するシステムです。高度別の大気状態をリアルタイムで観測できます。
+航空機が送信する SSR Mode S メッセージ（BDS 4,4 および BDS 4,5）から気象データ（気温・風速・風向）を抽出し、可視化するシステムです。高度別の大気状態をリアルタイムで観測できます。
 
 ### 主な特徴
 
