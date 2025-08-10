@@ -19,6 +19,7 @@ import json
 import logging
 import multiprocessing
 import pathlib
+import threading
 import time
 
 import flask
@@ -61,6 +62,162 @@ ALT_AXIS_LABEL = "高度 (m)"
 TEMP_AXIS_LABEL = "温度 (℃)"
 
 blueprint = flask.Blueprint("modes-sensing-graph", __name__)
+
+
+# グラフキャッシュの管理
+class GraphCache:
+    """グラフのキャッシュを管理するクラス"""
+
+    def __init__(self):
+        """キャッシュインスタンスを初期化"""
+        # {graph_name: {"image": bytes, "start": datetime, "end": datetime, "timestamp": time}}
+        self.cache = {}
+        self.lock = threading.RLock()  # 読み書き排他制御用
+        self.update_thread = None
+        self.stop_event = threading.Event()
+        self.config = None
+
+    def start_periodic_update(self, config, interval=540):  # 9分 = 540秒
+        """定期的なキャッシュ更新を開始"""
+        self.config = config
+        if self.update_thread is None or not self.update_thread.is_alive():
+            self.stop_event.clear()
+            self.update_thread = threading.Thread(
+                target=self._periodic_update_worker, args=(interval,), daemon=True
+            )
+            self.update_thread.start()
+            logging.info("Started periodic cache update thread (interval: %d seconds)", interval)
+
+    def stop_periodic_update(self):
+        """定期的なキャッシュ更新を停止"""
+        if self.update_thread:
+            self.stop_event.set()
+            self.update_thread.join(timeout=5)
+            logging.info("Stopped periodic cache update thread")
+
+    def _periodic_update_worker(self, interval):
+        """定期更新ワーカースレッド"""
+        while not self.stop_event.is_set():
+            try:
+                self._update_all_caches()
+            except Exception:
+                logging.exception("Error in periodic cache update")
+
+            # 指定された間隔で待機（停止イベントをチェックしながら）
+            if self.stop_event.wait(interval):
+                break
+
+    def _update_all_caches(self):
+        """全グラフのキャッシュを更新"""
+        if not self.config:
+            return
+
+        # 現在時刻と期間の計算
+        end_time = my_lib.time.now()
+
+        # データベースから最古のデータ日時を取得
+        try:
+            conn = connect_database(self.config)
+            data_range = modes.database_postgresql.fetch_data_range(conn)
+            conn.close()
+
+            if data_range["earliest"]:
+                earliest_time = data_range["earliest"]
+                if earliest_time.tzinfo is None:
+                    earliest_time = earliest_time.replace(tzinfo=my_lib.time.get_zoneinfo())
+            else:
+                # データがない場合はキャッシュ更新をスキップ
+                logging.info("No data available, skipping cache update")
+                return
+        except Exception:
+            logging.exception("Error fetching data range for cache update")
+            return
+
+        # 7日前または最古のデータ日時のうち、より新しい方を開始時刻とする
+        seven_days_ago = end_time - datetime.timedelta(days=7)
+        start_time = max(seven_days_ago, earliest_time)
+
+        logging.info("Updating cache for all graphs (start: %s, end: %s)", start_time, end_time)
+
+        # 各グラフのキャッシュを生成
+        new_cache = {}
+        for graph_name in GRAPH_DEF_MAP:
+            try:
+                logging.info("Generating cache for %s", graph_name)
+                image_bytes = plot(self.config, graph_name, start_time, end_time)
+                new_cache[graph_name] = {
+                    "image": image_bytes,
+                    "start": start_time,
+                    "end": end_time,
+                    "timestamp": time.time(),
+                }
+                logging.info("Cache generated for %s (size: %d bytes)", graph_name, len(image_bytes))
+            except Exception:  # noqa: PERF203
+                logging.exception("Error generating cache for %s", graph_name)
+
+        # 新しいキャッシュで上書き（排他制御は最小限）
+        with self.lock:
+            self.cache.update(new_cache)
+
+        logging.info("Cache update completed for %d graphs", len(new_cache))
+
+    def get(self, graph_name, requested_start, requested_end, tolerance_minutes=10):
+        """
+        キャッシュからグラフを取得
+
+        Args:
+            graph_name: グラフ名
+            requested_start: リクエストされた開始時刻
+            requested_end: リクエストされた終了時刻
+            tolerance_minutes: 許容する時間差（分）
+
+        Returns:
+            キャッシュされた画像データ、またはNone
+
+        """
+        with self.lock:
+            if graph_name not in self.cache:
+                return None
+
+            cached = self.cache[graph_name]
+            cached_start = cached["start"]
+            cached_end = cached["end"]
+
+            # 時間差を計算（分単位）
+            start_diff = abs((requested_start - cached_start).total_seconds() / 60)
+            end_diff = abs((requested_end - cached_end).total_seconds() / 60)
+
+            # 許容範囲内であればキャッシュを返す
+            if start_diff < tolerance_minutes and end_diff < tolerance_minutes:
+                logging.info(
+                    "Cache hit for %s (start diff: %.1f min, end diff: %.1f min)",
+                    graph_name,
+                    start_diff,
+                    end_diff,
+                )
+                return cached["image"]
+            else:
+                logging.info(
+                    "Cache miss for %s (start diff: %.1f min, end diff: %.1f min)",
+                    graph_name,
+                    start_diff,
+                    end_diff,
+                )
+                return None
+
+    def set(self, graph_name, image_bytes, start_time, end_time):
+        """キャッシュに手動で設定（デバッグ用）"""
+        with self.lock:
+            self.cache[graph_name] = {
+                "image": image_bytes,
+                "start": start_time,
+                "end": end_time,
+                "timestamp": time.time(),
+            }
+
+
+# グローバルキャッシュインスタンス
+_graph_cache = GraphCache()
 
 
 # グローバルプロセスプール管理（matplotlib マルチスレッド問題対応）
@@ -1139,8 +1296,8 @@ def plot(config, graph_name, time_start, time_end):
         )
         logging.info("Process pool apply_async() called for %s", graph_name)
 
-        # 30秒でタイムアウト
-        result = async_result.get(timeout=30)
+        # 60秒でタイムアウト（複雑なグラフの場合時間がかかる場合がある）
+        result = async_result.get(timeout=60)
         logging.info("Process pool apply_async() returned for %s", graph_name)
         image_bytes, elapsed = result
 
@@ -1154,7 +1311,7 @@ def plot(config, graph_name, time_start, time_end):
         )
         return image_bytes
     except multiprocessing.TimeoutError:
-        logging.exception("Timeout in plot generation for %s (30 seconds)", graph_name)
+        logging.exception("Timeout in plot generation for %s (60 seconds)", graph_name)
         msg = f"Plot generation timed out for {graph_name}"
         raise RuntimeError(msg) from None
     except Exception:
@@ -1170,6 +1327,18 @@ def plot(config, graph_name, time_start, time_end):
             # 最終的にフォールバック画像を返す
             logging.exception("Failed to create error image for %s", graph_name)
             return b""
+
+
+@blueprint.route("/api/init-cache", methods=["POST"])
+def init_cache():
+    """キャッシュの初期化と定期更新の開始（アプリ起動時に呼ばれる）"""
+    try:
+        config = flask.current_app.config["CONFIG"]
+        _graph_cache.start_periodic_update(config)
+        return flask.jsonify({"status": "success", "message": "Cache initialization started"})
+    except Exception as e:
+        logging.exception("Error initializing cache")
+        return flask.jsonify({"error": "Failed to initialize cache", "details": str(e)}), 500
 
 
 @blueprint.route("/api/data-range", methods=["GET"])
@@ -1213,7 +1382,7 @@ def data_range():
 
 
 @blueprint.route("/api/graph/<path:graph_name>", methods=["GET"])
-def graph(graph_name):
+def graph(graph_name):  # noqa: PLR0915
     # デフォルト値を設定
     default_time_end = my_lib.time.now()
     default_time_start = default_time_end - datetime.timedelta(days=1)
@@ -1221,6 +1390,7 @@ def graph(graph_name):
     # パラメータから時間を取得（JSON文字列として）
     time_end_str = flask.request.args.get("end", None)
     time_start_str = flask.request.args.get("start", None)
+    use_cache = flask.request.args.get("use_cache", "0")
 
     # 文字列をUTC時間のdatetimeに変換してからローカルタイムに変換
     if time_end_str:
@@ -1235,9 +1405,25 @@ def graph(graph_name):
     else:
         time_start = default_time_start
 
-    logging.info("request: %s graph (start: %s, end: %s)", graph_name, time_start, time_end)
+    logging.info(
+        "request: %s graph (start: %s, end: %s, use_cache: %s)", graph_name, time_start, time_end, use_cache
+    )
 
     config = flask.current_app.config["CONFIG"]
+
+    # use_cacheが0以外の場合、キャッシュを確認
+    if use_cache != "0":
+        logging.info("Checking cache for %s", graph_name)
+        cached_image = _graph_cache.get(graph_name, time_start, time_end)
+        if cached_image:
+            logging.info(
+                "Cache hit! Returning cached image for %s (size: %d bytes)", graph_name, len(cached_image)
+            )
+            res = flask.Response(cached_image, mimetype="image/png")
+            res.headers["Cache-Control"] = "public, max-age=600"
+            return res
+        else:
+            logging.info("Cache miss for %s, generating new graph", graph_name)
 
     # グラフ生成を試行
     try:
@@ -1278,7 +1464,7 @@ def graph(graph_name):
         ax.axis("off")
 
         buf = io.BytesIO()
-        plt.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor="white")
+        plt.savefig(buf, format="png", dpi=IMAGE_DPI, bbox_inches="tight", facecolor="white")
         buf.seek(0)
         error_image_bytes = buf.read()
         buf.close()
