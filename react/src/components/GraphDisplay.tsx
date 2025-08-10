@@ -50,9 +50,11 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
   const containerRefs = useRef<{ [key: string]: HTMLDivElement | null }>({})
   const [containerWidths, setContainerWidths] = useState<{ [key: string]: number }>({})
   const notificationRef = useRef<HTMLDivElement>(null)
+  const [isInitialLoad, setIsInitialLoad] = useState(true)
+  const initialLoadCompleteRef = useRef(false)
 
   // シンプルなURL生成
-  const getImageUrl = useCallback((graph: GraphInfo, forceReload = false) => {
+  const getImageUrl = useCallback((graph: GraphInfo, forceReload = false, useCache = false) => {
     const now = new Date()
     let timestamp: number
 
@@ -68,32 +70,68 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
       start: JSON.stringify(dateRange.start.toISOString()),
       end: JSON.stringify(dateRange.end.toISOString()),
       _t: timestamp.toString(),
-      ...(forceReload && { _r: Math.random().toString(36).substr(2, 9) })
+      ...(forceReload && { _r: Math.random().toString(36).substr(2, 9) }),
+      ...(useCache && { use_cache: '1' })
     })
+
 
     return `${graph.endpoint}?${params}`
   }, [dateRange])
 
   // シンプルな画像ハンドラー
   const handleImageLoad = useCallback((key: string) => {
-    console.log('[Load]', key)
-    setLoading(prev => ({ ...prev, [key]: false }))
+    setLoading(prev => {
+      const newLoading = { ...prev, [key]: false }
+
+      // 初回ロードが完了したらフラグを更新
+      if (isInitialLoad && !initialLoadCompleteRef.current) {
+        // 全てのグラフの初回ロードが完了したか確認
+        const allLoaded = graphs.every(g => {
+          const loadingState = newLoading[g.endpoint]
+          return loadingState === false
+        })
+
+        if (allLoaded) {
+          initialLoadCompleteRef.current = true
+          setIsInitialLoad(false)
+        }
+      }
+
+      return newLoading
+    })
     setErrors(prev => ({ ...prev, [key]: '' }))
-  }, [])
+  }, [isInitialLoad])
 
   const handleImageError = useCallback((key: string, title: string) => {
-    console.log('[Error]', key)
-    setLoading(prev => ({ ...prev, [key]: false }))
+    setLoading(prev => {
+      const newLoading = { ...prev, [key]: false }
+
+      // 初回ロードが完了したらフラグを更新（エラーでも完了とみなす）
+      if (isInitialLoad && !initialLoadCompleteRef.current) {
+        // 全てのグラフの初回ロードが完了したか確認
+        const allLoaded = graphs.every(g => {
+          const loadingState = newLoading[g.endpoint]
+          return loadingState === false
+        })
+
+        if (allLoaded) {
+          initialLoadCompleteRef.current = true
+          setIsInitialLoad(false)
+        }
+      }
+
+      return newLoading
+    })
     setErrors(prev => ({ ...prev, [key]: `${title}の読み込みに失敗しました` }))
-  }, [])
+  }, [isInitialLoad])
 
   const handleReload = useCallback((key: string) => {
-    console.log('[Reload]', key)
     const graph = graphs.find(g => g.endpoint === key)
     if (graph) {
       setErrors(prev => ({ ...prev, [key]: '' }))
       setLoading(prev => ({ ...prev, [key]: true }))
-      setImageUrls(prev => ({ ...prev, [key]: getImageUrl(graph, true) }))
+      // リロード時はキャッシュを使わない
+      setImageUrls(prev => ({ ...prev, [key]: getImageUrl(graph, true, false) }))
     }
   }, [getImageUrl])
 
@@ -125,22 +163,44 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
+  // 前回の日付範囲を追跡
+  const prevDateRangeRef = useRef<{ start: Date; end: Date } | null>(null)
+
   // dateRangeが変更されたら画像URLを更新
   useEffect(() => {
-    console.log('[DateRange changed]')
+    // 初回ロードが既に完了している場合はキャッシュを使わない
+    const useCache = isInitialLoad && !initialLoadCompleteRef.current
+
+    // 前回の日付範囲と同じかチェック
+    const prevRange = prevDateRangeRef.current
+    const isSameRange = prevRange &&
+      prevRange.start.getTime() === dateRange.start.getTime() &&
+      prevRange.end.getTime() === dateRange.end.getTime()
+
+    if (isSameRange && !isInitialLoad) {
+      // 同じ日付範囲の場合、ローディング状態をスキップしてすでに表示されている画像を維持
+      return
+    }
+
+    // 現在の日付範囲を記録
+    prevDateRangeRef.current = { start: new Date(dateRange.start), end: new Date(dateRange.end) }
+
     const newUrls: { [key: string]: string } = {}
     const newLoading: { [key: string]: boolean } = {}
 
     graphs.forEach(graph => {
       const key = graph.endpoint
-      newUrls[key] = getImageUrl(graph, false)
+      // 初回ロードが完了していない場合のみキャッシュを使用
+      const url = getImageUrl(graph, false, useCache)
+      newUrls[key] = url
       newLoading[key] = true
     })
 
+    // 状態を同期して更新
     setImageUrls(newUrls)
     setLoading(newLoading)
     setErrors({})
-  }, [dateRange, getImageUrl])
+  }, [dateRange, getImageUrl, isInitialLoad])
 
   // パーマリンクコピー関数
   const showCopyNotification = (message: string) => {
@@ -313,7 +373,9 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
                             }}
                             onClick={() => onImageClick(imageUrl)}
                             onLoad={() => handleImageLoad(key)}
-                            onError={() => handleImageError(key, graph.title)}
+                            onError={() => {
+                              handleImageError(key, graph.title)
+                            }}
                             loading="eager"
                           />
                         </figure>

@@ -163,6 +163,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
     let start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000)
     start.setSeconds(0, 0) // 秒とミリ秒を0に設定
 
+
     // データ範囲による調整
     if (dataRange && dataRange.earliest && dataRange.latest) {
       const dataEarliest = new Date(dataRange.earliest)
@@ -193,6 +194,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
     setSelectedPeriod(period)
     setUserSelectedPeriod(period) // ユーザーが明示的に選択した期間として記録
     setIsQuickSelectActive(true) // 自動判定を抑制するフラグを設定
+
     onDateChange(start, end)
     setCustomStart(formatDateForInput(start))
     setCustomEnd(formatDateForInput(end))
@@ -237,10 +239,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
       }
 
       if (adjusted) {
-        console.log('Date range adjusted to fit available data:', {
-          original: { start: customStart, end: customEnd },
-          adjusted: { start: start.toISOString(), end: end.toISOString() }
-        })
+        // Date range was adjusted to fit available data
       }
     }
 

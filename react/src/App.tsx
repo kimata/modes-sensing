@@ -44,12 +44,6 @@ function App() {
             let adjustedEnd = new Date(currentRange.end)
             let needsAdjustment = false
 
-            console.log('[App] Initial date range adjustment check:', {
-              currentStart: adjustedStart.toISOString(),
-              currentEnd: adjustedEnd.toISOString(),
-              dataEarliest: dataEarliest.toISOString(),
-              dataLatest: dataLatest.toISOString()
-            })
 
             // 終了日時が利用可能なデータの最新日時を超えている場合
             if (adjustedEnd > dataLatest) {
@@ -75,10 +69,6 @@ function App() {
             }
 
             if (needsAdjustment) {
-              console.log('[App] Adjusting initial date range:', {
-                from: { start: currentRange.start.toISOString(), end: currentRange.end.toISOString() },
-                to: { start: adjustedStart.toISOString(), end: adjustedEnd.toISOString() }
-              })
               setDateRange({ start: adjustedStart, end: adjustedEnd })
             }
 
