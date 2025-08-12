@@ -95,7 +95,8 @@ def wait_for_server_ready(host, port):
         sleep_time = min(backoff_delay + jitter, 2.0)
         time.sleep(sleep_time)
 
-    raise RuntimeError(f"サーバーが {TIMEOUT_SEC}秒以内に起動しませんでした。")  # noqa: TRY003, EM102
+    msg = f"サーバーが {TIMEOUT_SEC}秒以内に起動しませんでした。"
+    raise RuntimeError(msg)
 
 
 def app_url(host, port):
@@ -196,7 +197,8 @@ def wait_for_all_images_individually(page, timeout=30000):
                 raise
         else:
             logging.error("%s: Not found in DOM even after retry", title)
-            raise Exception(f"{title} not found in DOM")  # noqa: TRY002, TRY003, EM102
+            msg = f"{title} not found in DOM"
+            raise Exception(msg)  # noqa: TRY002
 
 
 def wait_for_images_to_load(page, expected_count=8, timeout=30000):
@@ -593,7 +595,7 @@ def test_period_selection_buttons(page_init, host, port):
             class_attribute = button_element.get_attribute("class")
             if "is-primary" not in class_attribute:
                 msg = f"Button did not become active after {max_attempts} attempts"
-                raise AssertionError(msg)  # noqa: TRY301
+                raise AssertionError(msg)
             logging.info("%s button became active", period_name)
         except Exception as e:
             # エラー時の詳細な状態を取得

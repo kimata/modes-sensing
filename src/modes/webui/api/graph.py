@@ -894,7 +894,7 @@ def _validate_wind_dataframe(data):
     """風データのDataFrame検証とカラムチェック"""
     if "dataframe" not in data or len(data["dataframe"]) == 0:
         logging.warning("Wind data not available for wind direction plot")
-        raise ValueError("Wind data not available")  # noqa: TRY003, EM101
+        raise ValueError("Wind data not available")
 
     df = data["dataframe"]
     required_columns = ["time", "altitude", "wind_x", "wind_y", "wind_speed", "wind_angle"]
@@ -903,7 +903,8 @@ def _validate_wind_dataframe(data):
     if missing_columns:
         logging.warning("Missing wind data columns: %s", missing_columns)
         logging.warning("Available columns: %s", list(df.columns))
-        raise ValueError(f"Missing wind data columns: {missing_columns}")  # noqa: TRY003, EM102
+        msg = f"Missing wind data columns: {missing_columns}"
+        raise ValueError(msg)
 
     return df
 
@@ -927,7 +928,7 @@ def _extract_and_filter_wind_data(df):
 
     if not valid_wind_mask.any():
         logging.warning("No valid wind vectors after speed filtering")
-        raise ValueError("No valid wind vectors after speed filtering")  # noqa: TRY003, EM101
+        raise ValueError("No valid wind vectors after speed filtering")
 
     return {
         "altitudes": altitudes[valid_wind_mask],
@@ -998,7 +999,7 @@ def _prepare_wind_data(data):
 
     if not grouped_data:
         logging.warning("No valid wind data after binning")
-        raise ValueError("No valid wind data after binning")  # noqa: TRY003, EM101
+        raise ValueError("No valid wind data after binning")
 
     grouped = pandas.DataFrame(grouped_data)
 
@@ -1036,7 +1037,7 @@ def plot_wind_direction(data, figsize):
     grouped = grouped.dropna()
     if len(grouped) == 0:
         logging.warning("No valid wind vectors after angle conversion")
-        raise ValueError("No valid wind vectors after angle conversion")  # noqa: TRY003, EM101
+        raise ValueError("No valid wind vectors after angle conversion")
 
     # プロット作成
     fig, ax = create_figure(figsize)
