@@ -20,7 +20,7 @@ import my_lib.sqlite_util
 
 
 def open(log_db_path):  # noqa: A001
-    sqlite = my_lib.sqlite_util.create(log_db_path)
+    sqlite = my_lib.sqlite_util.connect(log_db_path)
     sqlite.execute(
         "CREATE TABLE IF NOT EXISTS meteorological_data ("
         "id INTEGER primary key autoincrement, time INTEGER NOT NULL, "
