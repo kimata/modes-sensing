@@ -13,14 +13,14 @@ Options:
 import datetime
 import logging
 import queue
-import sqlite3
 import time
 
 import my_lib.footprint
+import my_lib.sqlite_util
 
 
 def open(log_db_path):  # noqa: A001
-    sqlite = sqlite3.connect(log_db_path)
+    sqlite = my_lib.sqlite_util.create(log_db_path)
     sqlite.execute(
         "CREATE TABLE IF NOT EXISTS meteorological_data ("
         "id INTEGER primary key autoincrement, time INTEGER NOT NULL, "
