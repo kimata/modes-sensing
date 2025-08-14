@@ -377,15 +377,24 @@ def append_colorbar(scatter, shrink=0.8, pad=0.01, aspect=35, fraction=0.046, li
     return cbar
 
 
-def create_grid(time_numeric, altitudes, temperatures, grid_points=100, time_range=None):
+def create_grid(  # noqa: PLR0913
+    time_numeric, altitudes, temperatures, grid_points=100, time_range=None, limit_altitude=False
+):
     """グリッド作成を最適化（データ前処理改善、メモリ効率向上）"""
     # データが既にprepare_dataで前処理されているため、追加フィルタリングは最小限
     if len(time_numeric) == 0:
         # 空データの場合
         time_min, time_max = 0, 1
-        alt_min, alt_max = ALT_MIN, ALT_MAX
+        alt_min = ALT_MIN
+        if limit_altitude:
+            alt_max = ALTITUDE_LIMIT
+            alt_grid_points = int((alt_max - alt_min) / 50) + 1
+        else:
+            alt_max = ALT_MAX
+            alt_grid_points = grid_points
+
         time_grid = numpy.linspace(time_min, time_max, grid_points)
-        alt_grid = numpy.linspace(alt_min, alt_max, grid_points)
+        alt_grid = numpy.linspace(alt_min, alt_max, alt_grid_points)
         time_mesh, alt_mesh = numpy.meshgrid(time_grid, alt_grid, indexing="xy")
         temp_grid = numpy.full_like(time_mesh, numpy.nan)
 
@@ -409,11 +418,19 @@ def create_grid(time_numeric, altitudes, temperatures, grid_points=100, time_ran
     else:
         time_min, time_max = time_numeric.min(), time_numeric.max()
 
-    alt_min, alt_max = ALT_MIN, ALT_MAX
+    # 高度範囲とグリッド密度をlimit_altitudeに応じて設定
+    alt_min = ALT_MIN
+    if limit_altitude:
+        alt_max = ALTITUDE_LIMIT  # 2000m
+        # 50m刻みにするため、2000m / 50m = 40点の高度グリッド
+        alt_grid_points = int((alt_max - alt_min) / 50) + 1
+    else:
+        alt_max = ALT_MAX  # 13000m
+        alt_grid_points = grid_points
 
     # 連続メモリ配置でグリッド作成
     time_grid = numpy.linspace(time_min, time_max, grid_points, dtype=numpy.float64)
-    alt_grid = numpy.linspace(alt_min, alt_max, grid_points, dtype=numpy.float64)
+    alt_grid = numpy.linspace(alt_min, alt_max, alt_grid_points, dtype=numpy.float64)
     time_mesh, alt_mesh = numpy.meshgrid(time_grid, alt_grid, indexing="xy")
 
     # データが既に前処理済みなので、範囲チェックのみ
@@ -474,9 +491,9 @@ def set_axis_2d_default(ax, time_range, limit_altitude=False):
 
     set_altitude_range(ax, axis="y", limit_altitude=limit_altitude)
 
-    # 高度軸の目盛りを設定（limit_altitude=Trueの場合は100m間隔）
+    # 高度軸の目盛りを設定（limit_altitude=Trueの場合は200m間隔）
     if limit_altitude:
-        ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(100))
+        ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(200))
     else:
         ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(2000))
 
@@ -624,9 +641,9 @@ def set_axis_3d(ax, time_numeric, limit_altitude=False):
     # 高度軸の最大値を設定
     alt_max = ALTITUDE_LIMIT if limit_altitude else ALT_MAX
 
-    # 高度軸の目盛りを設定（limit_altitude=Trueの場合は100m間隔）
+    # 高度軸の目盛りを設定（limit_altitude=Trueの場合は200m間隔）
     if limit_altitude:
-        ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(100))
+        ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(200))
     else:
         ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(2000))
 
@@ -750,9 +767,16 @@ def plot_contour_2d(data, figsize, plot_time_start=None, plot_time_end=None, lim
             data["temperatures"],
             grid_points=80,
             time_range=(plot_time_min, plot_time_max),
+            limit_altitude=limit_altitude,
         )
     else:
-        grid = create_grid(data["time_numeric"], data["altitudes"], data["temperatures"], grid_points=80)
+        grid = create_grid(
+            data["time_numeric"],
+            data["altitudes"],
+            data["temperatures"],
+            grid_points=80,
+            limit_altitude=limit_altitude,
+        )
 
     fig, ax = create_figure(figsize)
 
@@ -818,9 +842,16 @@ def plot_heatmap(data, figsize, plot_time_start=None, plot_time_end=None, limit_
             data["temperatures"],
             grid_points=80,
             time_range=(plot_time_min, plot_time_max),
+            limit_altitude=limit_altitude,
         )
     else:
-        grid = create_grid(data["time_numeric"], data["altitudes"], data["temperatures"], grid_points=80)
+        grid = create_grid(
+            data["time_numeric"],
+            data["altitudes"],
+            data["temperatures"],
+            grid_points=80,
+            limit_altitude=limit_altitude,
+        )
 
     fig, ax = create_figure(figsize)
 
@@ -899,7 +930,13 @@ def plot_contour_3d(data, figsize, limit_altitude=False):
     start = time.perf_counter()
 
     # グリッドデータを作成
-    grid = create_grid(data["time_numeric"], data["altitudes"], data["temperatures"], grid_points=60)
+    grid = create_grid(
+        data["time_numeric"],
+        data["altitudes"],
+        data["temperatures"],
+        grid_points=60,
+        limit_altitude=limit_altitude,
+    )
 
     fig, ax = create_3d_figure(figsize)
 
