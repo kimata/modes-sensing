@@ -85,7 +85,9 @@ def execute(config, liveness_file, count=0):
     )
 
     try:
-        modes.database_postgresql.store_queue(conn, measurement_queue, liveness_file, count)
+        modes.database_postgresql.store_queue(
+            conn, measurement_queue, liveness_file, count, db_config=config["database"]
+        )
     except Exception:
         logging.exception("Failed to store data")
 

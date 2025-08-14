@@ -10,6 +10,7 @@ Options:
   -D                : デバッグモードで動作します．
 """
 
+import contextlib
 import datetime
 import logging
 import queue
@@ -145,29 +146,97 @@ def insert(conn, data):
         )
 
 
-def store_queue(conn, measurement_queue, liveness_file, count=0):
+def store_queue(conn, measurement_queue, liveness_file, count=0, db_config=None):  # noqa: C901
+    """
+    データベースへのデータ格納を行うワーカー関数
+
+    Args:
+        conn: データベース接続
+        measurement_queue: 測定データのキュー
+        liveness_file: ヘルスチェック用ファイルパス
+        count: 処理するデータ数（0の場合は無制限）
+        db_config: 再接続用のデータベース設定（config["database"]形式）
+
+    """
     logging.info("Start store worker")
 
     i = 0
-    try:
-        while True:
-            try:
-                data = measurement_queue.get(timeout=1)
-                insert(conn, data)
-                my_lib.footprint.update(liveness_file)
+    consecutive_errors = 0
+    max_consecutive_errors = 3
 
-                i += 1
-                if (count != 0) and (i == count):
-                    break
-            except queue.Empty:
-                pass
+    while True:
+        try:
+            data = measurement_queue.get(timeout=1)
+            insert(conn, data)
+            my_lib.footprint.update(liveness_file)
 
-            if should_terminate.is_set():
+            # 成功したらエラーカウンタをリセット
+            consecutive_errors = 0
+
+            i += 1
+            if (count != 0) and (i == count):
                 break
 
-    except Exception:
+        except queue.Empty:
+            # タイムアウトはエラーとしてカウントしない
+            pass
+
+        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+            consecutive_errors += 1
+            logging.error(  # noqa: TRY400
+                "Database connection error (%d/%d consecutive): %s",
+                consecutive_errors,
+                max_consecutive_errors,
+                str(e),
+            )
+
+            if consecutive_errors >= max_consecutive_errors:
+                if db_config:
+                    logging.error("Maximum consecutive errors reached. Attempting to reconnect...")  # noqa: TRY400
+
+                    with contextlib.suppress(Exception):
+                        # 既存の接続をクローズ
+                        conn.close()
+
+                    try:
+                        # 再接続を試みる
+                        conn = open(
+                            db_config["host"],
+                            db_config["port"],
+                            db_config["name"],
+                            db_config["user"],
+                            db_config["pass"],
+                        )
+                        logging.info("Successfully reconnected to database")
+                        consecutive_errors = 0  # 再接続成功したらカウンタをリセット
+                        continue
+                    except Exception:
+                        logging.exception("Reconnection failed")
+                        break
+                else:
+                    logging.error(  # noqa: TRY400
+                        "Failed to reconnect after %d consecutive errors. Terminating.",
+                        max_consecutive_errors,
+                    )
+                    break
+
+        except Exception:
+            consecutive_errors += 1
+            logging.exception(
+                "Unexpected error in store_queue (%d/%d consecutive)",
+                consecutive_errors,
+                max_consecutive_errors,
+            )
+
+            if consecutive_errors >= max_consecutive_errors:
+                logging.error("Maximum consecutive errors reached. Terminating.")  # noqa: TRY400
+                break
+
+        if should_terminate.is_set():
+            break
+
+    with contextlib.suppress(Exception):
         conn.close()
-        logging.exception("Error in store_queue")
 
     logging.warning("Stop store worker")
 
@@ -393,4 +462,6 @@ if __name__ == "__main__":
         config["database"]["pass"],
     )
 
-    store_queue(conn, measurement_queue, config["liveness"]["file"]["collector"])
+    store_queue(
+        conn, measurement_queue, config["liveness"]["file"]["collector"], db_config=config["database"]
+    )
