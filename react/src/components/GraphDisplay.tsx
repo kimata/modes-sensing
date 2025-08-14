@@ -6,6 +6,7 @@ interface GraphDisplayProps {
     start: Date
     end: Date
   }
+  limitAltitude: boolean
   onImageClick: (imageUrl: string) => void
 }
 
@@ -35,7 +36,7 @@ const calculateActualHeight = (graph: GraphInfo, containerWidth: number): number
   return containerWidth * aspectRatio
 }
 
-const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) => {
+const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, onImageClick }) => {
   // シンプルな状態管理のみ
   const [loading, setLoading] = useState<{ [key: string]: boolean }>(() => {
     const initial: { [key: string]: boolean } = {}
@@ -69,6 +70,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     const params = new URLSearchParams({
       start: JSON.stringify(dateRange.start.toISOString()),
       end: JSON.stringify(dateRange.end.toISOString()),
+      limit_altitude: limitAltitude ? 'true' : 'false',
       _t: timestamp.toString(),
       ...(forceReload && { _r: Math.random().toString(36).substr(2, 9) }),
       ...(useCache && { use_cache: '1' })
@@ -76,7 +78,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
 
 
     return `${graph.endpoint}?${params}`
-  }, [dateRange])
+  }, [dateRange, limitAltitude])
 
   // シンプルな画像ハンドラー
   const handleImageLoad = useCallback((key: string) => {
@@ -163,27 +165,31 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
-  // 前回の日付範囲を追跡
+  // 前回の日付範囲と高度設定を追跡
   const prevDateRangeRef = useRef<{ start: Date; end: Date } | null>(null)
+  const prevLimitAltitudeRef = useRef<boolean | null>(null)
 
   // dateRangeが変更されたら画像URLを更新
   useEffect(() => {
     // 初回ロードが既に完了している場合はキャッシュを使わない
     const useCache = isInitialLoad && !initialLoadCompleteRef.current
 
-    // 前回の日付範囲と同じかチェック
+    // 前回の日付範囲と高度設定と同じかチェック
     const prevRange = prevDateRangeRef.current
+    const prevLimitAltitude = prevLimitAltitudeRef.current
     const isSameRange = prevRange &&
       prevRange.start.getTime() === dateRange.start.getTime() &&
       prevRange.end.getTime() === dateRange.end.getTime()
+    const isSameLimitAltitude = prevLimitAltitude === limitAltitude
 
-    if (isSameRange && !isInitialLoad) {
-      // 同じ日付範囲の場合、ローディング状態をスキップしてすでに表示されている画像を維持
+    if (isSameRange && isSameLimitAltitude && !isInitialLoad) {
+      // 同じ日付範囲と高度設定の場合、ローディング状態をスキップしてすでに表示されている画像を維持
       return
     }
 
-    // 現在の日付範囲を記録
+    // 現在の日付範囲と高度設定を記録
     prevDateRangeRef.current = { start: new Date(dateRange.start), end: new Date(dateRange.end) }
+    prevLimitAltitudeRef.current = limitAltitude
 
     const newUrls: { [key: string]: string } = {}
     const newLoading: { [key: string]: boolean } = {}
@@ -200,7 +206,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, onImageClick }) 
     setImageUrls(newUrls)
     setLoading(newLoading)
     setErrors({})
-  }, [dateRange, getImageUrl, isInitialLoad])
+  }, [dateRange, limitAltitude, getImageUrl, isInitialLoad])
 
   // パーマリンクコピー関数
   const showCopyNotification = (message: string) => {

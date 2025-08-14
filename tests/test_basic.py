@@ -180,3 +180,128 @@ def test_date_range_before_january_2025_api(config):
         logging.warning("Graph validation failed but PNG was generated: %s", e)
         # データがない期間でも有効なPNG画像が生成されることを確認
         logging.info("PNG data size: %d bytes", len(png_data))
+
+
+def test_limit_altitude_parameter(config):
+    """limit_altitude機能の基本動作をテスト"""
+    import datetime
+    import io
+
+    import PIL.Image
+
+    import modes.webui.api.graph
+
+    # テスト期間を設定
+    end_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)
+    start_date = end_date - datetime.timedelta(days=7)
+
+    # limit_altitude=Falseでグラフ生成
+    png_data_unlimited = modes.webui.api.graph.plot(
+        config, "scatter_2d", start_date, end_date, limit_altitude=False
+    )
+
+    # limit_altitude=Trueでグラフ生成
+    png_data_limited = modes.webui.api.graph.plot(
+        config, "scatter_2d", start_date, end_date, limit_altitude=True
+    )
+
+    # 両方のPNG画像データが生成されていることを確認
+    assert png_data_unlimited is not None  # noqa: S101
+    assert png_data_limited is not None  # noqa: S101
+    assert len(png_data_unlimited) > 0  # noqa: S101
+    assert len(png_data_limited) > 0  # noqa: S101
+
+    # PNG画像として正常に生成されていることを確認
+    with PIL.Image.open(io.BytesIO(png_data_unlimited)) as img:
+        img.verify()
+        expected_size = modes.webui.api.graph.GRAPH_DEF_MAP["scatter_2d"]["size"]
+        assert img.width == expected_size[0]  # noqa: S101
+        assert img.height == expected_size[1]  # noqa: S101
+
+    with PIL.Image.open(io.BytesIO(png_data_limited)) as img:
+        img.verify()
+        expected_size = modes.webui.api.graph.GRAPH_DEF_MAP["scatter_2d"]["size"]
+        assert img.width == expected_size[0]  # noqa: S101
+        assert img.height == expected_size[1]  # noqa: S101
+
+    logging.info(
+        "Graph generation successful - Unlimited: %d bytes, Limited: %d bytes",
+        len(png_data_unlimited),
+        len(png_data_limited),
+    )
+
+
+def test_temperature_range_by_altitude_limit():
+    """limit_altitudeに応じた温度範囲設定をテスト"""
+    import modes.webui.api.graph
+
+    # 温度範囲のヘルパー関数をテスト
+    temp_min_limited, temp_max_limited = modes.webui.api.graph.get_temperature_range(limit_altitude=True)
+    temp_min_unlimited, temp_max_unlimited = modes.webui.api.graph.get_temperature_range(limit_altitude=False)
+
+    # 高度制限有り: -20°C～40°C
+    assert temp_min_limited == -20  # noqa: S101
+    assert temp_max_limited == 40  # noqa: S101
+
+    # 高度制限無し: -80°C～30°C
+    assert temp_min_unlimited == -80  # noqa: S101
+    assert temp_max_unlimited == 30  # noqa: S101
+
+    logging.info(
+        "Temperature ranges - Limited: %d°C～%d°C, Unlimited: %d°C～%d°C",
+        temp_min_limited,
+        temp_max_limited,
+        temp_min_unlimited,
+        temp_max_unlimited,
+    )
+
+
+def test_database_altitude_filtering(config):
+    """データベースクエリの高度フィルタリング機能をテスト"""
+    import datetime
+
+    import modes.database_postgresql
+
+    # テスト期間を設定
+    end_time = datetime.datetime.now(datetime.timezone.utc)
+    start_time = end_time - datetime.timedelta(days=7)
+
+    # データベース接続を確立
+    conn = modes.database_postgresql.open(
+        config["database"]["host"],
+        config["database"]["port"],
+        config["database"]["name"],
+        config["database"]["user"],
+        config["database"]["pass"],
+    )
+
+    # 高度制限なしでデータ取得
+    data_unlimited = modes.database_postgresql.fetch_by_time(
+        conn, start_time, end_time, config["filter"]["area"]["distance"]
+    )
+
+    # 高度制限ありでデータ取得（2000m以下）
+    data_limited = modes.database_postgresql.fetch_by_time(
+        conn, start_time, end_time, config["filter"]["area"]["distance"], max_altitude=2000
+    )
+
+    conn.close()
+
+    # データが取得されていることを確認
+    assert len(data_unlimited) >= 0  # noqa: S101
+    assert len(data_limited) >= 0  # noqa: S101
+
+    # 高度制限ありの方が件数が少ないか同じであることを確認
+    assert len(data_limited) <= len(data_unlimited)  # noqa: S101
+
+    # 高度制限ありのデータは全て2000m以下であることを確認
+    if len(data_limited) > 0:
+        for record in data_limited:
+            if record["altitude"] is not None:
+                assert record["altitude"] <= 2000  # noqa: S101
+
+    logging.info(
+        "Data count - Unlimited: %d records, Limited to 2000m: %d records",
+        len(data_unlimited),
+        len(data_limited),
+    )

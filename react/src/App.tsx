@@ -24,6 +24,7 @@ function App() {
   const [modalImage, setModalImage] = useState<string | null>(null)
   const [dataRange, setDataRange] = useState<DataRange | null>(null)
   const [dataRangeSubtitle, setDataRangeSubtitle] = useState<string>('')
+  const [limitAltitude, setLimitAltitude] = useState(false) // デフォルトでは高度制限なし
 
   // データ範囲を取得し、初期日付範囲を調整
   useEffect(() => {
@@ -114,6 +115,10 @@ function App() {
     setDateRange({ start, end })
   }
 
+  const handleAltitudeChange = (limited: boolean) => {
+    setLimitAltitude(limited)
+  }
+
   const handleImageClick = (imageUrl: string) => {
     setModalImage(imageUrl)
   }
@@ -195,11 +200,14 @@ function App() {
             endDate={dateRange.end}
             onDateChange={handleDateChange}
             dataRange={dataRange}
+            limitAltitude={limitAltitude}
+            onAltitudeChange={handleAltitudeChange}
           />
 
           {isInitialDateRangeSet ? (
             <GraphDisplay
               dateRange={dateRange}
+              limitAltitude={limitAltitude}
               onImageClick={handleImageClick}
             />
           ) : (

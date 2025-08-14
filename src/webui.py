@@ -82,6 +82,10 @@ def create_app(config):
 
 
 if __name__ == "__main__":
+    import atexit
+    import contextlib
+    import os
+
     import docopt
 
     args = docopt.docopt(__doc__)
@@ -96,7 +100,44 @@ if __name__ == "__main__":
 
     app = create_app(config)
 
-    signal.signal(signal.SIGTERM, sig_handler)
+    # プロセスグループリーダーとして実行（リローダープロセスの適切な管理のため）
+    with contextlib.suppress(PermissionError):
+        os.setpgrp()
+
+    # 異常終了時のクリーンアップ処理を登録
+    def cleanup_on_exit():
+        try:
+            current_pid = os.getpid()
+            pgid = os.getpgid(current_pid)
+            if current_pid == pgid:
+                # プロセスグループ内の他のプロセスを終了
+                os.killpg(pgid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    atexit.register(cleanup_on_exit)
+
+    # Enhanced signal handler for process group management
+    def enhanced_sig_handler(num, frame):  # noqa: ARG001
+        logging.warning("receive signal %d", num)
+
+        if num in (signal.SIGTERM, signal.SIGINT):
+            # Flask reloader の子プロセスも含めて終了する
+            try:
+                # 現在のプロセスがプロセスグループリーダーの場合、全体を終了
+                current_pid = os.getpid()
+                pgid = os.getpgid(current_pid)
+                if current_pid == pgid:
+                    logging.info("Terminating process group %d", pgid)
+                    os.killpg(pgid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                # プロセスグループ操作に失敗した場合は通常の終了処理
+                pass
+
+            term()
+
+    signal.signal(signal.SIGTERM, enhanced_sig_handler)
+    signal.signal(signal.SIGINT, enhanced_sig_handler)
 
     # Flaskアプリケーションを実行
     try:
@@ -104,4 +145,4 @@ if __name__ == "__main__":
         app.run(host="0.0.0.0", port=port, threaded=True, use_reloader=True, debug=debug_mode)  # noqa: S104
     except KeyboardInterrupt:
         logging.info("Received KeyboardInterrupt, shutting down...")
-        sig_handler(signal.SIGINT, None)
+        enhanced_sig_handler(signal.SIGINT, None)
