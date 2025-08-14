@@ -474,9 +474,9 @@ def set_axis_2d_default(ax, time_range, limit_altitude=False):
 
     set_altitude_range(ax, axis="y", limit_altitude=limit_altitude)
 
-    # 高度軸の目盛りを設定（limit_altitude=Trueの場合は500m間隔）
+    # 高度軸の目盛りを設定（limit_altitude=Trueの場合は100m間隔）
     if limit_altitude:
-        ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(500))
+        ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(100))
     else:
         ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(2000))
 
@@ -624,9 +624,9 @@ def set_axis_3d(ax, time_numeric, limit_altitude=False):
     # 高度軸の最大値を設定
     alt_max = ALTITUDE_LIMIT if limit_altitude else ALT_MAX
 
-    # 高度軸の目盛りを設定（limit_altitude=Trueの場合は500m間隔）
+    # 高度軸の目盛りを設定（limit_altitude=Trueの場合は100m間隔）
     if limit_altitude:
-        ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(500))
+        ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(100))
     else:
         ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(2000))
 
