@@ -245,7 +245,7 @@ def store_term():
     should_terminate.set()
 
 
-def fetch_by_time(conn, time_start, time_end, distance, columns=None):
+def fetch_by_time(conn, time_start, time_end, distance, columns=None, max_altitude=None):  # noqa: PLR0913
     """
     指定された時間範囲と距離でデータを取得する
 
@@ -255,6 +255,7 @@ def fetch_by_time(conn, time_start, time_end, distance, columns=None):
         time_end: 終了時刻
         distance: 距離フィルタ
         columns: 取得するカラムのリスト。Noneの場合はデフォルト['time', 'altitude', 'temperature', 'distance']
+        max_altitude: 最大高度フィルタ（Noneの場合はフィルタなし）
 
     Returns:
         取得されたデータのリスト
@@ -288,20 +289,37 @@ def fetch_by_time(conn, time_start, time_end, distance, columns=None):
     start = time.perf_counter()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         # クエリを最適化：インデックスを効率的に使用し、不要なデータを事前フィルタ
-        query = (
-            f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
-            f"WHERE time >= %s AND time <= %s AND distance <= %s "
-            f"AND altitude IS NOT NULL "
-            f"ORDER BY time"
-        )
-        cur.execute(
-            query,
-            (
-                time_start.astimezone(datetime.timezone.utc),
-                time_end.astimezone(datetime.timezone.utc),
-                distance,
-            ),
-        )
+        if max_altitude is not None:
+            query = (
+                f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
+                f"WHERE time >= %s AND time <= %s AND distance <= %s "
+                f"AND altitude IS NOT NULL AND altitude <= %s "
+                f"ORDER BY time"
+            )
+            cur.execute(
+                query,
+                (
+                    time_start.astimezone(datetime.timezone.utc),
+                    time_end.astimezone(datetime.timezone.utc),
+                    distance,
+                    max_altitude,
+                ),
+            )
+        else:
+            query = (
+                f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
+                f"WHERE time >= %s AND time <= %s AND distance <= %s "
+                f"AND altitude IS NOT NULL "
+                f"ORDER BY time"
+            )
+            cur.execute(
+                query,
+                (
+                    time_start.astimezone(datetime.timezone.utc),
+                    time_end.astimezone(datetime.timezone.utc),
+                    distance,
+                ),
+            )
         # fetchallではなく大きなデータセット向けにitersize指定でメモリ効率化
         cur.itersize = 10000  # 大量データ取得時のメモリ効率化
         data = cur.fetchall()

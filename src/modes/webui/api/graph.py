@@ -46,10 +46,24 @@ import modes.database_postgresql
 IMAGE_DPI = 200.0
 
 TEMPERATURE_THRESHOLD = -100
-TEMP_MIN = -80
-TEMP_MAX = 30
+# 動的温度範囲設定用の定数
+TEMP_MIN_DEFAULT = -80  # limit_altitude=False時
+TEMP_MAX_DEFAULT = 30
+TEMP_MIN_LIMITED = -20  # limit_altitude=True時
+TEMP_MAX_LIMITED = 40
 ALT_MIN = 0
 ALT_MAX = 13000
+ALTITUDE_LIMIT = 2000  # 高度制限時の最大値
+
+
+def get_temperature_range(limit_altitude=False):
+    """limit_altitudeに応じた温度範囲を取得"""
+    if limit_altitude:
+        return TEMP_MIN_LIMITED, TEMP_MAX_LIMITED
+    else:
+        return TEMP_MIN_DEFAULT, TEMP_MAX_DEFAULT
+
+
 TICK_LABEL_SIZE = 8
 CONTOUR_SIZE = 8
 ERROR_SIZE = 30
@@ -108,7 +122,7 @@ class GraphCache:
                 break
 
     def _update_all_caches(self):
-        """全グラフのキャッシュを更新"""
+        """全グラフのキャッシュを更新（デフォルトで高度制限なし）"""
         if not self.config:
             return
 
@@ -137,19 +151,24 @@ class GraphCache:
         seven_days_ago = end_time - datetime.timedelta(days=7)
         start_time = max(seven_days_ago, earliest_time)
 
-        logging.info("Updating cache for all graphs (start: %s, end: %s)", start_time, end_time)
+        logging.info(
+            "Updating cache for all graphs (start: %s, end: %s, altitude_limit: unlimited)",
+            start_time,
+            end_time,
+        )
 
-        # 各グラフのキャッシュを生成
+        # 各グラフのキャッシュを生成（デフォルトで高度制限なし）
         new_cache = {}
         for graph_name in GRAPH_DEF_MAP:
             try:
-                logging.info("Generating cache for %s", graph_name)
-                image_bytes = plot(self.config, graph_name, start_time, end_time)
+                logging.info("Generating cache for %s (altitude_limit: unlimited)", graph_name)
+                image_bytes = plot(self.config, graph_name, start_time, end_time, limit_altitude=False)
                 new_cache[graph_name] = {
                     "image": image_bytes,
                     "start": start_time,
                     "end": end_time,
                     "timestamp": time.time(),
+                    "limit_altitude": False,  # キャッシュに高度制限情報を保存
                 }
                 logging.info("Cache generated for %s (size: %d bytes)", graph_name, len(image_bytes))
             except Exception:  # noqa: PERF203
@@ -161,7 +180,7 @@ class GraphCache:
 
         logging.info("Cache update completed for %d graphs", len(new_cache))
 
-    def get(self, graph_name, requested_start, requested_end, tolerance_minutes=10):
+    def get(self, graph_name, requested_start, requested_end, tolerance_minutes=10, limit_altitude=False):
         """
         キャッシュからグラフを取得
 
@@ -170,6 +189,7 @@ class GraphCache:
             requested_start: リクエストされた開始時刻
             requested_end: リクエストされた終了時刻
             tolerance_minutes: 許容する時間差（分）
+            limit_altitude: 高度制限フラグ
 
         Returns:
             キャッシュされた画像データ、またはNone
@@ -187,8 +207,12 @@ class GraphCache:
             start_diff = abs((requested_start - cached_start).total_seconds() / 60)
             end_diff = abs((requested_end - cached_end).total_seconds() / 60)
 
-            # 許容範囲内であればキャッシュを返す
-            if start_diff < tolerance_minutes and end_diff < tolerance_minutes:
+            # 高度制限設定をチェック
+            cached_limit_altitude = cached.get("limit_altitude", False)
+            altitude_match = cached_limit_altitude == limit_altitude
+
+            # 許容範囲内かつ高度制限設定が一致すればキャッシュを返す
+            if start_diff < tolerance_minutes and end_diff < tolerance_minutes and altitude_match:
                 logging.info(
                     "Cache hit for %s (start diff: %.1f min, end diff: %.1f min)",
                     graph_name,
@@ -294,18 +318,22 @@ def set_axis_labels(ax, xlabel=None, ylabel=None, zlabel=None):
         ax.set_zlabel(zlabel, fontsize=AXIS_LABEL_SIZE)
 
 
-def set_temperature_range(ax, axis="x"):
+def set_temperature_range(ax, axis="x", limit_altitude=False):
+    # limit_altitudeに応じた温度範囲を動的に取得
+    temp_min, temp_max = get_temperature_range(limit_altitude)
+
     if axis == "x":
-        ax.set_xlim(TEMP_MIN, TEMP_MAX)
+        ax.set_xlim(temp_min, temp_max)
     else:
-        ax.set_ylim(TEMP_MIN, TEMP_MAX)
+        ax.set_ylim(temp_min, temp_max)
 
 
-def set_altitude_range(ax, axis="x"):
+def set_altitude_range(ax, axis="x", limit_altitude=False):
+    alt_max = ALTITUDE_LIMIT if limit_altitude else ALT_MAX
     if axis == "x":
-        ax.set_xlim(ALT_MIN, ALT_MAX)
+        ax.set_xlim(ALT_MIN, alt_max)
     else:
-        ax.set_ylim(ALT_MIN, ALT_MAX)
+        ax.set_ylim(ALT_MIN, alt_max)
 
 
 def apply_time_axis_format(ax, time_range_days):
@@ -325,7 +353,7 @@ def apply_time_axis_format(ax, time_range_days):
         ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%-m月%-d日"))
 
 
-def append_colorbar(scatter, shrink=0.8, pad=0.01, aspect=35, fraction=0.046):
+def append_colorbar(scatter, shrink=0.8, pad=0.01, aspect=35, fraction=0.046, limit_altitude=False):  # noqa: PLR0913
     """
     カラーバーを追加（サイズを縮小してプロットエリアを拡大）
 
@@ -335,9 +363,12 @@ def append_colorbar(scatter, shrink=0.8, pad=0.01, aspect=35, fraction=0.046):
         pad: プロットエリアとカラーバーの間隔 (デフォルト: 0.01)
         aspect: カラーバーの幅の比率 (デフォルト: 35、より細く)
         fraction: カラーバーの幅の割合 (デフォルト: 0.046)
+        limit_altitude: 高度制限のフラグ (デフォルト: False)
 
     """
-    scatter.set_clim(TEMP_MIN, TEMP_MAX)
+    # limit_altitudeに応じた温度範囲を動的に設定
+    temp_min, temp_max = get_temperature_range(limit_altitude)
+    scatter.set_clim(temp_min, temp_max)
 
     cbar = matplotlib.pyplot.colorbar(scatter, shrink=shrink, pad=pad, aspect=aspect, fraction=fraction)
     cbar.set_label(TEMP_AXIS_LABEL, fontsize=AXIS_LABEL_SIZE)
@@ -438,12 +469,17 @@ def create_figure(figsize=(12, 8)):
     return fig, ax
 
 
-def set_axis_2d_default(ax, time_range):
+def set_axis_2d_default(ax, time_range, limit_altitude=False):
     set_axis_labels(ax, TIME_AXIS_LABEL, ALT_AXIS_LABEL)
 
-    set_altitude_range(ax, axis="y")
+    set_altitude_range(ax, axis="y", limit_altitude=limit_altitude)
 
-    ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(2000))
+    # 高度軸の目盛りを設定（limit_altitude=Trueの場合は500m間隔）
+    if limit_altitude:
+        ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(500))
+    else:
+        ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(2000))
+
     ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
     set_tick_label_size(ax)
 
@@ -579,18 +615,29 @@ def set_font(font_config):
         logging.exception("Failed to set font")
 
 
-def set_axis_3d(ax, time_numeric):
+def set_axis_3d(ax, time_numeric, limit_altitude=False):
     set_axis_labels(ax, TIME_AXIS_LABEL, ALT_AXIS_LABEL, TEMP_AXIS_LABEL)
 
     time_range = time_numeric[-1] - time_numeric[0]
     apply_time_axis_format(ax, time_range)
-    ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(2000))
+
+    # 高度軸の最大値を設定
+    alt_max = ALTITUDE_LIMIT if limit_altitude else ALT_MAX
+
+    # 高度軸の目盛りを設定（limit_altitude=Trueの場合は500m間隔）
+    if limit_altitude:
+        ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(500))
+    else:
+        ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(2000))
+
     ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
 
     set_tick_label_size(ax, is_3d=True)
 
-    ax.set_ylim(ALT_MIN, ALT_MAX)
-    ax.set_zlim(TEMP_MIN, TEMP_MAX)
+    ax.set_ylim(ALT_MIN, alt_max)
+    # 温度軸の範囲設定（limit_altitudeによって変更）
+    temp_min, temp_max = get_temperature_range(limit_altitude)
+    ax.set_zlim(temp_min, temp_max)
 
 
 def create_3d_figure(figsize=(12, 8)):
@@ -617,8 +664,8 @@ def setup_3d_colorbar_and_layout(ax):
     ax.set_position([0.02, 0.05, 0.86, 0.88])
 
 
-def plot_scatter_3d(data, figsize):
-    logging.info("Staring plot scatter 3d")
+def plot_scatter_3d(data, figsize, limit_altitude=False):
+    logging.info("Staring plot scatter 3d (limit_altitude: %s)", limit_altitude)
 
     start = time.perf_counter()
 
@@ -636,8 +683,8 @@ def plot_scatter_3d(data, figsize):
         edgecolors="none",
     )
 
-    set_axis_3d(ax, data["time_numeric"])
-    append_colorbar(scatter, shrink=0.6, pad=0.01, aspect=35)
+    set_axis_3d(ax, data["time_numeric"], limit_altitude)
+    append_colorbar(scatter, shrink=0.6, pad=0.01, aspect=35, limit_altitude=limit_altitude)
     setup_3d_colorbar_and_layout(ax)
 
     set_title("航空機の気象データ (3D)")
@@ -647,8 +694,8 @@ def plot_scatter_3d(data, figsize):
     return (img, time.perf_counter() - start)
 
 
-def plot_density(data, figsize):
-    logging.info("Staring plot density")
+def plot_density(data, figsize, limit_altitude=False):
+    logging.info("Staring plot density (limit_altitude: %s)", limit_altitude)
 
     start = time.perf_counter()
 
@@ -666,11 +713,11 @@ def plot_density(data, figsize):
     )
 
     set_axis_labels(ax, ALT_AXIS_LABEL, TEMP_AXIS_LABEL)
-    set_altitude_range(ax, axis="x")
-    set_temperature_range(ax, axis="y")
+    set_altitude_range(ax, axis="x", limit_altitude=limit_altitude)
+    set_temperature_range(ax, axis="y", limit_altitude=limit_altitude)
     set_tick_label_size(ax)
 
-    append_colorbar(scatter, shrink=1.0, pad=0.01, aspect=35, fraction=0.03)
+    append_colorbar(scatter, shrink=1.0, pad=0.01, aspect=35, fraction=0.03, limit_altitude=limit_altitude)
 
     ax.grid(True, alpha=0.7)
 
@@ -681,8 +728,8 @@ def plot_density(data, figsize):
     return (img, time.perf_counter() - start)
 
 
-def plot_contour_2d(data, figsize, plot_time_start=None, plot_time_end=None):
-    logging.info("Staring plot contour")
+def plot_contour_2d(data, figsize, plot_time_start=None, plot_time_end=None, limit_altitude=False):
+    logging.info("Staring plot contour (limit_altitude: %s)", limit_altitude)
 
     start = time.perf_counter()
 
@@ -709,7 +756,12 @@ def plot_contour_2d(data, figsize, plot_time_start=None, plot_time_end=None):
 
     fig, ax = create_figure(figsize)
 
-    levels = numpy.arange(TEMP_MIN, TEMP_MAX + 1, 10)
+    # limit_altitudeに応じた温度範囲と刻みを動的に設定
+    temp_min, temp_max = get_temperature_range(limit_altitude)
+    if limit_altitude:
+        levels = numpy.arange(temp_min, temp_max + 1, 5)
+    else:
+        levels = numpy.arange(temp_min, temp_max + 1, 10)
     contour = ax.contour(
         grid["time_mesh"], grid["alt_mesh"], grid["temp_grid"], levels=levels, colors="black", linewidths=0.5
     )
@@ -733,9 +785,9 @@ def plot_contour_2d(data, figsize, plot_time_start=None, plot_time_end=None):
             matplotlib.dates.num2date(grid["time_max"]),
         ]
 
-    set_axis_2d_default(ax, time_range)
+    set_axis_2d_default(ax, time_range, limit_altitude)
 
-    append_colorbar(contourf, shrink=1.0, pad=0.01, aspect=35, fraction=0.03)
+    append_colorbar(contourf, shrink=1.0, pad=0.01, aspect=35, fraction=0.03, limit_altitude=limit_altitude)
 
     set_title("航空機の気象データ (等高線)")
 
@@ -744,8 +796,8 @@ def plot_contour_2d(data, figsize, plot_time_start=None, plot_time_end=None):
     return (img, time.perf_counter() - start)
 
 
-def plot_heatmap(data, figsize, plot_time_start=None, plot_time_end=None):
-    logging.info("Staring plot heatmap")
+def plot_heatmap(data, figsize, plot_time_start=None, plot_time_end=None, limit_altitude=False):
+    logging.info("Staring plot heatmap (limit_altitude: %s)", limit_altitude)
 
     start = time.perf_counter()
 
@@ -779,8 +831,8 @@ def plot_heatmap(data, figsize, plot_time_start=None, plot_time_end=None):
         origin="lower",
         cmap="plasma",
         alpha=0.9,
-        vmin=TEMP_MIN,
-        vmax=TEMP_MAX,
+        vmin=get_temperature_range(limit_altitude)[0],
+        vmax=get_temperature_range(limit_altitude)[1],
     )
 
     # プロット時間範囲が指定されている場合はそれを使用、そうでなければグリッド範囲を使用
@@ -792,9 +844,9 @@ def plot_heatmap(data, figsize, plot_time_start=None, plot_time_end=None):
             matplotlib.dates.num2date(grid["time_max"]),
         ]
 
-    set_axis_2d_default(ax, time_range)
+    set_axis_2d_default(ax, time_range, limit_altitude)
 
-    append_colorbar(im, shrink=1.0, pad=0.01, aspect=35, fraction=0.03)
+    append_colorbar(im, shrink=1.0, pad=0.01, aspect=35, fraction=0.03, limit_altitude=limit_altitude)
 
     set_title("航空機の気象データ (ヒートマップ)")
 
@@ -803,8 +855,8 @@ def plot_heatmap(data, figsize, plot_time_start=None, plot_time_end=None):
     return (img, time.perf_counter() - start)
 
 
-def plot_scatter_2d(data, figsize):
-    logging.info("Staring plot 2d scatter")
+def plot_scatter_2d(data, figsize, limit_altitude=False):
+    logging.info("Staring plot 2d scatter (limit_altitude: %s)", limit_altitude)
 
     start = time.perf_counter()
 
@@ -827,9 +879,10 @@ def plot_scatter_2d(data, figsize):
             matplotlib.dates.num2date(data["time_numeric"].min()),
             matplotlib.dates.num2date(data["time_numeric"].max()),
         ],
+        limit_altitude,
     )
 
-    append_colorbar(sc, shrink=1.0, pad=0.01, aspect=35, fraction=0.03)
+    append_colorbar(sc, shrink=1.0, pad=0.01, aspect=35, fraction=0.03, limit_altitude=limit_altitude)
 
     ax.grid(True, alpha=0.7)
 
@@ -840,8 +893,8 @@ def plot_scatter_2d(data, figsize):
     return (img, time.perf_counter() - start)
 
 
-def plot_contour_3d(data, figsize):
-    logging.info("Starting plot contour 3d")
+def plot_contour_3d(data, figsize, limit_altitude=False):
+    logging.info("Starting plot contour 3d (limit_altitude: %s)", limit_altitude)
 
     start = time.perf_counter()
 
@@ -862,12 +915,13 @@ def plot_contour_3d(data, figsize):
         cstride=1,
         linewidth=0,
         edgecolor="none",
-        vmin=TEMP_MIN,
-        vmax=TEMP_MAX,
+        vmin=get_temperature_range(limit_altitude)[0],
+        vmax=get_temperature_range(limit_altitude)[1],
     )
 
     # 等高線を追加
-    levels = numpy.arange(TEMP_MIN, TEMP_MAX + 1, 10)
+    temp_min, temp_max = get_temperature_range(limit_altitude)
+    levels = numpy.arange(temp_min, temp_max + 1, 10)
     ax.contour(
         grid["time_mesh"],
         grid["alt_mesh"],
@@ -876,11 +930,11 @@ def plot_contour_3d(data, figsize):
         colors="black",
         linewidths=0.5,
         alpha=0.3,
-        offset=TEMP_MIN,  # 底面に等高線を投影
+        offset=temp_min,  # 底面に等高線を投影
     )
 
-    set_axis_3d(ax, data["time_numeric"])
-    append_colorbar(surf, shrink=0.6, pad=0.01, aspect=35)
+    set_axis_3d(ax, data["time_numeric"], limit_altitude)
+    append_colorbar(surf, shrink=0.6, pad=0.01, aspect=35, limit_altitude=limit_altitude)
     setup_3d_colorbar_and_layout(ax)
 
     set_title("航空機の気象データ (3D)")
@@ -909,7 +963,7 @@ def _validate_wind_dataframe(data):
     return df
 
 
-def _extract_and_filter_wind_data(df):
+def _extract_and_filter_wind_data(df, limit_altitude=False):
     """風データの抽出とフィルタリング"""
     # NumPyベースの高速前処理
     altitudes = df["altitude"].to_numpy()
@@ -926,9 +980,18 @@ def _extract_and_filter_wind_data(df):
     wind_speed = numpy.sqrt(wind_x**2 + wind_y**2)
     valid_wind_mask = wind_speed > 0.1
 
+    # 高度制限の適用
+    if limit_altitude:
+        altitude_mask = altitudes <= ALTITUDE_LIMIT
+        valid_wind_mask = valid_wind_mask & altitude_mask
+
     if not valid_wind_mask.any():
-        logging.warning("No valid wind vectors after speed filtering")
-        raise ValueError("No valid wind vectors after speed filtering")
+        logging.warning(
+            "No valid wind vectors after filtering (speed: %s, limit_altitude: %s)",
+            (wind_speed > 0.1).sum(),
+            limit_altitude,
+        )
+        raise ValueError("No valid wind vectors after filtering")
 
     return {
         "altitudes": altitudes[valid_wind_mask],
@@ -938,7 +1001,7 @@ def _extract_and_filter_wind_data(df):
     }
 
 
-def _create_wind_bins(valid_data):
+def _create_wind_bins(valid_data, limit_altitude=False):
     """風データのビニング処理"""
     from collections import defaultdict
 
@@ -947,8 +1010,14 @@ def _create_wind_bins(valid_data):
     valid_wind_x = valid_data["wind_x"]
     valid_wind_y = valid_data["wind_y"]
 
-    # 高度ビニング
-    altitude_bins = numpy.arange(0, 13000, 200)
+    # 高度ビニング（limit_altitudeに応じて範囲と間隔を調整）
+    if limit_altitude:
+        # 2000mまでの範囲で、より細かい間隔
+        altitude_bins = numpy.arange(0, ALTITUDE_LIMIT + 100, 100)
+    else:
+        # 従来通り13000mまで、200m間隔
+        altitude_bins = numpy.arange(0, 13000, 200)
+
     altitude_bin_indices = numpy.searchsorted(altitude_bins, valid_altitudes, side="right") - 1
     altitude_bin_indices = numpy.clip(altitude_bin_indices, 0, len(altitude_bins) - 2)
 
@@ -977,11 +1046,11 @@ def _create_wind_bins(valid_data):
     return bin_data, altitude_bins
 
 
-def _prepare_wind_data(data):
+def _prepare_wind_data(data, limit_altitude=False):
     """風データの前処理とビニング処理（最適化版）"""
     df = _validate_wind_dataframe(data)
-    valid_data = _extract_and_filter_wind_data(df)
-    bin_data, altitude_bins = _create_wind_bins(valid_data)
+    valid_data = _extract_and_filter_wind_data(df, limit_altitude)
+    bin_data, altitude_bins = _create_wind_bins(valid_data, limit_altitude)
 
     # 集計結果をDataFrameに変換
     grouped_data = []
@@ -1010,8 +1079,8 @@ def _prepare_wind_data(data):
     return grouped
 
 
-def plot_wind_direction(data, figsize):
-    logging.info("Starting plot wind direction")
+def plot_wind_direction(data, figsize, limit_altitude=False):
+    logging.info("Starting plot wind direction (limit_altitude: %s)", limit_altitude)
     start = time.perf_counter()
 
     # デバッグ情報
@@ -1021,11 +1090,11 @@ def plot_wind_direction(data, figsize):
         logging.info("Dataframe shape: %s", df.shape)
 
     # データ前処理
-    grouped = _prepare_wind_data(data)
+    grouped = _prepare_wind_data(data, limit_altitude)
 
-    # ベクトル計算
+    # ベクトル計算（limit_altitudeに応じて高度範囲を調整）
     time_range = grouped["time_numeric"].max() - grouped["time_numeric"].min()
-    altitude_range = 13000
+    altitude_range = ALTITUDE_LIMIT if limit_altitude else ALT_MAX
     u_scale = time_range / 30
     v_scale = altitude_range / 30
 
@@ -1070,6 +1139,7 @@ def plot_wind_direction(data, figsize):
             matplotlib.dates.num2date(grouped["time_numeric"].min()),
             matplotlib.dates.num2date(grouped["time_numeric"].max()),
         ],
+        limit_altitude,
     )
 
     cbar = matplotlib.pyplot.colorbar(quiver, shrink=0.8, pad=0.01, aspect=35, fraction=0.046)
@@ -1082,20 +1152,27 @@ def plot_wind_direction(data, figsize):
     return (img, time.perf_counter() - start)
 
 
-def plot_temperature(data, figsize):
-    logging.info("Starting plot temperature timeseries")
+def plot_temperature(data, figsize, limit_altitude=False):
+    logging.info("Starting plot temperature timeseries (limit_altitude: %s)", limit_altitude)
 
     start = time.perf_counter()
 
     fig, ax = create_figure(figsize)
 
-    # 高度範囲の定義
-    altitude_ranges = [
-        {"min": 1400, "max": 1600, "label": "1500±100m", "color": "blue", "marker": "o"},
-        {"min": 2900, "max": 3100, "label": "3000±100m", "color": "green", "marker": "s"},
-        {"min": 4400, "max": 4600, "label": "4500±100m", "color": "orange", "marker": "^"},
-        {"min": 5900, "max": 6100, "label": "6000±100m", "color": "red", "marker": "d"},
-    ]
+    # 高度範囲の定義（limit_altitudeによって変更）
+    if limit_altitude:
+        altitude_ranges = [
+            {"min": 400, "max": 600, "label": "500±100m", "color": "blue", "marker": "o"},
+            {"min": 900, "max": 1100, "label": "1000±100m", "color": "green", "marker": "s"},
+            {"min": 1400, "max": 1600, "label": "1500±100m", "color": "orange", "marker": "^"},
+        ]
+    else:
+        altitude_ranges = [
+            {"min": 1400, "max": 1600, "label": "1500±100m", "color": "blue", "marker": "o"},
+            {"min": 2900, "max": 3100, "label": "3000±100m", "color": "green", "marker": "s"},
+            {"min": 4400, "max": 4600, "label": "4500±100m", "color": "orange", "marker": "^"},
+            {"min": 5900, "max": 6100, "label": "6000±100m", "color": "red", "marker": "d"},
+        ]
 
     # 各高度範囲のデータをプロット
     for alt_range in altitude_ranges:
@@ -1158,8 +1235,9 @@ def plot_temperature(data, figsize):
     time_range = data["time_numeric"].max() - data["time_numeric"].min()
     apply_time_axis_format(ax, time_range)
 
-    # Y軸の範囲設定
-    ax.set_ylim(-20, 30)
+    # Y軸の範囲設定（limit_altitudeによって変更）
+    temp_min, temp_max = get_temperature_range(limit_altitude)
+    ax.set_ylim(temp_min, temp_max)
 
     # 凡例の追加
     ax.legend(loc="upper right", framealpha=0.9)
@@ -1191,7 +1269,7 @@ GRAPH_DEF_MAP = {
 }
 
 
-def plot_in_subprocess(config, graph_name, time_start, time_end, figsize):
+def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_altitude=False):  # noqa: PLR0913
     """子プロセス内でデータ取得からグラフ描画まで一貫して実行する関数"""
     import matplotlib  # noqa: ICN001
 
@@ -1233,6 +1311,7 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize):
         extended_time_end,
         config["filter"]["area"]["distance"],
         columns=columns,
+        max_altitude=ALTITUDE_LIMIT if limit_altitude else None,
     )
     conn.close()
 
@@ -1260,9 +1339,11 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize):
     try:
         # heatmapとcontourグラフの場合、元の時間範囲を渡してプロット範囲を制限
         if graph_name in ["heatmap", "contour_2d"]:
-            img, elapsed = GRAPH_DEF_MAP[graph_name]["func"](data, figsize, time_start, time_end)
+            img, elapsed = GRAPH_DEF_MAP[graph_name]["func"](
+                data, figsize, time_start, time_end, limit_altitude
+            )
         else:
-            img, elapsed = GRAPH_DEF_MAP[graph_name]["func"](data, figsize)
+            img, elapsed = GRAPH_DEF_MAP[graph_name]["func"](data, figsize, limit_altitude)
     except Exception as e:
         logging.warning("Failed to generate %s: %s", graph_name, str(e))
         # エラー時は「データなし」画像を生成
@@ -1282,8 +1363,8 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize):
     return bytes_io.getvalue(), elapsed
 
 
-def plot(config, graph_name, time_start, time_end):
-    logging.info("plot() called for %s", graph_name)
+def plot(config, graph_name, time_start, time_end, limit_altitude=False):
+    logging.info("plot() called for %s (limit_altitude: %s)", graph_name, limit_altitude)
     # グラフサイズを計算
     figsize = tuple(x / IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name]["size"])
 
@@ -1293,7 +1374,7 @@ def plot(config, graph_name, time_start, time_end):
     try:
         # タイムアウト付きでプロセスプールを使用（ハング回避）
         async_result = pool.apply_async(
-            plot_in_subprocess, (config, graph_name, time_start, time_end, figsize)
+            plot_in_subprocess, (config, graph_name, time_start, time_end, figsize, limit_altitude)
         )
         logging.info("Process pool apply_async() called for %s", graph_name)
 
@@ -1392,6 +1473,7 @@ def graph(graph_name):  # noqa: PLR0915
     time_end_str = flask.request.args.get("end", None)
     time_start_str = flask.request.args.get("start", None)
     use_cache = flask.request.args.get("use_cache", "0")
+    limit_altitude_str = flask.request.args.get("limit_altitude", "true")  # デフォルトでtrue
 
     # 文字列をUTC時間のdatetimeに変換してからローカルタイムに変換
     if time_end_str:
@@ -1406,16 +1488,24 @@ def graph(graph_name):  # noqa: PLR0915
     else:
         time_start = default_time_start
 
+    # 高度制限パラメータの処理
+    limit_altitude = limit_altitude_str.lower() == "true"
+
     logging.info(
-        "request: %s graph (start: %s, end: %s, use_cache: %s)", graph_name, time_start, time_end, use_cache
+        "request: %s graph (start: %s, end: %s, use_cache: %s, limit_altitude: %s)",
+        graph_name,
+        time_start,
+        time_end,
+        use_cache,
+        limit_altitude,
     )
 
     config = flask.current_app.config["CONFIG"]
 
     # use_cacheが0以外の場合、キャッシュを確認
     if use_cache != "0":
-        logging.info("Checking cache for %s", graph_name)
-        cached_image = _graph_cache.get(graph_name, time_start, time_end)
+        logging.info("Checking cache for %s (limit_altitude: %s)", graph_name, limit_altitude)
+        cached_image = _graph_cache.get(graph_name, time_start, time_end, limit_altitude=limit_altitude)
         if cached_image:
             logging.info(
                 "Cache hit! Returning cached image for %s (size: %d bytes)", graph_name, len(cached_image)
@@ -1429,7 +1519,7 @@ def graph(graph_name):  # noqa: PLR0915
     # グラフ生成を試行
     try:
         logging.info("Starting plot generation for %s", graph_name)
-        image_bytes = plot(config, graph_name, time_start, time_end)
+        image_bytes = plot(config, graph_name, time_start, time_end, limit_altitude)
         logging.info(
             "Plot generation completed for %s, image size: %d bytes",
             graph_name,

@@ -12,9 +12,11 @@ interface DateSelectorProps {
   endDate: Date
   onDateChange: (start: Date, end: Date) => void
   dataRange: DataRange | null
+  limitAltitude: boolean
+  onAltitudeChange: (limited: boolean) => void
 }
 
-const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateChange, dataRange }) => {
+const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateChange, dataRange, limitAltitude, onAltitudeChange }) => {
   const formatDateForInput = (date: Date): string => {
     const year = date.getFullYear()
     const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -454,6 +456,37 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
         </div>
       </div>
       </div>
+
+      <div className="box" id="altitude-selector">
+        <div className={styles.sectionHeader}>
+          <h2 className="title is-4" style={{ whiteSpace: 'nowrap' }}>
+            <span className="icon" style={{ marginRight: '0.5em' }}>
+              <i className="fas fa-mountain"></i>
+            </span>
+            高度選択
+            <i
+              className={`fas fa-link ${styles.permalinkIcon}`}
+              onClick={() => copyPermalink('altitude-selector')}
+              title="パーマリンクをコピー"
+            />
+          </h2>
+        </div>
+
+        <div className="field">
+          <div className="control">
+            <label className="checkbox" style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={limitAltitude}
+                onChange={(e) => onAltitudeChange(e.target.checked)}
+                style={{ marginRight: '0.5rem' }}
+              />
+              <span>高度2,000m以下のみ表示</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
       <div ref={notificationRef} className={styles.copyNotification}></div>
     </>
   )
