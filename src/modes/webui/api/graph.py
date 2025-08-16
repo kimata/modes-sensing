@@ -1509,8 +1509,7 @@ def graph(graph_name):  # noqa: PLR0915
     # パラメータから時間を取得（JSON文字列として）
     time_end_str = flask.request.args.get("end", None)
     time_start_str = flask.request.args.get("start", None)
-    use_cache = flask.request.args.get("use_cache", "0")
-    limit_altitude_str = flask.request.args.get("limit_altitude", "true")  # デフォルトでtrue
+    limit_altitude_str = flask.request.args.get("limit_altitude", "false")  # デフォルトでfalse
 
     # 文字列をUTC時間のdatetimeに変換してからローカルタイムに変換
     if time_end_str:
@@ -1529,29 +1528,27 @@ def graph(graph_name):  # noqa: PLR0915
     limit_altitude = limit_altitude_str.lower() == "true"
 
     logging.info(
-        "request: %s graph (start: %s, end: %s, use_cache: %s, limit_altitude: %s)",
+        "request: %s graph (start: %s, end: %s, limit_altitude: %s)",
         graph_name,
         time_start,
         time_end,
-        use_cache,
         limit_altitude,
     )
 
     config = flask.current_app.config["CONFIG"]
 
-    # use_cacheが0以外の場合、キャッシュを確認
-    if use_cache != "0":
-        logging.info("Checking cache for %s (limit_altitude: %s)", graph_name, limit_altitude)
-        cached_image = _graph_cache.get(graph_name, time_start, time_end, limit_altitude=limit_altitude)
-        if cached_image:
-            logging.info(
-                "Cache hit! Returning cached image for %s (size: %d bytes)", graph_name, len(cached_image)
-            )
-            res = flask.Response(cached_image, mimetype="image/png")
-            res.headers["Cache-Control"] = "public, max-age=600"
-            return res
-        else:
-            logging.info("Cache miss for %s, generating new graph", graph_name)
+    # 常にキャッシュを確認
+    logging.info("Checking cache for %s (limit_altitude: %s)", graph_name, limit_altitude)
+    cached_image = _graph_cache.get(graph_name, time_start, time_end, limit_altitude=limit_altitude)
+    if cached_image:
+        logging.info(
+            "Cache hit! Returning cached image for %s (size: %d bytes)", graph_name, len(cached_image)
+        )
+        res = flask.Response(cached_image, mimetype="image/png")
+        res.headers["Cache-Control"] = "public, max-age=600"
+        return res
+    else:
+        logging.info("Cache miss for %s, generating new graph", graph_name)
 
     # グラフ生成を試行
     try:
