@@ -131,8 +131,8 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
     if (graph) {
       setErrors(prev => ({ ...prev, [key]: '' }))
       setLoading(prev => ({ ...prev, [key]: true }))
-      // リロード時はキャッシュを使わない
-      setImageUrls(prev => ({ ...prev, [key]: getImageUrl(graph, true, false) }))
+      // リロード時は強制リロード
+      setImageUrls(prev => ({ ...prev, [key]: getImageUrl(graph, true) }))
     }
   }, [getImageUrl])
 
