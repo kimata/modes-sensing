@@ -55,7 +55,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
   const initialLoadCompleteRef = useRef(false)
 
   // シンプルなURL生成
-  const getImageUrl = useCallback((graph: GraphInfo, forceReload = false, useCache = false) => {
+  const getImageUrl = useCallback((graph: GraphInfo, forceReload = false) => {
     const now = new Date()
     let timestamp: number
 
@@ -72,8 +72,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
       end: JSON.stringify(dateRange.end.toISOString()),
       limit_altitude: limitAltitude ? 'true' : 'false',
       _t: timestamp.toString(),
-      ...(forceReload && { _r: Math.random().toString(36).substr(2, 9) }),
-      ...(useCache && { use_cache: '1' })
+      ...(forceReload && { _r: Math.random().toString(36).substr(2, 9) })
     })
 
 
@@ -171,9 +170,6 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
 
   // dateRangeが変更されたら画像URLを更新
   useEffect(() => {
-    // 初回ロードが既に完了している場合はキャッシュを使わない
-    const useCache = isInitialLoad && !initialLoadCompleteRef.current
-
     // 前回の日付範囲と高度設定と同じかチェック
     const prevRange = prevDateRangeRef.current
     const prevLimitAltitude = prevLimitAltitudeRef.current
@@ -196,8 +192,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
 
     graphs.forEach(graph => {
       const key = graph.endpoint
-      // 初回ロードが完了していない場合のみキャッシュを使用
-      const url = getImageUrl(graph, false, useCache)
+      const url = getImageUrl(graph, false)
       newUrls[key] = url
       newLoading[key] = true
     })
