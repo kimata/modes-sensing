@@ -687,7 +687,14 @@ def test_custom_date_range(page_init, host, port):
     start_str = start_date.strftime("%Y-%m-%dT%H:%M")
     end_str = end_date.strftime("%Y-%m-%dT%H:%M")
 
-    # 先に日付範囲を変更して、自動判定でカスタム期間になるようにする
+    # まずカスタムボタンをクリックして日時入力フィールドを表示
+    custom_button = page.locator('button:has-text("カスタム")')
+    custom_button.click()
+
+    # 日時入力フィールドが表示されるまで待機
+    page.wait_for_selector('input[type="datetime-local"]', timeout=10000)
+
+    # 日付範囲を設定
     start_input = page.locator('input[type="datetime-local"]').first
     start_input.clear()
     start_input.fill(start_str)
