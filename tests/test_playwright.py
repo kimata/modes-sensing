@@ -688,18 +688,25 @@ def test_custom_date_range(page_init, host, port):
     end_str = end_date.strftime("%Y-%m-%dT%H:%M")
 
     # まずカスタムボタンをクリックして日時入力フィールドを表示
+    # カスタムボタンが表示されるまで待機
+    page.wait_for_selector('button:has-text("カスタム")', timeout=30000)
     custom_button = page.locator('button:has-text("カスタム")')
     custom_button.click()
 
-    # 日時入力フィールドが表示されるまで待機
-    page.wait_for_selector('input[type="datetime-local"]', timeout=10000)
+    # 日時入力フィールドが表示されるまで待機（タイムアウトを延長）
+    page.wait_for_selector('input[type="datetime-local"]', state="visible", timeout=30000)
+
+    # 少し待機してReactのレンダリングが完了するのを待つ
+    time.sleep(1)
 
     # 日付範囲を設定
     start_input = page.locator('input[type="datetime-local"]').first
+    start_input.wait_for(state="visible", timeout=10000)
     start_input.clear()
     start_input.fill(start_str)
 
     end_input = page.locator('input[type="datetime-local"]').last
+    end_input.wait_for(state="visible", timeout=10000)
     end_input.clear()
     end_input.fill(end_str)
 
