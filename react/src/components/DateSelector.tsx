@@ -258,13 +258,61 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
   }
 
   const handleCustomButtonClick = () => {
+    // 直前に選択されていた期間ボタンに基づいて日時を設定
+    if (selectedPeriod !== 'custom') {
+      const periodDays = {
+        '1day': 1,
+        '7days': 7,
+        '30days': 30,
+        '180days': 180,
+        '365days': 365
+      }
+
+      const days = periodDays[selectedPeriod]
+      if (days) {
+        let end = new Date()
+        end.setSeconds(0, 0)
+        let start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000)
+        start.setSeconds(0, 0)
+
+        // データ範囲による調整
+        if (dataRange && dataRange.earliest && dataRange.latest) {
+          const dataEarliest = new Date(dataRange.earliest)
+          const dataLatest = new Date(dataRange.latest)
+
+          if (end > dataLatest) {
+            end = new Date(dataLatest)
+            end.setSeconds(0, 0)
+          }
+
+          if (start < dataEarliest) {
+            start = new Date(dataEarliest)
+            start.setSeconds(0, 0)
+          }
+
+          const requestedPeriodMs = days * 24 * 60 * 60 * 1000
+          const adjustedStart = new Date(end.getTime() - requestedPeriodMs)
+          if (adjustedStart >= dataEarliest) {
+            start = adjustedStart
+            start.setSeconds(0, 0)
+          }
+        }
+
+        setCustomStart(formatDateForInput(start))
+        setCustomEnd(formatDateForInput(end))
+      }
+    }
+
     setSelectedPeriod('custom')
     setUserSelectedPeriod('custom') // ユーザーが明示的にカスタムを選択
+
     // カスタムボタンクリック時は入力フィールドにフォーカス
-    const startInput = document.querySelector('input[type="datetime-local"]') as HTMLInputElement
-    if (startInput) {
-      startInput.focus()
-    }
+    setTimeout(() => {
+      const startInput = document.querySelector('input[type="datetime-local"]') as HTMLInputElement
+      if (startInput) {
+        startInput.focus()
+      }
+    }, 100)
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -374,87 +422,91 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
         </div>
       </div>
 
-      <div className="columns">
-        <div className="column">
-          <div className="field">
-            <label className="label">開始日時</label>
-            <div className="control">
-              <input
-                className={`input ${focusedField === 'start' ? 'is-focused' : ''}`}
-                type="datetime-local"
-                value={customStart}
-                min={inputLimits.min}
-                max={inputLimits.max}
-                onChange={(e) => setCustomStart(e.target.value)}
-                onKeyPress={handleKeyPress}
-                onFocus={() => handleInputFocus('start')}
-                onBlur={handleInputBlur}
-                title={inputLimits.min && inputLimits.max ? `利用可能な期間: ${inputLimits.min} ～ ${inputLimits.max}` : undefined}
-                style={{
-                  transition: 'all 0.3s ease-in-out',
-                  transform: focusedField === 'start' ? 'scale(1.02)' : 'scale(1)',
-                  boxShadow: focusedField === 'start' ? '0 4px 12px rgba(0,123,255,0.3)' : 'none'
-                }}
-              />
+      {selectedPeriod === 'custom' && (
+        <>
+          <div className="columns">
+            <div className="column">
+              <div className="field">
+                <label className="label">開始日時</label>
+                <div className="control">
+                  <input
+                    className={`input ${focusedField === 'start' ? 'is-focused' : ''}`}
+                    type="datetime-local"
+                    value={customStart}
+                    min={inputLimits.min}
+                    max={inputLimits.max}
+                    onChange={(e) => setCustomStart(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    onFocus={() => handleInputFocus('start')}
+                    onBlur={handleInputBlur}
+                    title={inputLimits.min && inputLimits.max ? `利用可能な期間: ${inputLimits.min} ～ ${inputLimits.max}` : undefined}
+                    style={{
+                      transition: 'all 0.3s ease-in-out',
+                      transform: focusedField === 'start' ? 'scale(1.02)' : 'scale(1)',
+                      boxShadow: focusedField === 'start' ? '0 4px 12px rgba(0,123,255,0.3)' : 'none'
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="column">
+              <div className="field">
+                <label className="label">終了日時</label>
+                <div className="control">
+                  <input
+                    className={`input ${focusedField === 'end' ? 'is-focused' : ''}`}
+                    type="datetime-local"
+                    value={customEnd}
+                    min={inputLimits.min}
+                    max={inputLimits.max}
+                    onChange={(e) => setCustomEnd(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    onFocus={() => handleInputFocus('end')}
+                    onBlur={handleInputBlur}
+                    title={inputLimits.min && inputLimits.max ? `利用可能な期間: ${inputLimits.min} ～ ${inputLimits.max}` : undefined}
+                    style={{
+                      transition: 'all 0.3s ease-in-out',
+                      transform: focusedField === 'end' ? 'scale(1.02)' : 'scale(1)',
+                      boxShadow: focusedField === 'end' ? '0 4px 12px rgba(0,123,255,0.3)' : 'none'
+                    }}
+                  />
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="column">
-          <div className="field">
-            <label className="label">終了日時</label>
-            <div className="control">
-              <input
-                className={`input ${focusedField === 'end' ? 'is-focused' : ''}`}
-                type="datetime-local"
-                value={customEnd}
-                min={inputLimits.min}
-                max={inputLimits.max}
-                onChange={(e) => setCustomEnd(e.target.value)}
-                onKeyPress={handleKeyPress}
-                onFocus={() => handleInputFocus('end')}
-                onBlur={handleInputBlur}
-                title={inputLimits.min && inputLimits.max ? `利用可能な期間: ${inputLimits.min} ～ ${inputLimits.max}` : undefined}
-                style={{
-                  transition: 'all 0.3s ease-in-out',
-                  transform: focusedField === 'end' ? 'scale(1.02)' : 'scale(1)',
-                  boxShadow: focusedField === 'end' ? '0 4px 12px rgba(0,123,255,0.3)' : 'none'
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
 
-      <div className="field">
-        <div className="control">
-          <button
-            className={`button is-fullwidth ${hasChanges ? 'is-primary' : 'is-light'}`}
-            onClick={handleCustomDateChange}
-            disabled={!hasChanges}
-            style={{
-              transition: 'all 0.8s ease-in-out',
-              backgroundColor: hasChanges ? undefined : '#f5f5f5',
-              borderColor: hasChanges ? undefined : '#dbdbdb',
-              color: hasChanges ? undefined : '#7a7a7a',
-              transform: hasChanges ? 'scale(1)' : 'scale(0.98)',
-              opacity: hasChanges ? 1 : 0.7
-            }}
-          >
-            <span className="icon" style={{ transition: 'transform 0.3s ease-in-out' }}>
-              <i
-                className={`fas ${hasChanges ? 'fa-sync-alt' : 'fa-check'}`}
+          <div className="field">
+            <div className="control">
+              <button
+                className={`button is-fullwidth ${hasChanges ? 'is-primary' : 'is-light'}`}
+                onClick={handleCustomDateChange}
+                disabled={!hasChanges}
                 style={{
-                  transition: 'all 0.5s ease-in-out',
-                  transform: hasChanges ? 'rotate(0deg)' : 'rotate(360deg)'
+                  transition: 'all 0.8s ease-in-out',
+                  backgroundColor: hasChanges ? undefined : '#f5f5f5',
+                  borderColor: hasChanges ? undefined : '#dbdbdb',
+                  color: hasChanges ? undefined : '#7a7a7a',
+                  transform: hasChanges ? 'scale(1)' : 'scale(0.98)',
+                  opacity: hasChanges ? 1 : 0.7
                 }}
-              ></i>
-            </span>
-            <span style={{ transition: 'all 0.5s ease-in-out' }}>
-              {hasChanges ? '期間を確定して更新' : '変更なし'}
-            </span>
-          </button>
-        </div>
-      </div>
+              >
+                <span className="icon" style={{ transition: 'transform 0.3s ease-in-out' }}>
+                  <i
+                    className={`fas ${hasChanges ? 'fa-sync-alt' : 'fa-check'}`}
+                    style={{
+                      transition: 'all 0.5s ease-in-out',
+                      transform: hasChanges ? 'rotate(0deg)' : 'rotate(360deg)'
+                    }}
+                  ></i>
+                </span>
+                <span style={{ transition: 'all 0.5s ease-in-out' }}>
+                  {hasChanges ? '期間を確定して更新' : '変更なし'}
+                </span>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
       </div>
 
       <div className="box" id="altitude-selector">
