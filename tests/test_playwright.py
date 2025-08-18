@@ -762,17 +762,13 @@ def test_custom_date_range(page_init, host, port):  # noqa: PLR0915
     # デバッグ: ボタンの状態を確認
     _debug_button_state(page)
 
-    # カスタムボタンをクリック
-    custom_button = page.locator('button:has-text("カスタム")')
-    custom_button.click()
-
-    # CI環境での確実性を高めるため、JavaScriptでもイベントを発火
+    # JavaScriptでカスタムボタンをクリック（CI環境での確実性のため）
     page.evaluate("""
         () => {
             const customButton = Array.from(document.querySelectorAll('button'))
                 .find(btn => btn.textContent.includes('カスタム'));
             if (customButton) {
-                customButton.dispatchEvent(new Event('click', { bubbles: true }));
+                customButton.click();
             }
         }
     """)
