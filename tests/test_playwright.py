@@ -765,6 +765,17 @@ def test_custom_date_range(page_init, host, port):  # noqa: PLR0915
     custom_button = page.locator('button:has-text("カスタム")')
     custom_button.click()
 
+    # 日時入力フィールドが存在するまで待機
+    page.wait_for_function(
+        """
+        () => {
+            const inputFields = document.querySelectorAll('input[type="datetime-local"]');
+            return inputFields.length > 0;
+        }
+        """,
+        timeout=15000,
+    )
+
     # クリック後の状態を確認
     time.sleep(1)
     _debug_post_click_state(page)
