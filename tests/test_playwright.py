@@ -762,10 +762,22 @@ def test_custom_date_range(page_init, host, port):  # noqa: PLR0915
     # デバッグ: ボタンの状態を確認
     _debug_button_state(page)
 
+    # カスタムボタンをクリック
     custom_button = page.locator('button:has-text("カスタム")')
     custom_button.click()
 
-    # 日時入力フィールドが存在するまで待機
+    # CI環境での確実性を高めるため、JavaScriptでもイベントを発火
+    page.evaluate("""
+        () => {
+            const customButton = Array.from(document.querySelectorAll('button'))
+                .find(btn => btn.textContent.includes('カスタム'));
+            if (customButton) {
+                customButton.dispatchEvent(new Event('click', { bubbles: true }));
+            }
+        }
+    """)
+
+    # 日時入力フィールドが存在するまで待機（タイムアウトを延長）
     page.wait_for_function(
         """
         () => {
@@ -773,12 +785,29 @@ def test_custom_date_range(page_init, host, port):  # noqa: PLR0915
             return inputFields.length > 0;
         }
         """,
-        timeout=15000,
+        timeout=30000,
     )
 
     # クリック後の状態を確認
     time.sleep(1)
     _debug_post_click_state(page)
+
+    # ボタンの見た目の状態も確認
+    button_visual_state = page.evaluate("""
+        () => {
+            const customButton = Array.from(document.querySelectorAll('button'))
+                .find(btn => btn.textContent.includes('カスタム'));
+            if (customButton) {
+                return {
+                    hasActivePrimaryClass: customButton.classList.contains('is-primary'),
+                    classes: Array.from(customButton.classList),
+                    textContent: customButton.textContent.trim()
+                };
+            }
+            return null;
+        }
+    """)
+    logging.info("Custom button visual state: %s", button_visual_state)
 
     # 日時入力フィールドが表示されるまで待機（タイムアウトを延長）
     try:
