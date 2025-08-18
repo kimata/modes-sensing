@@ -641,7 +641,75 @@ def test_period_selection_buttons(page_init, host, port):
         assert first_image_src and len(first_image_src) > 0, f"{period_name} の画像src属性が空です"  # noqa: S101, PT018
 
 
-def test_custom_date_range(page_init, host, port):
+def _debug_button_state(page):
+    """ボタンの状態をデバッグ用にログ出力"""
+    button_state = page.evaluate("""
+        () => {
+            const buttons = Array.from(document.querySelectorAll('button'));
+            const customButton = buttons.find(btn => btn.textContent.includes('カスタム'));
+            return {
+                found: !!customButton,
+                text: customButton ? customButton.textContent : null,
+                classes: customButton ? customButton.className : null,
+                isActive: customButton ? customButton.classList.contains('is-primary') : false,
+                allButtons: buttons.map(btn => ({
+                    text: btn.textContent.trim(),
+                    classes: btn.className
+                }))
+            };
+        }
+    """)
+    logging.info("Button state before click: %s", button_state)
+    return button_state
+
+
+def _debug_post_click_state(page):
+    """カスタムボタンクリック後の状態をデバッグ用にログ出力"""
+    post_click_state = page.evaluate("""
+        () => {
+            const customButton = Array.from(document.querySelectorAll('button'))
+                .find(btn => btn.textContent.includes('カスタム'));
+            const inputFields = document.querySelectorAll('input[type="datetime-local"]');
+            return {
+                customButtonActive: customButton ? customButton.classList.contains('is-primary') : false,
+                inputFieldsCount: inputFields.length,
+                inputFieldsVisible: Array.from(inputFields).map(field => ({
+                    visible: field.offsetParent !== null,
+                    style: field.style.display,
+                    parentDisplay: field.parentElement ? field.parentElement.style.display : null
+                }))
+            };
+        }
+    """)
+    logging.info("State after custom button click: %s", post_click_state)
+    return post_click_state
+
+
+def _debug_error_state(page):
+    """エラー時の詳細な状態をデバッグ用にログ出力"""
+    error_state = page.evaluate("""
+        () => {
+            const inputFields = document.querySelectorAll('input[type="datetime-local"]');
+            return {
+                inputFieldsCount: inputFields.length,
+                inputFieldsDetails: Array.from(inputFields).map((field, index) => ({
+                    index: index,
+                    visible: field.offsetParent !== null,
+                    display: window.getComputedStyle(field).display,
+                    visibility: window.getComputedStyle(field).visibility,
+                    opacity: window.getComputedStyle(field).opacity,
+                    parentVisible: field.parentElement ? field.parentElement.offsetParent !== null : null,
+                    parentDisplay: field.parentElement ?
+                        window.getComputedStyle(field.parentElement).display : null
+                }))
+            };
+        }
+    """)
+    logging.exception("Input fields not visible after timeout: %s", error_state)
+    return error_state
+
+
+def test_custom_date_range(page_init, host, port):  # noqa: PLR0915
     """カスタムの区間を指定して、画像が正常に表示できることをテスト"""
     page = page_init
     page.goto(app_url(host, port))
@@ -690,11 +758,23 @@ def test_custom_date_range(page_init, host, port):
     # まずカスタムボタンをクリックして日時入力フィールドを表示
     # カスタムボタンが表示されるまで待機
     page.wait_for_selector('button:has-text("カスタム")', timeout=30000)
+
+    # デバッグ: ボタンの状態を確認
+    _debug_button_state(page)
+
     custom_button = page.locator('button:has-text("カスタム")')
     custom_button.click()
 
+    # クリック後の状態を確認
+    time.sleep(1)
+    _debug_post_click_state(page)
+
     # 日時入力フィールドが表示されるまで待機（タイムアウトを延長）
-    page.wait_for_selector('input[type="datetime-local"]', state="visible", timeout=30000)
+    try:
+        page.wait_for_selector('input[type="datetime-local"]', state="visible", timeout=30000)
+    except Exception:
+        _debug_error_state(page)
+        raise
 
     # 少し待機してReactのレンダリングが完了するのを待つ
     time.sleep(1)
