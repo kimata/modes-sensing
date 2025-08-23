@@ -390,8 +390,8 @@ def message_pairing(icao, packet_type, data, queue, area_info):
                 *fragment["bsd50"],
                 *fragment["bsd60"],
             )
-            # distanceをmeteorological_dataに追加
             meteorological_data["distance"] = distance
+            meteorological_data["method"] = "mode-s"
 
             # 温度が異常値でない場合のみ外れ値検出を実行
             if meteorological_data["temperature"] >= -100:

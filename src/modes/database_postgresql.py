@@ -74,7 +74,8 @@ def open(host, port, database, user, password):  # noqa: A001
             "wind_x REAL, "
             "wind_y REAL, "
             "wind_angle REAL, "
-            "wind_speed REAL"
+            "wind_speed REAL, "
+            "method TEXT"
             ");"
         )
 
@@ -129,8 +130,8 @@ def insert(conn, data):
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO meteorological_data (time, callsign, distance, altitude, latitude, longitude, "
-            "temperature, wind_x, wind_y, wind_angle, wind_speed) "
-            "VALUES (CURRENT_TIMESTAMP, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "temperature, wind_x, wind_y, wind_angle, wind_speed, method) "
+            "VALUES (CURRENT_TIMESTAMP, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 data["callsign"],
                 data["distance"],
@@ -142,6 +143,7 @@ def insert(conn, data):
                 data["wind"]["y"],
                 data["wind"]["angle"],
                 data["wind"]["speed"],
+                data.get("method"),  # methodがない場合はNoneを挿入
             ),
         )
 
@@ -277,6 +279,7 @@ def fetch_by_time(conn, time_start, time_end, distance, columns=None, max_altitu
         "wind_y",
         "wind_angle",
         "wind_speed",
+        "method",
     ]
     sanitized_columns = [col for col in columns if col in valid_columns]
 
@@ -364,6 +367,7 @@ def fetch_latest(conn, limit, distance=None, columns=None):
         "wind_y",
         "wind_angle",
         "wind_speed",
+        "method",
     ]
     sanitized_columns = [col for col in columns if col in valid_columns]
 
