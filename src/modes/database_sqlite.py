@@ -26,7 +26,7 @@ def open(log_db_path):  # noqa: A001
             "id INTEGER primary key autoincrement, time INTEGER NOT NULL, "
             "callsign TEXT NOT NULL, distance REAL, altitude REAL, latitude REAL, longitude REAL, "
             "temperature REAL, wind_x REAL, wind_y REAL, "
-            "wind_angle REAL, wind_speed REAL);"
+            "wind_angle REAL, wind_speed REAL, method TEXT);"
         )
         sqlite.execute("CREATE INDEX IF NOT EXISTS idx_time ON meteorological_data (time);")
         sqlite.execute("CREATE INDEX IF NOT EXISTS idx_distance ON meteorological_data (distance);")
@@ -41,7 +41,8 @@ def open(log_db_path):  # noqa: A001
 
 def insert(sqlite, data):
     sqlite.execute(
-        'INSERT INTO meteorological_data VALUES (NULL, strftime("%s", "now"), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        "INSERT INTO meteorological_data VALUES "
+        '(NULL, strftime("%s", "now"), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         (
             data["callsign"],
             data["distance"],
@@ -53,6 +54,7 @@ def insert(sqlite, data):
             data["wind"]["y"],
             data["wind"]["angle"],
             data["wind"]["speed"],
+            data.get("method"),  # methodがない場合はNoneを挿入
         ),
     )
     sqlite.commit()
@@ -105,6 +107,7 @@ def fetch_by_time(sqlite, time_start, time_end, distance, columns=None):
         "wind_y",
         "wind_angle",
         "wind_speed",
+        "method",
     ]
     sanitized_columns = [col for col in columns if col in valid_columns]
 
@@ -185,6 +188,7 @@ def fetch_latest(conn, limit, distance=None, columns=None):
         "wind_y",
         "wind_angle",
         "wind_speed",
+        "method",
     ]
     sanitized_columns = [col for col in columns if col in valid_columns]
 
