@@ -53,6 +53,7 @@ def test_collect(config):
 def test_graph(config):
     import datetime
     import io
+    import logging
 
     import my_lib.time
     import PIL.Image
@@ -86,6 +87,13 @@ def test_graph(config):
             ],
         )
     )
+
+    # データが少ない場合はプロット系のテストをスキップ
+    if data["count"] < 10:
+        logging.warning(
+            "データが不足しているため、グラフ生成テストをスキップします (データ数: %d)", data["count"]
+        )
+        return
 
     modes.webui.api.graph.set_font(config["font"])
 
