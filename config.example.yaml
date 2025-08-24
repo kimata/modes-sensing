@@ -6,7 +6,7 @@ modes:
 database:
     host: proxy.green-rabbit.net
     port: 5432
-    name: modes
+    name: flight_weather
     user: postgres
     pass: postgres
 
