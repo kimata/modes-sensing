@@ -542,68 +542,61 @@ def create_no_data_image(config, graph_name, text="データがありません")
     return img
 
 
-def prepare_data(raw_data):
-    """データ前処理を最適化（無効データ除去、メモリ効率向上）"""
+def prepare_data(raw_data, include_dataframe=True):
+    """データ前処理を最適化（無効データ除去、メモリ効率向上）
+
+    Args:
+        raw_data: データベースから取得した生データ
+        include_dataframe: DataFrameを作成するかどうか（風向グラフでのみTrue）
+
+    Returns:
+        処理済みデータの辞書
+
+    """
+    empty_result = {
+        "count": 0,
+        "times": numpy.array([]),
+        "time_numeric": numpy.array([]),
+        "altitudes": numpy.array([]),
+        "temperatures": numpy.array([]),
+        "dataframe": pandas.DataFrame(),
+    }
+
     if not raw_data:
-        return {
-            "count": 0,
-            "times": numpy.array([]),
-            "time_numeric": numpy.array([]),
-            "altitudes": numpy.array([]),
-            "temperatures": numpy.array([]),
-            "dataframe": pandas.DataFrame(),
-        }
+        return empty_result
 
-    # 全データを一括でnumpy配列に変換（メモリ効率向上）
-    data_length = len(raw_data)
-    temperatures = numpy.empty(data_length, dtype=numpy.float64)
-    altitudes = numpy.empty(data_length, dtype=numpy.float64)
-
-    # 一括データ抽出（リスト内包表記より高速）
-    for i, record in enumerate(raw_data):
-        temperatures[i] = record["temperature"]
-        altitudes[i] = record["altitude"]
+    # NumPy配列への一括変換（リスト内包表記で高速化）
+    temperatures = numpy.array([r["temperature"] for r in raw_data], dtype=numpy.float64)
+    altitudes = numpy.array([r["altitude"] for r in raw_data], dtype=numpy.float64)
 
     # 複合条件による無効データフィルタリング（一度に処理）
     valid_mask = (
         (temperatures > TEMPERATURE_THRESHOLD)
-        & (numpy.isfinite(temperatures))
-        & (numpy.isfinite(altitudes))
+        & numpy.isfinite(temperatures)
+        & numpy.isfinite(altitudes)
         & (altitudes >= ALT_MIN)
         & (altitudes <= ALT_MAX)
     )
 
-    if not valid_mask.any():
-        return {
-            "count": 0,
-            "times": numpy.array([]),
-            "time_numeric": numpy.array([]),
-            "altitudes": numpy.array([]),
-            "temperatures": numpy.array([]),
-            "dataframe": pandas.DataFrame(),
-        }
+    valid_count = valid_mask.sum()
+    if valid_count == 0:
+        return empty_result
 
-    # 有効データのみを連続メモリ配置で抽出
-    valid_indices = numpy.where(valid_mask)[0]
-    valid_count = len(valid_indices)
+    # 有効データのみ抽出（スライスで既に連続メモリになる）
+    clean_temperatures = temperatures[valid_mask]
+    clean_altitudes = altitudes[valid_mask]
 
-    # 連続メモリ配列として確保（キャッシュ効率向上）
-    clean_temperatures = numpy.ascontiguousarray(temperatures[valid_mask])
-    clean_altitudes = numpy.ascontiguousarray(altitudes[valid_mask])
+    # 時間データの効率的処理（中間配列を削減）
+    times = numpy.array([raw_data[i]["time"] for i in numpy.nonzero(valid_mask)[0]])
+    time_numeric = matplotlib.dates.date2num(times)
 
-    # 時間データの効率的処理
-    times_list = [raw_data[i]["time"] for i in valid_indices]
-
-    # pandas.to_datetimeの最適化設定
-    times = pandas.to_datetime(times_list, utc=False, cache=True).to_numpy()
-
-    # matplotlib.dates.date2numをベクトル化
-    time_numeric = numpy.ascontiguousarray(matplotlib.dates.date2num(times))
-
-    # DataFrame作成は風向グラフでのみ必要（遅延作成）
-    # 必要な場合のみフィルタリングされたデータでDataFrame作成
-    filtered_records = [raw_data[i] for i in valid_indices] if valid_count < data_length else raw_data
-    clean_df = pandas.DataFrame(filtered_records) if filtered_records else pandas.DataFrame()
+    # DataFrameは風向グラフでのみ必要（遅延作成でメモリ節約）
+    if include_dataframe:
+        valid_indices = numpy.nonzero(valid_mask)[0]
+        filtered_records = [raw_data[i] for i in valid_indices]
+        clean_df = pandas.DataFrame(filtered_records)
+    else:
+        clean_df = pandas.DataFrame()
 
     return {
         "count": valid_count,
@@ -1306,7 +1299,7 @@ GRAPH_DEF_MAP = {
 }
 
 
-def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_altitude=False):  # noqa: PLR0913
+def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_altitude=False):  # noqa: PLR0913, PLR0915
     """子プロセス内でデータ取得からグラフ描画まで一貫して実行する関数"""
     import matplotlib  # noqa: ICN001
 
@@ -1352,8 +1345,9 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
     )
     conn.close()
 
-    # データ準備（変換不要、直接処理）
-    data = prepare_data(raw_data)
+    # データ準備（風向グラフの場合のみDataFrameを作成）
+    include_dataframe = graph_name == "wind_direction"
+    data = prepare_data(raw_data, include_dataframe=include_dataframe)
 
     if data["count"] < 10:
         # データがない場合の画像を生成
