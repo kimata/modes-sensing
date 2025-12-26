@@ -226,18 +226,31 @@ class GraphCache:
             # 許容範囲内かつ高度制限設定が一致すればキャッシュを返す
             if start_diff < tolerance_minutes and end_diff < tolerance_minutes and altitude_match:
                 logging.info(
-                    "Cache hit for %s (start diff: %.1f min, end diff: %.1f min)",
+                    "Cache hit for %s (start diff: %.1f min, end diff: %.1f min, "
+                    "cached: %s to %s, requested: %s to %s)",
                     graph_name,
                     start_diff,
                     end_diff,
+                    cached_start,
+                    cached_end,
+                    requested_start,
+                    requested_end,
                 )
                 return cached["image"]
             else:
                 logging.info(
-                    "Cache miss for %s (start diff: %.1f min, end diff: %.1f min)",
+                    "Cache miss for %s (start diff: %.1f min, end diff: %.1f min, "
+                    "tolerance: %d min, altitude_match: %s, "
+                    "cached: %s to %s, requested: %s to %s)",
                     graph_name,
                     start_diff,
                     end_diff,
+                    tolerance_minutes,
+                    altitude_match,
+                    cached_start,
+                    cached_end,
+                    requested_start,
+                    requested_end,
                 )
                 return None
 
@@ -1577,12 +1590,15 @@ def graph(graph_name):  # noqa: PLR0915
     # 高度制限パラメータの処理
     limit_altitude = limit_altitude_str.lower() == "true"
 
+    # リクエストの期間を計算
+    request_days = (time_end - time_start).total_seconds() / 86400
     logging.info(
-        "request: %s graph (start: %s, end: %s, limit_altitude: %s)",
+        "request: %s graph (start: %s, end: %s, limit_altitude: %s, period: %.2f days)",
         graph_name,
         time_start,
         time_end,
         limit_altitude,
+        request_days,
     )
 
     config = flask.current_app.config["CONFIG"]

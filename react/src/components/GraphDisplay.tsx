@@ -75,6 +75,9 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
       ...(forceReload && { _r: Math.random().toString(36).substr(2, 9) })
     })
 
+    // デバッグ: リクエストされる日付範囲を確認
+    const periodDays = (dateRange.end.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24)
+    console.log(`[GraphDisplay] ${graph.endpoint}: period=${periodDays.toFixed(2)} days, start=${dateRange.start.toISOString()}, end=${dateRange.end.toISOString()}`)
 
     return `${graph.endpoint}?${params}`
   }, [dateRange, limitAltitude])
