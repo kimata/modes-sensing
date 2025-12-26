@@ -43,6 +43,18 @@ import scipy.interpolate
 
 import modes.database_postgresql
 
+# サーバー起動時のタイムスタンプ（ETagに使用してキャッシュ制御）
+SERVER_START_TIME = int(time.time())
+
+
+def generate_etag(graph_name, time_start, time_end, limit_altitude):
+    """ETagを生成（サーバー起動時刻を含めて、再起動時にキャッシュを無効化）"""
+    import hashlib
+
+    key = f"{SERVER_START_TIME}-{graph_name}-{time_start.isoformat()}-{time_end.isoformat()}-{limit_altitude}"
+    return hashlib.md5(key.encode()).hexdigest()  # noqa: S324
+
+
 IMAGE_DPI = 200.0
 
 TEMPERATURE_THRESHOLD = -100
@@ -1306,7 +1318,7 @@ GRAPH_DEF_MAP = {
 }
 
 
-def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_altitude=False):  # noqa: PLR0913
+def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_altitude=False):  # noqa: PLR0913, PLR0915
     """子プロセス内でデータ取得からグラフ描画まで一貫して実行する関数"""
     import matplotlib  # noqa: ICN001
 
@@ -1351,6 +1363,19 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
         max_altitude=ALTITUDE_LIMIT if limit_altitude else None,
     )
     conn.close()
+
+    # デバッグ: 取得したデータの時間範囲を確認
+    if raw_data:
+        times = [r["time"] for r in raw_data]
+        logging.info(
+            "Data range for %s: %s to %s (%d rows)",
+            graph_name,
+            min(times),
+            max(times),
+            len(raw_data),
+        )
+    else:
+        logging.warning("No data fetched for %s", graph_name)
 
     # データ準備（変換不要、直接処理）
     data = prepare_data(raw_data)
@@ -1562,6 +1587,15 @@ def graph(graph_name):  # noqa: PLR0915
 
     config = flask.current_app.config["CONFIG"]
 
+    # ETagを生成（サーバー起動時刻を含む）
+    etag = generate_etag(graph_name, time_start, time_end, limit_altitude)
+
+    # If-None-Matchヘッダーをチェック（ブラウザキャッシュの有効性確認）
+    if_none_match = flask.request.headers.get("If-None-Match")
+    if if_none_match and if_none_match == etag:
+        logging.info("ETag match for %s, returning 304", graph_name)
+        return flask.Response(status=304)
+
     # 常にキャッシュを確認
     logging.info("Checking cache for %s (limit_altitude: %s)", graph_name, limit_altitude)
     cached_image = _graph_cache.get(graph_name, time_start, time_end, limit_altitude=limit_altitude)
@@ -1571,6 +1605,7 @@ def graph(graph_name):  # noqa: PLR0915
         )
         res = flask.Response(cached_image, mimetype="image/png")
         res.headers["Cache-Control"] = "public, max-age=600"
+        res.headers["ETag"] = etag
         return res
     else:
         logging.info("Cache miss for %s, generating new graph", graph_name)
@@ -1588,8 +1623,9 @@ def graph(graph_name):  # noqa: PLR0915
         res = flask.Response(image_bytes, mimetype="image/png")
         logging.info("Flask response created for %s", graph_name)
 
-        # 成功時は10分間キャッシュ
+        # 成功時は10分間キャッシュ + ETag
         res.headers["Cache-Control"] = "public, max-age=600"
+        res.headers["ETag"] = etag
         logging.info("Cache headers set for %s", graph_name)
 
     except Exception as e:
