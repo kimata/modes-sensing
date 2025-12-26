@@ -81,11 +81,17 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
       ...(forceReload && { _r: Math.random().toString(36).substr(2, 9) })
     })
 
-    // デバッグ: リクエストされる日付範囲を確認
+    // デバッグ: リクエストされる日付範囲とURLを確認
     const periodDays = (dateRange.end.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24)
-    console.log(`[GraphDisplay] ${graph.endpoint}: period=${periodDays.toFixed(2)} days, start=${dateRange.start.toISOString()}, end=${dateRange.end.toISOString()}`)
+    const fullUrl = `${graph.endpoint}?${params}`
+    console.log(`[GraphDisplay] ${graph.endpoint}:`)
+    console.log(`  period=${periodDays.toFixed(2)} days`)
+    console.log(`  start=${dateRange.start.toISOString()}`)
+    console.log(`  end=${dateRange.end.toISOString()}`)
+    console.log(`  URL params: start=${params.get('start')}, end=${params.get('end')}`)
+    console.log(`  Full URL: ${fullUrl}`)
 
-    return `${graph.endpoint}?${params}`
+    return fullUrl
   }, [dateRange, limitAltitude])
 
   // シンプルな画像ハンドラー
@@ -179,6 +185,15 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
 
   // dateRangeが変更されたら画像URLを更新
   useEffect(() => {
+    // デバッグ: dateRange変更を検出
+    const periodDays = (dateRange.end.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24)
+    console.log(`[GraphDisplay useEffect] dateRange changed:`)
+    console.log(`  period=${periodDays.toFixed(2)} days`)
+    console.log(`  start=${dateRange.start.toISOString()}`)
+    console.log(`  end=${dateRange.end.toISOString()}`)
+    console.log(`  limitAltitude=${limitAltitude}`)
+    console.log(`  isInitialLoad=${isInitialLoad}`)
+
     // 前回の日付範囲と高度設定と同じかチェック
     const prevRange = prevDateRangeRef.current
     const prevLimitAltitude = prevLimitAltitudeRef.current
@@ -189,6 +204,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
 
     if (isSameRange && isSameLimitAltitude && !isInitialLoad) {
       // 同じ日付範囲と高度設定の場合、ローディング状態をスキップしてすでに表示されている画像を維持
+      console.log(`[GraphDisplay useEffect] Skipping - same range and altitude setting`)
       return
     }
 
