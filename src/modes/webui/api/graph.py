@@ -1400,10 +1400,36 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
     return bytes_io.getvalue(), elapsed
 
 
+def calculate_timeout(time_start, time_end):
+    """
+    期間に応じてタイムアウト値を決定する
+
+    Args:
+        time_start: 開始時刻
+        time_end: 終了時刻
+
+    Returns:
+        タイムアウト秒数
+
+    """
+    days = (time_end - time_start).total_seconds() / 86400
+    if days <= 7:
+        return 60  # 1週間以内: 60秒
+    elif days <= 30:
+        return 120  # 1ヶ月以内: 120秒
+    elif days <= 90:
+        return 180  # 3ヶ月以内: 180秒
+    else:
+        return 300  # それ以上: 300秒
+
+
 def plot(config, graph_name, time_start, time_end, limit_altitude=False):
     logging.info("plot() called for %s (limit_altitude: %s)", graph_name, limit_altitude)
     # グラフサイズを計算
     figsize = tuple(x / IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name]["size"])
+
+    # 期間に応じたタイムアウト値を計算
+    timeout_seconds = calculate_timeout(time_start, time_end)
 
     # グローバルプロセスプールを使用してデータ取得から描画まで実行
     pool = _pool_manager.get_pool()
@@ -1415,8 +1441,7 @@ def plot(config, graph_name, time_start, time_end, limit_altitude=False):
         )
         logging.info("Process pool apply_async() called for %s", graph_name)
 
-        # 60秒でタイムアウト（複雑なグラフの場合時間がかかる場合がある）
-        result = async_result.get(timeout=60)
+        result = async_result.get(timeout=timeout_seconds)
         logging.info("Process pool apply_async() returned for %s", graph_name)
         image_bytes, elapsed = result
 
@@ -1430,7 +1455,7 @@ def plot(config, graph_name, time_start, time_end, limit_altitude=False):
         )
         return image_bytes
     except multiprocessing.TimeoutError:
-        logging.exception("Timeout in plot generation for %s (60 seconds)", graph_name)
+        logging.exception("Timeout in plot generation for %s (%d seconds)", graph_name, timeout_seconds)
         msg = f"Plot generation timed out for {graph_name}"
         raise RuntimeError(msg) from None
     except Exception:
