@@ -11,6 +11,8 @@ Options:
   -D                : デバッグモードで動作します。
 """
 
+from __future__ import annotations
+
 import atexit
 import concurrent.futures
 import datetime
@@ -21,6 +23,7 @@ import multiprocessing
 import pathlib
 import threading
 import time
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import flask
 import matplotlib  # noqa: ICN001
@@ -44,11 +47,43 @@ import scipy.interpolate
 
 import modes.database_postgresql
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
+    from psycopg2.extensions import connection as PgConnection  # noqa: N812
+
+
+class GraphDefinition(TypedDict):
+    """グラフ定義"""
+
+    func: Callable[..., Figure]
+    size: tuple[int, int]
+    future: concurrent.futures.Future[Figure] | None
+
+
+class CacheEntry(TypedDict, total=False):
+    """キャッシュエントリ"""
+
+    image: bytes
+    start: datetime.datetime
+    end: datetime.datetime
+    timestamp: float
+    limit_altitude: bool
+
+
+class PreparedData(TypedDict):
+    """準備済みデータ"""
+
+    dataframe: pandas.DataFrame | None
+    count: int
+
 # サーバー起動時のタイムスタンプ（ETagに使用してキャッシュ制御）
 SERVER_START_TIME = int(time.time())
 
 
-def get_font_config(config_dict):
+def get_font_config(config_dict: dict[str, Any]) -> my_lib.panel_config.FontConfig:
     """辞書形式のフォント設定をFontConfigオブジェクトに変換する"""
     return my_lib.panel_config.FontConfig(
         path=pathlib.Path(config_dict["path"]),
@@ -56,7 +91,12 @@ def get_font_config(config_dict):
     )
 
 
-def generate_etag(graph_name, time_start, time_end, limit_altitude):
+def generate_etag(
+    graph_name: str,
+    time_start: datetime.datetime,
+    time_end: datetime.datetime,
+    limit_altitude: bool,
+) -> str:
     """ETagを生成（サーバー起動時刻を含めて、再起動時にキャッシュを無効化）"""
     import hashlib
 
@@ -77,7 +117,7 @@ ALT_MAX = 13000
 ALTITUDE_LIMIT = 2000  # 高度制限時の最大値
 
 
-def get_temperature_range(limit_altitude=False):
+def get_temperature_range(limit_altitude: bool = False) -> tuple[int, int]:
     """limit_altitudeに応じた温度範囲を取得"""
     if limit_altitude:
         return TEMP_MIN_LIMITED, TEMP_MAX_LIMITED
@@ -322,7 +362,7 @@ class ProcessPoolManager:
 _pool_manager = ProcessPoolManager()
 
 
-def connect_database(config):
+def connect_database(config: dict[str, Any]) -> PgConnection:
     return modes.database_postgresql.open(
         config["database"]["host"],
         config["database"]["port"],
@@ -332,18 +372,23 @@ def connect_database(config):
     )
 
 
-def set_title(title_text):
+def set_title(title_text: str) -> None:
     matplotlib.pyplot.title(title_text, fontsize=TITLE_SIZE, fontweight="bold", pad=20)
 
 
-def set_tick_label_size(ax, is_3d=False):
+def set_tick_label_size(ax: Axes, is_3d: bool = False) -> None:
     ax.tick_params(axis="x", labelsize=TICK_LABEL_SIZE)
     ax.tick_params(axis="y", labelsize=TICK_LABEL_SIZE)
     if is_3d:
         ax.tick_params(axis="z", labelsize=TICK_LABEL_SIZE)
 
 
-def set_axis_labels(ax, xlabel=None, ylabel=None, zlabel=None):
+def set_axis_labels(
+    ax: Axes,
+    xlabel: str | None = None,
+    ylabel: str | None = None,
+    zlabel: str | None = None,
+) -> None:
     if xlabel:
         ax.set_xlabel(xlabel, fontsize=AXIS_LABEL_SIZE)
     if ylabel:
@@ -352,7 +397,7 @@ def set_axis_labels(ax, xlabel=None, ylabel=None, zlabel=None):
         ax.set_zlabel(zlabel, fontsize=AXIS_LABEL_SIZE)
 
 
-def set_temperature_range(ax, axis="x", limit_altitude=False):
+def set_temperature_range(ax: Axes, axis: str = "x", limit_altitude: bool = False) -> None:
     # limit_altitudeに応じた温度範囲を動的に取得
     temp_min, temp_max = get_temperature_range(limit_altitude)
 
@@ -362,7 +407,7 @@ def set_temperature_range(ax, axis="x", limit_altitude=False):
         ax.set_ylim(temp_min, temp_max)
 
 
-def set_altitude_range(ax, axis="x", limit_altitude=False):
+def set_altitude_range(ax: Axes, axis: str = "x", limit_altitude: bool = False) -> None:
     alt_max = ALTITUDE_LIMIT if limit_altitude else ALT_MAX
     if axis == "x":
         ax.set_xlim(ALT_MIN, alt_max)
@@ -370,7 +415,7 @@ def set_altitude_range(ax, axis="x", limit_altitude=False):
         ax.set_ylim(ALT_MIN, alt_max)
 
 
-def apply_time_axis_format(ax, time_range_days):
+def apply_time_axis_format(ax: Axes, time_range_days: float) -> None:
     import matplotlib.dates
 
     if time_range_days <= 1:

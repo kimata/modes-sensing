@@ -11,20 +11,27 @@ Options:
   -D                : デバッグモードで動作します．
 """
 
+from __future__ import annotations
+
 import logging
 import multiprocessing
 import pathlib
 import signal
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from types import FrameType
 
 import my_lib.footprint
 
 import modes.database_postgresql
 import modes.receiver
+from modes.config import AppConfig
 
 SCHEMA_CONFIG = "config.schema"
 
 
-def sig_handler(num, _):
+def sig_handler(num: int, _: FrameType | None) -> None:
     logging.warning("receive signal %d", num)
 
     if num in (signal.SIGTERM, signal.SIGINT):
@@ -32,17 +39,17 @@ def sig_handler(num, _):
         modes.receiver.term()
 
 
-def execute(config, liveness_file, count=0):
+def execute(config: AppConfig, liveness_file: pathlib.Path, count: int = 0) -> None:
     signal.signal(signal.SIGTERM, sig_handler)
 
-    measurement_queue = multiprocessing.Queue()
+    measurement_queue: multiprocessing.Queue[dict] = multiprocessing.Queue()
 
     conn = modes.database_postgresql.open(
-        config["database"]["host"],
-        config["database"]["port"],
-        config["database"]["name"],
-        config["database"]["user"],
-        config["database"]["pass"],
+        config.database.host,
+        config.database.port,
+        config.database.name,
+        config.database.user,
+        config.database.password,
     )
 
     # 履歴データを取得してreceiver.pyの外れ値検出機能に初期データを提供
@@ -53,7 +60,7 @@ def execute(config, liveness_file, count=0):
         historical_records = modes.database_postgresql.fetch_latest(
             conn,
             modes.receiver.HISTRY_SAMPLES,
-            distance=config["filter"]["area"]["distance"],
+            distance=config.filter.area.distance,
             columns=["altitude", "temperature"],
         )
 
@@ -77,16 +84,32 @@ def execute(config, liveness_file, count=0):
         logging.warning("履歴データの取得に失敗しました: %s", e)
         # エラーが発生しても処理を継続
 
+    # receiver.start に渡す area 設定（辞書形式）
+    area_dict = {
+        "lat": {"ref": config.filter.area.lat.ref},
+        "lon": {"ref": config.filter.area.lon.ref},
+        "distance": config.filter.area.distance,
+    }
+
     modes.receiver.start(
-        config["modes"]["decoder"]["host"],
-        config["modes"]["decoder"]["port"],
+        config.modes.decoder.host,
+        config.modes.decoder.port,
         measurement_queue,
-        config["filter"]["area"],
+        area_dict,
     )
+
+    # store_queue に渡す database 設定（辞書形式）
+    db_config_dict = {
+        "host": config.database.host,
+        "port": config.database.port,
+        "name": config.database.name,
+        "user": config.database.user,
+        "pass": config.database.password,
+    }
 
     try:
         modes.database_postgresql.store_queue(
-            conn, measurement_queue, liveness_file, count, db_config=config["database"]
+            conn, measurement_queue, liveness_file, count, db_config=db_config_dict
         )
     except Exception:
         logging.exception("Failed to store data")
@@ -100,6 +123,8 @@ if __name__ == "__main__":
     import my_lib.config
     import my_lib.logger
 
+    from modes.config import load_from_dict
+
     args = docopt.docopt(__doc__)
 
     config_file = args["-c"]
@@ -108,6 +133,7 @@ if __name__ == "__main__":
 
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
-    config = my_lib.config.load(config_file, pathlib.Path(SCHEMA_CONFIG))
+    config_dict = my_lib.config.load(config_file, pathlib.Path(SCHEMA_CONFIG))
+    config = load_from_dict(config_dict)
 
-    execute(config, config["liveness"]["file"]["collector"], count)
+    execute(config, config.liveness.file.collector, count)

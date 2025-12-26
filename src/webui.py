@@ -11,10 +11,13 @@ Options:
   -D                : デバッグモードで動作します。
 """
 
+from __future__ import annotations
+
 import logging
 import pathlib
 import signal
 import sys
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import flask
 import flask_cors
@@ -22,10 +25,13 @@ import my_lib.config
 import my_lib.logger
 import my_lib.proc_util
 
+if TYPE_CHECKING:
+    from types import FrameType
+
 SCHEMA_CONFIG = "config.schema"
 
 
-def term():
+def term() -> NoReturn:
     # 子プロセスを終了
     my_lib.proc_util.kill_child()
 
@@ -34,14 +40,14 @@ def term():
     sys.exit(0)
 
 
-def sig_handler(num, frame):  # noqa: ARG001
+def sig_handler(num: int, frame: FrameType | None) -> None:  # noqa: ARG001
     logging.warning("receive signal %d", num)
 
     if num in (signal.SIGTERM, signal.SIGINT):
         term()
 
 
-def create_app(config):
+def create_app(config: dict[str, Any]) -> flask.Flask:
     # NOTE: アクセスログは無効にする
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
