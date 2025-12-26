@@ -14,6 +14,7 @@ dayjs.locale('ja')
 function Footer() {
   const [updateTime, setUpdateTime] = useState(dayjs().format('YYYY年MM月DD日 HH:mm:ss'))
   const buildDate = dayjs(import.meta.env.VITE_BUILD_DATE || new Date().toISOString())
+  const commitHash = import.meta.env.VITE_GIT_COMMIT_HASH || 'unknown'
   const { data: sysInfo } = useApi<SysInfo>('/modes-sensing/api/sysinfo', { interval: 300000 }) // 5分間隔で更新
 
   useEffect(() => {
@@ -35,7 +36,7 @@ function Footer() {
     <div className="is-pulled-right has-text-right p-2 mt-4" data-testid="footer">
       <div className="is-size-6">
         <p className="has-text-grey mb-0 is-size-7">
-          更新日時: {updateTime}
+          更新日時: {updateTime} (commit: {commitHash})
         </p>
         <p className="has-text-grey mb-0 is-size-7">
           イメージビルド: {getImageBuildDate()}
