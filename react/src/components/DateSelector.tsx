@@ -197,6 +197,14 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
     setUserSelectedPeriod(period) // ユーザーが明示的に選択した期間として記録
     setIsQuickSelectActive(true) // 自動判定を抑制するフラグを設定
 
+    // デバッグ: 選択された期間を出力
+    const periodDays = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+    console.log(`[DateSelector] handleQuickSelect:`)
+    console.log(`  selected period: ${period} (${days} days)`)
+    console.log(`  actual period: ${periodDays.toFixed(2)} days`)
+    console.log(`  start: ${start.toISOString()}`)
+    console.log(`  end: ${end.toISOString()}`)
+
     onDateChange(start, end)
     setCustomStart(formatDateForInput(start))
     setCustomEnd(formatDateForInput(end))

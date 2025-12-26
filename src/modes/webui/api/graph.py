@@ -1403,6 +1403,16 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
 
     import matplotlib.pyplot  # noqa: ICN001
 
+    # デバッグ: 子プロセスに渡された時間範囲を記録
+    period_days = (time_end - time_start).total_seconds() / 86400
+    logging.info(
+        "[DEBUG] plot_in_subprocess() for %s: start=%s, end=%s, period=%.2f days",
+        graph_name,
+        time_start,
+        time_end,
+        period_days,
+    )
+
     # データベース接続とデータ取得を子プロセス内で実行
     conn = connect_database(config)
     # 風向グラフの場合は風データも取得
@@ -1526,7 +1536,16 @@ def calculate_timeout(time_start, time_end):
 
 
 def plot(config, graph_name, time_start, time_end, limit_altitude=False):
-    logging.info("plot() called for %s (limit_altitude: %s)", graph_name, limit_altitude)
+    # デバッグ: plot()に渡された時間範囲を記録
+    period_days = (time_end - time_start).total_seconds() / 86400
+    logging.info(
+        "[DEBUG] plot() called for %s: start=%s, end=%s, period=%.2f days, limit_altitude=%s",
+        graph_name,
+        time_start,
+        time_end,
+        period_days,
+        limit_altitude,
+    )
     # グラフサイズを計算
     figsize = tuple(x / IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name]["size"])
 
@@ -1638,17 +1657,40 @@ def graph(graph_name):  # noqa: PLR0915
     time_start_str = flask.request.args.get("start", None)
     limit_altitude_str = flask.request.args.get("limit_altitude", "false")  # デフォルトでfalse
 
+    # デバッグ: 受信したパラメータを記録
+    logging.info(
+        "[DEBUG] Raw params for %s: start_str=%r, end_str=%r, limit_altitude_str=%r",
+        graph_name,
+        time_start_str,
+        time_end_str,
+        limit_altitude_str,
+    )
+
     # 文字列をUTC時間のdatetimeに変換してからローカルタイムに変換
     if time_end_str:
-        time_end = datetime.datetime.fromisoformat(json.loads(time_end_str).replace("Z", "+00:00"))
-        time_end = time_end.astimezone(my_lib.time.get_zoneinfo())
+        try:
+            parsed_end = json.loads(time_end_str)
+            logging.info("[DEBUG] Parsed end JSON: %r", parsed_end)
+            time_end = datetime.datetime.fromisoformat(parsed_end.replace("Z", "+00:00"))
+            time_end = time_end.astimezone(my_lib.time.get_zoneinfo())
+        except Exception:
+            logging.exception("[DEBUG] Failed to parse end time")
+            time_end = default_time_end
     else:
+        logging.info("[DEBUG] No end param, using default: %s", default_time_end)
         time_end = default_time_end
 
     if time_start_str:
-        time_start = datetime.datetime.fromisoformat(json.loads(time_start_str).replace("Z", "+00:00"))
-        time_start = time_start.astimezone(my_lib.time.get_zoneinfo())
+        try:
+            parsed_start = json.loads(time_start_str)
+            logging.info("[DEBUG] Parsed start JSON: %r", parsed_start)
+            time_start = datetime.datetime.fromisoformat(parsed_start.replace("Z", "+00:00"))
+            time_start = time_start.astimezone(my_lib.time.get_zoneinfo())
+        except Exception:
+            logging.exception("[DEBUG] Failed to parse start time")
+            time_start = default_time_start
     else:
+        logging.info("[DEBUG] No start param, using default: %s", default_time_start)
         time_start = default_time_start
 
     # 高度制限パラメータの処理
