@@ -21,20 +21,15 @@ from my_lib.healthz import HealthzTarget
 SCHEMA_CONFIG = "config.schema"
 
 
-def check_liveness(target_list, port=None):
-    for target in target_list:
-        healthz_target = HealthzTarget(
-            name=target["name"],
-            liveness_file=target["liveness_file"],
-            interval=target["interval"],
-        )
-        if not my_lib.healthz.check_liveness(healthz_target):
+def check_liveness(targets: list[HealthzTarget], port: int | None = None) -> bool:
+    """複数ターゲットの liveness をチェックする"""
+    for target in targets:
+        if not my_lib.healthz.check_liveness(target):
             return False
 
     if port is not None:
         return my_lib.healthz.check_http_port(port)
-    else:
-        return True
+    return True
 
 
 if __name__ == "__main__":
@@ -64,14 +59,18 @@ if __name__ == "__main__":
     else:
         conf_list = []
 
-    target_list = [
-        {"name": conf, "liveness_file": config["liveness"]["file"][conf], "interval": 60 * 10}
+    targets = [
+        HealthzTarget(
+            name=conf,
+            liveness_file=pathlib.Path(config["liveness"]["file"][conf]),
+            interval=60 * 10,
+        )
         for conf in conf_list
     ]
 
-    logging.debug(my_lib.pretty.format(target_list))
+    logging.debug(my_lib.pretty.format(targets))
 
-    if check_liveness(target_list, port):
+    if check_liveness(targets, port):
         logging.info("OK.")
         sys.exit(0)
     else:
