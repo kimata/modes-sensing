@@ -10,16 +10,33 @@ Options:
   -D                : デバッグモードで動作します．
 """
 
+from __future__ import annotations
+
 import datetime
 import logging
 import queue
 import time
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import my_lib.footprint
 import my_lib.sqlite_util
 
+if TYPE_CHECKING:
+    import pathlib
+    import sqlite3
 
-def open(log_db_path):  # noqa: A001
+    from modes.database_postgresql import MeasurementData
+
+
+class DataRangeResult(TypedDict):
+    """データ範囲クエリの結果"""
+
+    earliest: datetime.datetime | None
+    latest: datetime.datetime | None
+    count: int
+
+
+def open(log_db_path: pathlib.Path) -> sqlite3.Connection:  # noqa: A001
     with my_lib.sqlite_util.connect(log_db_path) as sqlite:
         sqlite.execute(
             "CREATE TABLE IF NOT EXISTS meteorological_data ("
@@ -39,7 +56,7 @@ def open(log_db_path):  # noqa: A001
         return sqlite
 
 
-def insert(sqlite, data):
+def insert(sqlite: sqlite3.Connection, data: MeasurementData) -> None:
     sqlite.execute(
         "INSERT INTO meteorological_data VALUES "
         '(NULL, strftime("%s", "now"), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -60,7 +77,12 @@ def insert(sqlite, data):
     sqlite.commit()
 
 
-def store_queue(sqlite, queue, liveness_file, count=0):
+def store_queue(
+    sqlite: sqlite3.Connection,
+    queue: queue.Queue[MeasurementData],
+    liveness_file: pathlib.Path,
+    count: int = 0,
+) -> None:
     i = 0
     try:
         while True:
@@ -76,7 +98,13 @@ def store_queue(sqlite, queue, liveness_file, count=0):
         logging.exception("Database error occurred")
 
 
-def fetch_by_time(sqlite, time_start, time_end, distance, columns=None):
+def fetch_by_time(
+    sqlite: sqlite3.Connection,
+    time_start: datetime.datetime,
+    time_end: datetime.datetime,
+    distance: float,
+    columns: list[str] | None = None,
+) -> list[dict[str, Any]]:
     """
     指定された時間範囲と距離でデータを取得する
 
@@ -158,7 +186,12 @@ def fetch_by_time(sqlite, time_start, time_end, distance, columns=None):
     return data
 
 
-def fetch_latest(conn, limit, distance=None, columns=None):
+def fetch_latest(
+    conn: sqlite3.Connection,
+    limit: int,
+    distance: float | None = None,
+    columns: list[str] | None = None,
+) -> list[dict[str, Any]]:
     """
     最新のデータを指定された件数取得する
 
@@ -245,7 +278,7 @@ def fetch_latest(conn, limit, distance=None, columns=None):
     return data
 
 
-def fetch_data_range(conn):
+def fetch_data_range(conn: sqlite3.Connection) -> DataRangeResult:
     """
     データベースの最古・最新データの日時とレコード数を取得する
 

@@ -10,22 +10,62 @@ Options:
   -D                : デバッグモードで動作します．
 """
 
+from __future__ import annotations
+
 import contextlib
 import datetime
 import logging
 import queue
 import threading
 import time
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import my_lib.footprint
 import psycopg2
 import psycopg2.extras
 
+if TYPE_CHECKING:
+    import multiprocessing
+    import pathlib
+
+    from psycopg2.extensions import connection as PgConnection  # noqa: N812
+
+
+class WindData(TypedDict):
+    """風向・風速データ"""
+
+    x: float
+    y: float
+    angle: float
+    speed: float
+
+
+class MeasurementData(TypedDict, total=False):
+    """測定データ（receiver.py から受け取る形式）"""
+
+    callsign: str
+    distance: float
+    altitude: float
+    latitude: float
+    longitude: float
+    temperature: float
+    wind: WindData
+    method: str | None
+
+
+class DataRangeResult(TypedDict):
+    """データ範囲クエリの結果"""
+
+    earliest: datetime.datetime | None
+    latest: datetime.datetime | None
+    count: int
+
+
 should_terminate = threading.Event()
 
 
-def open(host, port, database, user, password):  # noqa: A001
-    connection_params = {
+def open(host: str, port: int, database: str, user: str, password: str) -> PgConnection:  # noqa: A001
+    connection_params: dict[str, Any] = {
         "host": host,
         "port": port,
         "database": database,
@@ -126,7 +166,7 @@ def open(host, port, database, user, password):  # noqa: A001
     return conn
 
 
-def insert(conn, data):
+def insert(conn: PgConnection, data: MeasurementData) -> None:
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO meteorological_data (time, callsign, distance, altitude, latitude, longitude, "
@@ -148,7 +188,13 @@ def insert(conn, data):
         )
 
 
-def store_queue(conn, measurement_queue, liveness_file, count=0, db_config=None):  # noqa: C901
+def store_queue(  # noqa: C901
+    conn: PgConnection,
+    measurement_queue: multiprocessing.Queue[MeasurementData],
+    liveness_file: pathlib.Path,
+    count: int = 0,
+    db_config: dict[str, Any] | None = None,
+) -> None:
     """
     データベースへのデータ格納を行うワーカー関数
 
@@ -243,11 +289,18 @@ def store_queue(conn, measurement_queue, liveness_file, count=0, db_config=None)
     logging.warning("Stop store worker")
 
 
-def store_term():
+def store_term() -> None:
     should_terminate.set()
 
 
-def fetch_by_time(conn, time_start, time_end, distance, columns=None, max_altitude=None):  # noqa: PLR0913
+def fetch_by_time(  # noqa: PLR0913
+    conn: PgConnection,
+    time_start: datetime.datetime,
+    time_end: datetime.datetime,
+    distance: float,
+    columns: list[str] | None = None,
+    max_altitude: float | None = None,
+) -> list[dict[str, Any]]:
     """
     指定された時間範囲と距離でデータを取得する
 
@@ -337,7 +390,12 @@ def fetch_by_time(conn, time_start, time_end, distance, columns=None, max_altitu
         return data
 
 
-def fetch_latest(conn, limit, distance=None, columns=None):
+def fetch_latest(
+    conn: PgConnection,
+    limit: int,
+    distance: float | None = None,
+    columns: list[str] | None = None,
+) -> list[dict[str, Any]]:
     """
     最新のデータを指定された件数取得する
 
@@ -409,7 +467,7 @@ def fetch_latest(conn, limit, distance=None, columns=None):
         return data
 
 
-def fetch_data_range(conn):
+def fetch_data_range(conn: PgConnection) -> DataRangeResult:
     """
     データベースの最古・最新データの日時とレコード数を取得する
 
