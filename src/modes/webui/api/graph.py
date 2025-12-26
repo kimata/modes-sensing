@@ -31,6 +31,7 @@ import matplotlib.font_manager
 import matplotlib.pyplot  # noqa: ICN001
 import matplotlib.ticker
 import mpl_toolkits.mplot3d  # noqa: F401
+import my_lib.panel_config
 import my_lib.pil_util
 import my_lib.plot_util
 import my_lib.time
@@ -45,6 +46,14 @@ import modes.database_postgresql
 
 # サーバー起動時のタイムスタンプ（ETagに使用してキャッシュ制御）
 SERVER_START_TIME = int(time.time())
+
+
+def get_font_config(config_dict):
+    """辞書形式のフォント設定をFontConfigオブジェクトに変換する"""
+    return my_lib.panel_config.FontConfig(
+        path=pathlib.Path(config_dict["path"]),
+        map=config_dict["map"],
+    )
 
 
 def generate_etag(graph_name, time_start, time_end, limit_altitude):
@@ -558,7 +567,8 @@ def create_no_data_image(config, graph_name, text="データがありません")
     font_size = int(ERROR_SIZE * IMAGE_DPI / 72)
 
     # my_lib.pil_utilを使用してフォントを取得
-    font = my_lib.pil_util.get_font(config["font"], "jp_bold", font_size)
+    font_config = get_font_config(config["font"])
+    font = my_lib.pil_util.get_font(font_config, "jp_bold", font_size)
 
     pos = (size[0] // 2, size[1] // 2)
 
@@ -640,12 +650,13 @@ def prepare_data(raw_data):
     }
 
 
-def set_font(font_config):
+def set_font(font_config_dict):
     try:
-        for font_file in font_config["map"].values():
-            matplotlib.font_manager.fontManager.addfont(
-                pathlib.Path(font_config["path"]).resolve() / font_file
-            )
+        # 辞書形式のフォント設定をFontConfigオブジェクトに変換
+        font_config = get_font_config(font_config_dict)
+
+        for font_file in font_config.map.values():
+            matplotlib.font_manager.fontManager.addfont(font_config.path.resolve() / font_file)
 
         font_name = my_lib.plot_util.get_plot_font(font_config, "jp_medium", 12).get_name()
 

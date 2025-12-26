@@ -39,6 +39,7 @@ def test_receiver(config):
 
 def test_collect(config):
     import my_lib.healthz
+    from my_lib.healthz import HealthzTarget
 
     import collect
 
@@ -47,7 +48,8 @@ def test_collect(config):
 
     modes.receiver.term()
 
-    assert my_lib.healthz.check_liveness("collector", liveness_file, 60)  # noqa: S101
+    target = HealthzTarget(name="collector", liveness_file=liveness_file, interval=60)
+    assert my_lib.healthz.check_liveness(target)  # noqa: S101
 
 
 def test_graph(config):
