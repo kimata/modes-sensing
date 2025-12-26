@@ -11,30 +11,81 @@ Options:
 """
 # 参考: https://www.ishikawa-lab.com/RasPi_ModeS.html
 
+from __future__ import annotations
+
 import collections
 import logging
 import math
 import queue
 import socket
 import threading
+from typing import Any, TypedDict
 
 import numpy as np
+import numpy.typing as npt
 import pyModeS
 import sklearn.ensemble
 import sklearn.linear_model
 
-FRAGMENT_BUF_SIZE = 100
 
-fragment_list = []
+class WindData(TypedDict):
+    """風向・風速データ"""
+
+    x: float
+    y: float
+    angle: float
+    speed: float
+
+
+class MeteorologicalData(TypedDict, total=False):
+    """気象データ"""
+
+    callsign: str
+    altitude: float
+    latitude: float
+    longitude: float
+    temperature: float
+    wind: WindData
+    distance: float
+    method: str | None
+
+
+class HistoryData(TypedDict):
+    """履歴データ（外れ値検出用）"""
+
+    altitude: float
+    temperature: float
+
+
+class AreaInfo(TypedDict):
+    """エリア情報"""
+
+    lat: dict[str, float]
+    lon: dict[str, float]
+    distance: int
+
+
+class MessageFragment(TypedDict, total=False):
+    """メッセージフラグメント"""
+
+    icao: str
+    adsb_pos: tuple[float, float | None, float | None]
+    adsb_sign: tuple[str]
+    bsd50: tuple[float | None, float | None, float | None]
+    bsd60: tuple[float | None, float | None, float | None]
+
+FRAGMENT_BUF_SIZE: int = 100
+
+fragment_list: list[MessageFragment] = []
 
 should_terminate = threading.Event()
 
-HISTRY_SAMPLES = 30000
-meteorological_history = collections.deque(maxlen=HISTRY_SAMPLES)
-OUTLIER_DETECTION_MIN_SAMPLES = 100  # 外れ値検出を開始する最小サンプル数
+HISTRY_SAMPLES: int = 30000
+meteorological_history: collections.deque[HistoryData] = collections.deque(maxlen=HISTRY_SAMPLES)
+OUTLIER_DETECTION_MIN_SAMPLES: int = 100  # 外れ値検出を開始する最小サンプル数
 
 
-def receive_lines(sock):
+def receive_lines(sock: socket.socket) -> collections.abc.Generator[str, None, None]:
     buffer = b""
 
     while True:
@@ -49,7 +100,7 @@ def receive_lines(sock):
             yield line.decode()
 
 
-def calc_temperature(trueair, mach):
+def calc_temperature(trueair: float, mach: float) -> float:
     k = 1.403  # 比熱比(空気)
     M = 28.966e-3  # 分子量(空気) [kg/mol]
     R = 8.314472  # 気体定数
@@ -59,7 +110,7 @@ def calc_temperature(trueair, mach):
     return (trueair / mach) * (trueair / mach) * K - 273.15
 
 
-def calc_magnetic_declination(latitude, longitude):
+def calc_magnetic_declination(latitude: float, longitude: float) -> float:
     # NOTE:
     # 地磁気値(2020.0年値)を求める
     # https://vldb.gsi.go.jp/sokuchi/geomag/menu_04/
@@ -76,7 +127,14 @@ def calc_magnetic_declination(latitude, longitude):
     )
 
 
-def calc_wind(latitude, longitude, trackangle, groundspeed, heading, trueair):  # noqa: PLR0913
+def calc_wind(  # noqa: PLR0913
+    latitude: float,
+    longitude: float,
+    trackangle: float,
+    groundspeed: float,
+    heading: float,
+    trueair: float,
+) -> WindData:
     magnetic_declination = calc_magnetic_declination(latitude, longitude)
 
     ground_dir = math.pi / 2 - math.radians(trackangle)
@@ -101,17 +159,17 @@ def calc_wind(latitude, longitude, trackangle, groundspeed, heading, trueair):  
 
 
 def calc_meteorological_data(  # noqa: PLR0913
-    callsign,
-    altitude,
-    latitude,
-    longitude,
-    trackangle,
-    groundspeed,
-    trueair,
-    heading,
-    indicatedair,  # noqa: ARG001
-    mach,
-):
+    callsign: str,
+    altitude: float,
+    latitude: float,
+    longitude: float,
+    trackangle: float,
+    groundspeed: float,
+    trueair: float,
+    heading: float,
+    indicatedair: float,  # noqa: ARG001
+    mach: float,
+) -> MeteorologicalData:
     altitude *= 0.3048  # 単位換算: feet →  mete
     groundspeed *= 0.514  # 単位換算: knot → m/s
     trueair *= 0.514
@@ -139,18 +197,23 @@ def calc_meteorological_data(  # noqa: PLR0913
     }
 
 
-def is_physically_reasonable(altitude, temperature, regression_model, tolerance_factor=4):
+def is_physically_reasonable(
+    altitude: float,
+    temperature: float,
+    regression_model: sklearn.linear_model.LinearRegression,
+    tolerance_factor: float = 4,
+) -> bool:
     """
     高度-温度の物理的相関が妥当かどうかを判定
 
     Args:
-        altitude (float): 高度
-        temperature (float): 気温
+        altitude: 高度
+        temperature: 気温
         regression_model: 学習済み線形回帰モデル
-        tolerance_factor (float): 許容範囲の倍率
+        tolerance_factor: 許容範囲の倍率
 
     Returns:
-        bool: 物理的に妥当な場合True
+        物理的に妥当な場合True
 
     """
     try:
@@ -185,15 +248,15 @@ def is_physically_reasonable(altitude, temperature, regression_model, tolerance_
 
 
 def detect_outlier_by_altitude_neighbors(  # noqa: PLR0913
-    altitude,
-    temperature,
-    altitudes,
-    temperatures,
-    callsign=None,
-    n_neighbors=200,
-    deviation_threshold=20,
-    sigma_threshold=4,
-):
+    altitude: float,
+    temperature: float,
+    altitudes: npt.NDArray[np.floating[Any]],
+    temperatures: npt.NDArray[np.floating[Any]],
+    callsign: str | None = None,
+    n_neighbors: int = 200,
+    deviation_threshold: float = 20,
+    sigma_threshold: float = 4,
+) -> bool:
     """
     高度近傍ベースの異常検知を実行
 
@@ -201,17 +264,17 @@ def detect_outlier_by_altitude_neighbors(  # noqa: PLR0913
     低高度では温度のばらつきが大きいという特性に対応できます。
 
     Args:
-        altitude (float): 検査対象の高度
-        temperature (float): 検査対象の気温
-        altitudes (np.array): 履歴データの高度配列
-        temperatures (np.array): 履歴データの温度配列
-        callsign (str, optional): 航空機のコールサイン（ログ用）
-        n_neighbors (int): 使用する近傍データ数（デフォルト: 400）
-        deviation_threshold (float): 絶対偏差による異常値判定閾値（デフォルト: 20）
-        sigma_threshold (float): 異常値判定のシグマ閾値（デフォルト: 4）
+        altitude: 検査対象の高度
+        temperature: 検査対象の気温
+        altitudes: 履歴データの高度配列
+        temperatures: 履歴データの温度配列
+        callsign: 航空機のコールサイン（ログ用）
+        n_neighbors: 使用する近傍データ数（デフォルト: 200）
+        deviation_threshold: 絶対偏差による異常値判定閾値（デフォルト: 20）
+        sigma_threshold: 異常値判定のシグマ閾値（デフォルト: 4）
 
     Returns:
-        bool: 外れ値の場合True、正常値の場合False
+        外れ値の場合True、正常値の場合False
 
     """
     # 高度差を計算
@@ -276,7 +339,11 @@ def detect_outlier_by_altitude_neighbors(  # noqa: PLR0913
     return is_outlier
 
 
-def is_outlier_data(temperature, altitude, callsign=None):
+def is_outlier_data(
+    temperature: float,
+    altitude: float,
+    callsign: str | None = None,
+) -> bool:
     """
     高度-温度相関を考慮してaltitudeとtemperatureのペアが外れ値かどうかを判定
 
@@ -285,12 +352,12 @@ def is_outlier_data(temperature, altitude, callsign=None):
     2. 残差ベースの異常検知
 
     Args:
-        temperature (float): 気温
-        altitude (float): 高度
-        callsign (str, optional): 航空機のコールサイン（ログ用）
+        temperature: 気温
+        altitude: 高度
+        callsign: 航空機のコールサイン（ログ用）
 
     Returns:
-        bool: 外れ値の場合True、正常値の場合False
+        外れ値の場合True、正常値の場合False
 
     """
     global meteorological_history
@@ -329,7 +396,7 @@ def is_outlier_data(temperature, altitude, callsign=None):
         return False
 
 
-def calc_distance(lat1, lon1, lat2, lon2):
+def calc_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     R = 6371.0
 
     lat1 = math.radians(lat1)
@@ -347,7 +414,7 @@ def calc_distance(lat1, lon1, lat2, lon2):
     return R * c
 
 
-def round_floats(obj, ndigits=1):
+def round_floats(obj: Any, ndigits: int = 1) -> Any:
     if isinstance(obj, float):
         return round(obj, ndigits)
     elif isinstance(obj, dict):
@@ -360,7 +427,13 @@ def round_floats(obj, ndigits=1):
         return obj
 
 
-def message_pairing(icao, packet_type, data, queue, area_info):
+def message_pairing(
+    icao: str,
+    packet_type: str,
+    data: tuple[Any, ...],
+    queue: queue.Queue[MeteorologicalData],
+    area_info: AreaInfo,
+) -> None:
     global fragment_list, meteorological_history
 
     if not all(value is not None for value in data):
@@ -421,7 +494,11 @@ def message_pairing(icao, packet_type, data, queue, area_info):
             fragment_list.remove(fragment)
 
 
-def process_message(message, queue, area_info):  # noqa: C901
+def process_message(  # noqa: C901
+    message: str,
+    queue: queue.Queue[MeteorologicalData],
+    area_info: AreaInfo,
+) -> None:
     logging.debug("receive: %s", message)
 
     if len(message) < 2:
@@ -478,7 +555,12 @@ def process_message(message, queue, area_info):  # noqa: C901
             message_pairing(icao, "bsd60", (heading, indicatedair, mach), queue, area_info)
 
 
-def worker(host, port, queue, area_info):
+def worker(
+    host: str,
+    port: int,
+    queue: queue.Queue[MeteorologicalData],
+    area_info: AreaInfo,
+) -> None:
     logging.info("Start receive worker")
 
     should_terminate.clear()
@@ -500,18 +582,23 @@ def worker(host, port, queue, area_info):
     logging.warning("Stop receive worker")
 
 
-def init(data):
+def init(data: list[HistoryData]) -> None:
     meteorological_history.extend(data)
 
 
-def start(host, port, queue, area_info):
+def start(
+    host: str,
+    port: int,
+    queue: queue.Queue[MeteorologicalData],
+    area_info: AreaInfo,
+) -> threading.Thread:
     thread = threading.Thread(target=worker, args=(host, port, queue, area_info))
     thread.start()
 
     return thread
 
 
-def term():
+def term() -> None:
     should_terminate.set()
 
 
