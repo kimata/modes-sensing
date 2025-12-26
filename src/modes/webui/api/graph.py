@@ -64,29 +64,6 @@ def get_temperature_range(limit_altitude=False):
         return TEMP_MIN_DEFAULT, TEMP_MAX_DEFAULT
 
 
-def calculate_bin_sizes(time_start, time_end):
-    """
-    期間に応じてビンサイズを決定（細かめの設定）
-
-    Args:
-        time_start: 開始時刻
-        time_end: 終了時刻
-
-    Returns:
-        (time_bin_minutes, altitude_bin_meters): 時間ビン（分）と高度ビン（メートル）のタプル
-
-    """
-    days = (time_end - time_start).total_seconds() / 86400
-    if days <= 1:
-        return 15, 50  # 15分, 50m
-    elif days <= 7:
-        return 30, 100  # 30分, 100m
-    elif days <= 30:
-        return 60, 200  # 1時間, 200m
-    else:
-        return 180, 300  # 3時間, 300m
-
-
 TICK_LABEL_SIZE = 8
 CONTOUR_SIZE = 8
 ERROR_SIZE = 30
@@ -1329,7 +1306,7 @@ GRAPH_DEF_MAP = {
 }
 
 
-def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_altitude=False):  # noqa: PLR0913, PLR0915
+def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_altitude=False):  # noqa: PLR0913
     """子プロセス内でデータ取得からグラフ描画まで一貫して実行する関数"""
     import matplotlib  # noqa: ICN001
 
@@ -1365,21 +1342,11 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
         extended_time_start = time_start
         extended_time_end = time_end
 
-    # 期間に応じてビンサイズを決定し、集計データを取得（パフォーマンス向上）
-    time_bin_minutes, altitude_bin_meters = calculate_bin_sizes(time_start, time_end)
-    logging.info(
-        "Using aggregated data fetch: time_bin=%d min, alt_bin=%d m",
-        time_bin_minutes,
-        altitude_bin_meters,
-    )
-
-    raw_data = modes.database_postgresql.fetch_by_time_aggregated(
+    raw_data = modes.database_postgresql.fetch_by_time(
         conn,
         extended_time_start,
         extended_time_end,
         config["filter"]["area"]["distance"],
-        time_bin_minutes,
-        altitude_bin_meters,
         columns=columns,
         max_altitude=ALTITUDE_LIMIT if limit_altitude else None,
     )
