@@ -8,26 +8,41 @@ import pytest
 
 import modes.database_postgresql
 import modes.receiver
+from modes.config import AppConfig, load_from_dict
 
 CONFIG_FILE = "config.example.yaml"
 SCHEMA_CONFIG = "config.schema"
 
 
 @pytest.fixture(scope="session")
-def config():
+def config_dict() -> dict:
+    """辞書形式の設定を返す（互換性用）"""
     import my_lib.config
 
     return my_lib.config.load(CONFIG_FILE, pathlib.Path(SCHEMA_CONFIG))
 
 
-def test_receiver(config):
+@pytest.fixture(scope="session")
+def config(config_dict: dict) -> AppConfig:
+    """AppConfig 形式の設定を返す"""
+    return load_from_dict(config_dict)
+
+
+def test_receiver(config: AppConfig):
     measurement_queue = queue.Queue()
 
+    # receiver.start は辞書形式の area を期待する
+    area_dict = {
+        "lat": {"ref": config.filter.area.lat.ref},
+        "lon": {"ref": config.filter.area.lon.ref},
+        "distance": config.filter.area.distance,
+    }
+
     modes.receiver.start(
-        config["modes"]["decoder"]["host"],
-        config["modes"]["decoder"]["port"],
+        config.modes.decoder.host,
+        config.modes.decoder.port,
         measurement_queue,
-        config["filter"]["area"],
+        area_dict,
     )
 
     while True:
@@ -37,13 +52,13 @@ def test_receiver(config):
         break
 
 
-def test_collect(config):
+def test_collect(config: AppConfig):
     import my_lib.healthz
     from my_lib.healthz import HealthzTarget
 
     import collect
 
-    liveness_file = config["liveness"]["file"]["collector"]
+    liveness_file = config.liveness.file.collector
     collect.execute(config, liveness_file, 1)
 
     modes.receiver.term()
@@ -52,7 +67,7 @@ def test_collect(config):
     assert my_lib.healthz.check_liveness(target)  # noqa: S101
 
 
-def test_graph(config):
+def test_graph(config: AppConfig, config_dict: dict):
     import datetime
     import io
     import logging
@@ -68,15 +83,15 @@ def test_graph(config):
     data = modes.webui.api.graph.prepare_data(
         modes.database_postgresql.fetch_by_time(
             modes.database_postgresql.open(
-                config["database"]["host"],
-                config["database"]["port"],
-                config["database"]["name"],
-                config["database"]["user"],
-                config["database"]["pass"],
+                config.database.host,
+                config.database.port,
+                config.database.name,
+                config.database.user,
+                config.database.password,
             ),
             time_start,
             time_end,
-            config["filter"]["area"]["distance"],
+            config.filter.area.distance,
             columns=[
                 "time",
                 "altitude",
@@ -97,14 +112,15 @@ def test_graph(config):
         )
         return
 
-    modes.webui.api.graph.set_font(config["font"])
+    modes.webui.api.graph.set_font(config_dict["font"])
 
     for graph_name, graph_def in modes.webui.api.graph.GRAPH_DEF_MAP.items():
         graph_def["future"] = graph_def["func"](
             data, tuple(x / modes.webui.api.graph.IMAGE_DPI for x in graph_def["size"])
         )
 
-        png_data = modes.webui.api.graph.plot(config, graph_name, time_start, time_end)
+        # graph.plot はまだ辞書形式の config を期待
+        png_data = modes.webui.api.graph.plot(config_dict, graph_name, time_start, time_end)
 
         with PIL.Image.open(io.BytesIO(png_data)) as img:
             img.verify()
@@ -112,18 +128,18 @@ def test_graph(config):
             assert img.height == graph_def["size"][1]  # noqa: S101
 
 
-def test_data_range_api(config):
+def test_data_range_api(config: AppConfig):
     """データ範囲API機能をテスト"""
     import modes.database_postgresql
     import modes.webui.api.graph
 
     # データベース接続を確立
     conn = modes.database_postgresql.open(
-        config["database"]["host"],
-        config["database"]["port"],
-        config["database"]["name"],
-        config["database"]["user"],
-        config["database"]["pass"],
+        config.database.host,
+        config.database.port,
+        config.database.name,
+        config.database.user,
+        config.database.password,
     )
 
     # データ範囲取得のクエリを実行（graph.pyのdata_range関数と同様）
@@ -153,7 +169,7 @@ def test_data_range_api(config):
     logging.info("Data range: %s ～ %s", earliest, latest)
 
 
-def test_date_range_before_january_2025_api(config):
+def test_date_range_before_january_2025_api(config_dict: dict):
     """2025年1月以前の日付範囲でグラフ生成がエラーなく動作することをテスト"""
     import datetime
     import io
@@ -167,7 +183,8 @@ def test_date_range_before_january_2025_api(config):
     start_date = end_date - datetime.timedelta(days=7)
 
     # グラフ生成を実行（エラーにならないことを確認）
-    png_data = modes.webui.api.graph.plot(config, "scatter_2d", start_date, end_date)
+    # graph.plot はまだ辞書形式の config を期待
+    png_data = modes.webui.api.graph.plot(config_dict, "scatter_2d", start_date, end_date)
 
     # PNG画像データが生成されていることを確認
     assert png_data is not None  # noqa: S101
@@ -192,7 +209,7 @@ def test_date_range_before_january_2025_api(config):
         logging.info("PNG data size: %d bytes", len(png_data))
 
 
-def test_limit_altitude_parameter(config):
+def test_limit_altitude_parameter(config_dict: dict):
     """limit_altitude機能の基本動作をテスト"""
     import datetime
     import io
@@ -205,14 +222,15 @@ def test_limit_altitude_parameter(config):
     end_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)
     start_date = end_date - datetime.timedelta(days=7)
 
+    # graph.plot はまだ辞書形式の config を期待
     # limit_altitude=Falseでグラフ生成
     png_data_unlimited = modes.webui.api.graph.plot(
-        config, "scatter_2d", start_date, end_date, limit_altitude=False
+        config_dict, "scatter_2d", start_date, end_date, limit_altitude=False
     )
 
     # limit_altitude=Trueでグラフ生成
     png_data_limited = modes.webui.api.graph.plot(
-        config, "scatter_2d", start_date, end_date, limit_altitude=True
+        config_dict, "scatter_2d", start_date, end_date, limit_altitude=True
     )
 
     # 両方のPNG画像データが生成されていることを確認
@@ -266,7 +284,7 @@ def test_temperature_range_by_altitude_limit():
     )
 
 
-def test_database_altitude_filtering(config):
+def test_database_altitude_filtering(config: AppConfig):
     """データベースクエリの高度フィルタリング機能をテスト"""
     import datetime
 
@@ -278,21 +296,21 @@ def test_database_altitude_filtering(config):
 
     # データベース接続を確立
     conn = modes.database_postgresql.open(
-        config["database"]["host"],
-        config["database"]["port"],
-        config["database"]["name"],
-        config["database"]["user"],
-        config["database"]["pass"],
+        config.database.host,
+        config.database.port,
+        config.database.name,
+        config.database.user,
+        config.database.password,
     )
 
     # 高度制限なしでデータ取得
     data_unlimited = modes.database_postgresql.fetch_by_time(
-        conn, start_time, end_time, config["filter"]["area"]["distance"]
+        conn, start_time, end_time, config.filter.area.distance
     )
 
     # 高度制限ありでデータ取得（2000m以下）
     data_limited = modes.database_postgresql.fetch_by_time(
-        conn, start_time, end_time, config["filter"]["area"]["distance"], max_altitude=2000
+        conn, start_time, end_time, config.filter.area.distance, max_altitude=2000
     )
 
     conn.close()
