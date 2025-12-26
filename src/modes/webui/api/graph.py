@@ -303,7 +303,14 @@ class GraphCache:
                 )
                 return None
 
-    def set(self, graph_name, image_bytes, start_time, end_time):
+    def set(
+        self,
+        graph_name: str,
+        image_bytes: bytes,
+        start_time: datetime.datetime,
+        end_time: datetime.datetime,
+        limit_altitude: bool = False,
+    ) -> None:
         """キャッシュに手動で設定（デバッグ用）"""
         with self.lock:
             self.cache[graph_name] = {
@@ -311,6 +318,7 @@ class GraphCache:
                 "start": start_time,
                 "end": end_time,
                 "timestamp": time.time(),
+                "limit_altitude": limit_altitude,
             }
 
 
