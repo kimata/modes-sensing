@@ -57,21 +57,27 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
   // シンプルなURL生成
   const getImageUrl = useCallback((graph: GraphInfo, forceReload = false) => {
     const now = new Date()
-    let timestamp: number
 
+    // キャッシュバスター用のキーを生成
+    // dateRange と limitAltitude が変わったらURLが変わるようにする
+    const rangeKey = `${dateRange.start.getTime()}-${dateRange.end.getTime()}-${limitAltitude}`
+
+    let timestamp: string
     if (forceReload) {
-      timestamp = now.getTime()
+      // 強制リロード時はランダム値を追加
+      timestamp = `${rangeKey}-${now.getTime()}`
     } else {
-      // 10分間隔のタイムスタンプ
+      // 通常時は10分間隔で更新（同じ期間設定でも定期的にリフレッシュ）
       const tenMinutesInMs = 10 * 60 * 1000
-      timestamp = Math.floor(now.getTime() / tenMinutesInMs) * tenMinutesInMs
+      const timeSlot = Math.floor(now.getTime() / tenMinutesInMs) * tenMinutesInMs
+      timestamp = `${rangeKey}-${timeSlot}`
     }
 
     const params = new URLSearchParams({
       start: JSON.stringify(dateRange.start.toISOString()),
       end: JSON.stringify(dateRange.end.toISOString()),
       limit_altitude: limitAltitude ? 'true' : 'false',
-      _t: timestamp.toString(),
+      _t: timestamp,
       ...(forceReload && { _r: Math.random().toString(36).substr(2, 9) })
     })
 
