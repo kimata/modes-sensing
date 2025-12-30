@@ -74,16 +74,6 @@ def create_app(config: dict[str, Any]) -> flask.Flask:
 
     my_lib.webapp.config.show_handler_list(app)
 
-    # アプリケーション起動時にキャッシュの定期更新を開始
-    @app.before_request
-    def init_cache():
-        # 初回リクエスト時のみ実行
-        if not hasattr(app, "_cache_initialized"):
-            logging.info("Starting periodic cache update...")
-            # Note: アクセスしているのはパブリックAPIとして設計されたグローバル変数
-            modes.webui.api.graph._graph_cache.start_periodic_update(config)  # noqa: SLF001
-            app._cache_initialized = True  # noqa: SLF001
-
     return app
 
 
@@ -147,7 +137,6 @@ if __name__ == "__main__":
 
     # Flaskアプリケーションを実行
     try:
-        # NOTE: キャッシュ機能により初期化が重いため、開発時も自動リロードは無効化
         app.run(host="0.0.0.0", port=port, threaded=True, use_reloader=True, debug=debug_mode)  # noqa: S104
     except KeyboardInterrupt:
         logging.info("Received KeyboardInterrupt, shutting down...")
