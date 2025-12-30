@@ -21,7 +21,6 @@ import json
 import logging
 import multiprocessing
 import pathlib
-import threading
 import time
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -63,25 +62,11 @@ class GraphDefinition(TypedDict):
     future: concurrent.futures.Future[Figure] | None
 
 
-class CacheEntry(TypedDict, total=False):
-    """キャッシュエントリ"""
-
-    image: bytes
-    start: datetime.datetime
-    end: datetime.datetime
-    timestamp: float
-    limit_altitude: bool
-
-
 class PreparedData(TypedDict):
     """準備済みデータ"""
 
     dataframe: pandas.DataFrame | None
     count: int
-
-# サーバー起動時のタイムスタンプ（ETagに使用してキャッシュ制御）
-SERVER_START_TIME = int(time.time())
-
 
 def get_font_config(config_dict: dict[str, Any]) -> my_lib.panel_config.FontConfig:
     """辞書形式のフォント設定をFontConfigオブジェクトに変換する"""
@@ -89,19 +74,6 @@ def get_font_config(config_dict: dict[str, Any]) -> my_lib.panel_config.FontConf
         path=pathlib.Path(config_dict["path"]),
         map=config_dict["map"],
     )
-
-
-def generate_etag(
-    graph_name: str,
-    time_start: datetime.datetime,
-    time_end: datetime.datetime,
-    limit_altitude: bool,
-) -> str:
-    """ETagを生成（サーバー起動時刻を含めて、再起動時にキャッシュを無効化）"""
-    import hashlib
-
-    key = f"{SERVER_START_TIME}-{graph_name}-{time_start.isoformat()}-{time_end.isoformat()}-{limit_altitude}"
-    return hashlib.md5(key.encode()).hexdigest()  # noqa: S324
 
 
 IMAGE_DPI = 200.0
@@ -137,193 +109,6 @@ ALT_AXIS_LABEL = "高度 (m)"
 TEMP_AXIS_LABEL = "温度 (℃)"
 
 blueprint = flask.Blueprint("modes-sensing-graph", __name__)
-
-
-# グラフキャッシュの管理
-class GraphCache:
-    """グラフのキャッシュを管理するクラス"""
-
-    def __init__(self):
-        """キャッシュインスタンスを初期化"""
-        # {graph_name: {"image": bytes, "start": datetime, "end": datetime, "timestamp": time}}
-        self.cache = {}
-        self.lock = threading.RLock()  # 読み書き排他制御用
-        self.update_thread = None
-        self.stop_event = threading.Event()
-        self.config = None
-
-    def start_periodic_update(self, config, interval=540):  # 9分 = 540秒
-        """定期的なキャッシュ更新を開始"""
-        self.config = config
-        if self.update_thread is None or not self.update_thread.is_alive():
-            self.stop_event.clear()
-            self.update_thread = threading.Thread(
-                target=self._periodic_update_worker, args=(interval,), daemon=True
-            )
-            self.update_thread.start()
-            logging.info("Started periodic cache update thread (interval: %d seconds)", interval)
-
-    def stop_periodic_update(self):
-        """定期的なキャッシュ更新を停止"""
-        if self.update_thread:
-            self.stop_event.set()
-            self.update_thread.join(timeout=5)
-            logging.info("Stopped periodic cache update thread")
-
-    def _periodic_update_worker(self, interval):
-        """定期更新ワーカースレッド"""
-        while not self.stop_event.is_set():
-            try:
-                self._update_all_caches()
-            except Exception:
-                logging.exception("Error in periodic cache update")
-
-            # 指定された間隔で待機（停止イベントをチェックしながら）
-            if self.stop_event.wait(interval):
-                break
-
-    def _update_all_caches(self):
-        """全グラフのキャッシュを更新（デフォルトで高度制限なし）"""
-        if not self.config:
-            return
-
-        # 現在時刻と期間の計算
-        end_time = my_lib.time.now()
-
-        # データベースから最古のデータ日時を取得
-        try:
-            conn = connect_database(self.config)
-            data_range = modes.database_postgresql.fetch_data_range(conn)
-            conn.close()
-
-            if data_range["earliest"]:
-                earliest_time = data_range["earliest"]
-                if earliest_time.tzinfo is None:
-                    earliest_time = earliest_time.replace(tzinfo=my_lib.time.get_zoneinfo())
-            else:
-                # データがない場合はキャッシュ更新をスキップ
-                logging.info("No data available, skipping cache update")
-                return
-        except Exception:
-            logging.exception("Error fetching data range for cache update")
-            return
-
-        # 7日前または最古のデータ日時のうち、より新しい方を開始時刻とする
-        seven_days_ago = end_time - datetime.timedelta(days=7)
-        start_time = max(seven_days_ago, earliest_time)
-
-        logging.info(
-            "Updating cache for all graphs (start: %s, end: %s, altitude_limit: unlimited)",
-            start_time,
-            end_time,
-        )
-
-        # 各グラフのキャッシュを生成（デフォルトで高度制限なし）
-        new_cache = {}
-        for graph_name in GRAPH_DEF_MAP:
-            try:
-                logging.info("Generating cache for %s (altitude_limit: unlimited)", graph_name)
-                image_bytes = plot(self.config, graph_name, start_time, end_time, limit_altitude=False)
-                new_cache[graph_name] = {
-                    "image": image_bytes,
-                    "start": start_time,
-                    "end": end_time,
-                    "timestamp": time.time(),
-                    "limit_altitude": False,  # キャッシュに高度制限情報を保存
-                }
-                logging.info("Cache generated for %s (size: %d bytes)", graph_name, len(image_bytes))
-            except Exception:  # noqa: PERF203
-                logging.exception("Error generating cache for %s", graph_name)
-
-        # 新しいキャッシュで上書き（排他制御は最小限）
-        with self.lock:
-            self.cache.update(new_cache)
-
-        logging.info("Cache update completed for %d graphs", len(new_cache))
-
-    def get(self, graph_name, requested_start, requested_end, tolerance_minutes=10, limit_altitude=False):
-        """
-        キャッシュからグラフを取得
-
-        Args:
-            graph_name: グラフ名
-            requested_start: リクエストされた開始時刻
-            requested_end: リクエストされた終了時刻
-            tolerance_minutes: 許容する時間差（分）
-            limit_altitude: 高度制限フラグ
-
-        Returns:
-            キャッシュされた画像データ、またはNone
-
-        """
-        with self.lock:
-            if graph_name not in self.cache:
-                return None
-
-            cached = self.cache[graph_name]
-            cached_start = cached["start"]
-            cached_end = cached["end"]
-
-            # 時間差を計算（分単位）
-            start_diff = abs((requested_start - cached_start).total_seconds() / 60)
-            end_diff = abs((requested_end - cached_end).total_seconds() / 60)
-
-            # 高度制限設定をチェック
-            cached_limit_altitude = cached.get("limit_altitude", False)
-            altitude_match = cached_limit_altitude == limit_altitude
-
-            # 許容範囲内かつ高度制限設定が一致すればキャッシュを返す
-            if start_diff < tolerance_minutes and end_diff < tolerance_minutes and altitude_match:
-                logging.info(
-                    "Cache hit for %s (start diff: %.1f min, end diff: %.1f min, "
-                    "cached: %s to %s, requested: %s to %s)",
-                    graph_name,
-                    start_diff,
-                    end_diff,
-                    cached_start,
-                    cached_end,
-                    requested_start,
-                    requested_end,
-                )
-                return cached["image"]
-            else:
-                logging.info(
-                    "Cache miss for %s (start diff: %.1f min, end diff: %.1f min, "
-                    "tolerance: %d min, altitude_match: %s, "
-                    "cached: %s to %s, requested: %s to %s)",
-                    graph_name,
-                    start_diff,
-                    end_diff,
-                    tolerance_minutes,
-                    altitude_match,
-                    cached_start,
-                    cached_end,
-                    requested_start,
-                    requested_end,
-                )
-                return None
-
-    def set(
-        self,
-        graph_name: str,
-        image_bytes: bytes,
-        start_time: datetime.datetime,
-        end_time: datetime.datetime,
-        limit_altitude: bool = False,
-    ) -> None:
-        """キャッシュに手動で設定（デバッグ用）"""
-        with self.lock:
-            self.cache[graph_name] = {
-                "image": image_bytes,
-                "start": start_time,
-                "end": end_time,
-                "timestamp": time.time(),
-                "limit_altitude": limit_altitude,
-            }
-
-
-# グローバルキャッシュインスタンス
-_graph_cache = GraphCache()
 
 
 # グローバルプロセスプール管理（matplotlib マルチスレッド問題対応）
@@ -1594,18 +1379,6 @@ def plot(config, graph_name, time_start, time_end, limit_altitude=False):
             return b""
 
 
-@blueprint.route("/api/init-cache", methods=["POST"])
-def init_cache():
-    """キャッシュの初期化と定期更新の開始（アプリ起動時に呼ばれる）"""
-    try:
-        config = flask.current_app.config["CONFIG"]
-        _graph_cache.start_periodic_update(config)
-        return flask.jsonify({"status": "success", "message": "Cache initialization started"})
-    except Exception as e:
-        logging.exception("Error initializing cache")
-        return flask.jsonify({"error": "Failed to initialize cache", "details": str(e)}), 500
-
-
 @blueprint.route("/api/data-range", methods=["GET"])
 def data_range():
     """データベースの最古・最新データの日時を返すAPI"""
@@ -1709,29 +1482,6 @@ def graph(graph_name):  # noqa: PLR0915
 
     config = flask.current_app.config["CONFIG"]
 
-    # ETagを生成（サーバー起動時刻を含む）
-    etag = generate_etag(graph_name, time_start, time_end, limit_altitude)
-
-    # If-None-Matchヘッダーをチェック（ブラウザキャッシュの有効性確認）
-    if_none_match = flask.request.headers.get("If-None-Match")
-    if if_none_match and if_none_match == etag:
-        logging.info("ETag match for %s, returning 304", graph_name)
-        return flask.Response(status=304)
-
-    # 常にキャッシュを確認
-    logging.info("Checking cache for %s (limit_altitude: %s)", graph_name, limit_altitude)
-    cached_image = _graph_cache.get(graph_name, time_start, time_end, limit_altitude=limit_altitude)
-    if cached_image:
-        logging.info(
-            "Cache hit! Returning cached image for %s (size: %d bytes)", graph_name, len(cached_image)
-        )
-        res = flask.Response(cached_image, mimetype="image/png")
-        res.headers["Cache-Control"] = "public, max-age=600"
-        res.headers["ETag"] = etag
-        return res
-    else:
-        logging.info("Cache miss for %s, generating new graph", graph_name)
-
     # グラフ生成を試行
     try:
         logging.info("Starting plot generation for %s", graph_name)
@@ -1745,10 +1495,10 @@ def graph(graph_name):  # noqa: PLR0915
         res = flask.Response(image_bytes, mimetype="image/png")
         logging.info("Flask response created for %s", graph_name)
 
-        # 成功時は10分間キャッシュ + ETag
-        res.headers["Cache-Control"] = "public, max-age=600"
-        res.headers["ETag"] = etag
-        logging.info("Cache headers set for %s", graph_name)
+        # キャッシュを無効化
+        res.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        res.headers["Pragma"] = "no-cache"
+        res.headers["Expires"] = "0"
 
     except Exception as e:
         logging.exception("Error generating graph %s", graph_name)
