@@ -645,6 +645,12 @@ def fetch_aggregated_by_time(
         level["altitude_bin"],
     )
 
+    # フォールバック時に使用するカラムリスト
+    fallback_columns = [
+        "time", "altitude", "temperature",
+        "wind_x", "wind_y", "wind_speed", "wind_angle",
+    ]
+
     # 生データの場合は既存の関数を使用
     if level["table"] == "meteorological_data":
         return fetch_by_time(
@@ -652,71 +658,118 @@ def fetch_aggregated_by_time(
             time_start,
             time_end,
             distance=100,  # 集約ビューは既にdistance<=100でフィルタ済み
-            columns=["time", "altitude", "temperature", "wind_x", "wind_y", "wind_speed", "wind_angle"],
+            columns=fallback_columns,
+            max_altitude=max_altitude,
+        )
+
+    # マテリアライズドビューが存在するか確認
+    view_exists = check_materialized_views_exist(conn)
+    if not view_exists.get(level["table"], False):
+        logging.warning(
+            "Materialized view %s does not exist, falling back to raw data",
+            level["table"],
+        )
+        return fetch_by_time(
+            conn,
+            time_start,
+            time_end,
+            distance=100,
+            columns=fallback_columns,
             max_altitude=max_altitude,
         )
 
     # サンプリングデータを取得（実際のデータ点を使用）
     start = time.perf_counter()
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        if max_altitude is not None:
-            query = f"""
-                SELECT
-                    time,
-                    altitude,
-                    temperature,
-                    wind_x,
-                    wind_y,
-                    wind_speed,
-                    wind_angle
-                FROM {level["table"]}
-                WHERE time_bucket >= %s
-                  AND time_bucket <= %s
-                  AND altitude <= %s
-                ORDER BY time
-            """  # noqa: S608
-            cur.execute(
-                query,
-                (
-                    time_start.astimezone(datetime.timezone.utc),
-                    time_end.astimezone(datetime.timezone.utc),
-                    max_altitude,
-                ),
-            )
-        else:
-            query = f"""
-                SELECT
-                    time,
-                    altitude,
-                    temperature,
-                    wind_x,
-                    wind_y,
-                    wind_speed,
-                    wind_angle
-                FROM {level["table"]}
-                WHERE time_bucket >= %s
-                  AND time_bucket <= %s
-                ORDER BY time
-            """  # noqa: S608
-            cur.execute(
-                query,
-                (
-                    time_start.astimezone(datetime.timezone.utc),
-                    time_end.astimezone(datetime.timezone.utc),
-                ),
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if max_altitude is not None:
+                query = f"""
+                    SELECT
+                        time,
+                        altitude,
+                        temperature,
+                        wind_x,
+                        wind_y,
+                        wind_speed,
+                        wind_angle
+                    FROM {level["table"]}
+                    WHERE time_bucket >= %s
+                      AND time_bucket <= %s
+                      AND altitude <= %s
+                    ORDER BY time
+                """  # noqa: S608
+                cur.execute(
+                    query,
+                    (
+                        time_start.astimezone(datetime.timezone.utc),
+                        time_end.astimezone(datetime.timezone.utc),
+                        max_altitude,
+                    ),
+                )
+            else:
+                query = f"""
+                    SELECT
+                        time,
+                        altitude,
+                        temperature,
+                        wind_x,
+                        wind_y,
+                        wind_speed,
+                        wind_angle
+                    FROM {level["table"]}
+                    WHERE time_bucket >= %s
+                      AND time_bucket <= %s
+                    ORDER BY time
+                """  # noqa: S608
+                cur.execute(
+                    query,
+                    (
+                        time_start.astimezone(datetime.timezone.utc),
+                        time_end.astimezone(datetime.timezone.utc),
+                    ),
+                )
+
+            cur.itersize = 10000
+            data = cur.fetchall()
+
+            logging.info(
+                "Elapsed time: %.2f sec (sampled data from %s, %s rows)",
+                time.perf_counter() - start,
+                level["table"],
+                f"{len(data):,}",
             )
 
-        cur.itersize = 10000
-        data = cur.fetchall()
+            # データが空の場合は生データにフォールバック
+            if not data:
+                logging.warning(
+                    "No data in materialized view %s, falling back to raw data",
+                    level["table"],
+                )
+                return fetch_by_time(
+                    conn,
+                    time_start,
+                    time_end,
+                    distance=100,
+                    columns=fallback_columns,
+                    max_altitude=max_altitude,
+                )
 
-        logging.info(
-            "Elapsed time: %.2f sec (sampled data from %s, %s rows)",
-            time.perf_counter() - start,
+            return data
+
+    except psycopg2.Error as e:
+        logging.warning(
+            "Error fetching from materialized view %s: %s, falling back to raw data",
             level["table"],
-            f"{len(data):,}",
+            str(e),
         )
-
-        return data
+        return fetch_by_time(
+            conn,
+            time_start,
+            time_end,
+            distance=100,
+            columns=fallback_columns,
+            max_altitude=max_altitude,
+        )
 
 
 def refresh_materialized_views(conn: PgConnection) -> dict[str, float]:
