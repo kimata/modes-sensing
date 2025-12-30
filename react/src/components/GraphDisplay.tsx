@@ -56,28 +56,17 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
 
   // シンプルなURL生成
   const getImageUrl = useCallback((graph: GraphInfo, forceReload = false) => {
-    const now = new Date()
-
     // キャッシュバスター用のキーを生成
     // dateRange と limitAltitude が変わったらURLが変わるようにする
+    // rangeKeyは期間とaltitude設定を一意に識別するため、これだけで十分
     const rangeKey = `${dateRange.start.getTime()}-${dateRange.end.getTime()}-${limitAltitude}`
-
-    let timestamp: string
-    if (forceReload) {
-      // 強制リロード時はランダム値を追加
-      timestamp = `${rangeKey}-${now.getTime()}`
-    } else {
-      // 通常時は10分間隔で更新（同じ期間設定でも定期的にリフレッシュ）
-      const tenMinutesInMs = 10 * 60 * 1000
-      const timeSlot = Math.floor(now.getTime() / tenMinutesInMs) * tenMinutesInMs
-      timestamp = `${rangeKey}-${timeSlot}`
-    }
 
     const params = new URLSearchParams({
       start: JSON.stringify(dateRange.start.toISOString()),
       end: JSON.stringify(dateRange.end.toISOString()),
       limit_altitude: limitAltitude ? 'true' : 'false',
-      _t: timestamp,
+      _t: rangeKey,
+      // 強制リロード時はランダム値を追加してキャッシュを確実にバイパス
       ...(forceReload && { _r: Math.random().toString(36).substr(2, 9) })
     })
 
@@ -179,12 +168,14 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
-  // 前回の日付範囲と高度設定を追跡
-  const prevDateRangeRef = useRef<{ start: Date; end: Date } | null>(null)
-  const prevLimitAltitudeRef = useRef<boolean | null>(null)
+  // 前回の設定キーを追跡（より確実な比較のためにキーベースで管理）
+  const prevSettingsKeyRef = useRef<string | null>(null)
 
   // dateRangeが変更されたら画像URLを更新
   useEffect(() => {
+    // 現在の設定を一意のキーとして生成
+    const currentSettingsKey = `${dateRange.start.getTime()}-${dateRange.end.getTime()}-${limitAltitude}`
+
     // デバッグ: dateRange変更を検出
     const periodDays = (dateRange.end.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24)
     console.log(`[GraphDisplay useEffect] dateRange changed:`)
@@ -193,24 +184,18 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
     console.log(`  end=${dateRange.end.toISOString()}`)
     console.log(`  limitAltitude=${limitAltitude}`)
     console.log(`  isInitialLoad=${isInitialLoad}`)
+    console.log(`  prevKey=${prevSettingsKeyRef.current}`)
+    console.log(`  currentKey=${currentSettingsKey}`)
 
-    // 前回の日付範囲と高度設定と同じかチェック
-    const prevRange = prevDateRangeRef.current
-    const prevLimitAltitude = prevLimitAltitudeRef.current
-    const isSameRange = prevRange &&
-      prevRange.start.getTime() === dateRange.start.getTime() &&
-      prevRange.end.getTime() === dateRange.end.getTime()
-    const isSameLimitAltitude = prevLimitAltitude === limitAltitude
-
-    if (isSameRange && isSameLimitAltitude && !isInitialLoad) {
-      // 同じ日付範囲と高度設定の場合、ローディング状態をスキップしてすでに表示されている画像を維持
-      console.log(`[GraphDisplay useEffect] Skipping - same range and altitude setting`)
+    // 前回と同じ設定かチェック（キーベースで確実に比較）
+    if (prevSettingsKeyRef.current === currentSettingsKey && !isInitialLoad) {
+      // 同じ設定の場合、ローディング状態をスキップしてすでに表示されている画像を維持
+      console.log(`[GraphDisplay useEffect] Skipping - same settings key`)
       return
     }
 
-    // 現在の日付範囲と高度設定を記録
-    prevDateRangeRef.current = { start: new Date(dateRange.start), end: new Date(dateRange.end) }
-    prevLimitAltitudeRef.current = limitAltitude
+    // 現在の設定キーを記録
+    prevSettingsKeyRef.current = currentSettingsKey
 
     const newUrls: { [key: string]: string } = {}
     const newLoading: { [key: string]: boolean } = {}

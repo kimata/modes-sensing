@@ -1556,10 +1556,12 @@ def graph(graph_name):  # noqa: PLR0915
         res = flask.Response(image_bytes, mimetype="image/png")
         logging.info("Flask response created for %s", graph_name)
 
-        # キャッシュを無効化
-        res.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        # キャッシュを無効化（CDN/プロキシも含めて確実に）
+        res.headers["Cache-Control"] = "private, no-cache, no-store, must-revalidate, max-age=0"
         res.headers["Pragma"] = "no-cache"
         res.headers["Expires"] = "0"
+        res.headers["Vary"] = "Accept, Accept-Encoding"
+        res.headers["X-Content-Type-Options"] = "nosniff"
 
     except Exception as e:
         logging.exception("Error generating graph %s", graph_name)
@@ -1591,10 +1593,12 @@ def graph(graph_name):  # noqa: PLR0915
 
         res = flask.Response(error_image_bytes, mimetype="image/png")
 
-        # エラー時はキャッシュしない
-        res.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        # エラー時はキャッシュしない（CDN/プロキシも含めて確実に）
+        res.headers["Cache-Control"] = "private, no-cache, no-store, must-revalidate, max-age=0"
         res.headers["Pragma"] = "no-cache"
         res.headers["Expires"] = "0"
+        res.headers["Vary"] = "Accept, Accept-Encoding"
+        res.headers["X-Content-Type-Options"] = "nosniff"
         logging.info("Error response prepared for %s", graph_name)
 
     logging.info("Returning response for %s", graph_name)
