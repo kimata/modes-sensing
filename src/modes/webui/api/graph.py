@@ -1180,7 +1180,7 @@ GRAPH_DEF_MAP = {
 }
 
 
-def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_altitude=False):  # noqa: PLR0913, PLR0915
+def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_altitude=False):  # noqa: PLR0912, PLR0913, PLR0915
     """子プロセス内でデータ取得からグラフ描画まで一貫して実行する関数"""
     import matplotlib  # noqa: ICN001
 
@@ -1200,21 +1200,6 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
 
     # データベース接続とデータ取得を子プロセス内で実行
     conn = connect_database(config)
-    # 風向グラフの場合は風データも取得
-    if graph_name == "wind_direction":
-        columns = [
-            "time",
-            "altitude",
-            "temperature",
-            "distance",
-            "wind_x",
-            "wind_y",
-            "wind_speed",
-            "wind_angle",
-        ]
-    else:
-        # グラフ作成に必要な最小限のカラムのみ取得してパフォーマンス向上
-        columns = ["time", "altitude", "temperature", "distance"]
 
     # heatmapとcontourグラフの場合、端の部分のプロットを改善するためデータ取得範囲を10%拡張
     if graph_name in ["heatmap", "contour_2d"]:
@@ -1226,14 +1211,41 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
         extended_time_start = time_start
         extended_time_end = time_end
 
-    raw_data = modes.database_postgresql.fetch_by_time(
-        conn,
-        extended_time_start,
-        extended_time_end,
-        config["filter"]["area"]["distance"],
-        columns=columns,
-        max_altitude=ALTITUDE_LIMIT if limit_altitude else None,
-    )
+    # 期間が7日を超える場合は集約データを使用（パフォーマンス最適化）
+    if period_days > 7:
+        # 集約データを使用（期間に応じて自動的に適切なレベルを選択）
+        raw_data = modes.database_postgresql.fetch_aggregated_by_time(
+            conn,
+            extended_time_start,
+            extended_time_end,
+            max_altitude=ALTITUDE_LIMIT if limit_altitude else None,
+        )
+    else:
+        # 7日以内は生データを使用
+        # 風向グラフの場合は風データも取得
+        if graph_name == "wind_direction":
+            columns = [
+                "time",
+                "altitude",
+                "temperature",
+                "distance",
+                "wind_x",
+                "wind_y",
+                "wind_speed",
+                "wind_angle",
+            ]
+        else:
+            # グラフ作成に必要な最小限のカラムのみ取得してパフォーマンス向上
+            columns = ["time", "altitude", "temperature", "distance"]
+
+        raw_data = modes.database_postgresql.fetch_by_time(
+            conn,
+            extended_time_start,
+            extended_time_end,
+            config["filter"]["area"]["distance"],
+            columns=columns,
+            max_altitude=ALTITUDE_LIMIT if limit_altitude else None,
+        )
     conn.close()
 
     # デバッグ: 取得したデータの時間範囲を確認
@@ -1377,6 +1389,55 @@ def plot(config, graph_name, time_start, time_end, limit_altitude=False):
             # 最終的にフォールバック画像を返す
             logging.exception("Failed to create error image for %s", graph_name)
             return b""
+
+
+@blueprint.route("/api/refresh-aggregates", methods=["POST"])
+def refresh_aggregates():
+    """マテリアライズドビュー（集約データ）を更新するAPI"""
+    try:
+        config = flask.current_app.config["CONFIG"]
+        conn = connect_database(config)
+
+        # ビューを更新
+        timings = modes.database_postgresql.refresh_materialized_views(conn)
+
+        # 統計情報を取得
+        stats = modes.database_postgresql.get_materialized_view_stats(conn)
+        conn.close()
+
+        return flask.jsonify({
+            "status": "success",
+            "refresh_times": timings,
+            "stats": stats,
+        })
+
+    except Exception as e:
+        logging.exception("Error refreshing materialized views")
+        return flask.jsonify({"error": "Failed to refresh views", "details": str(e)}), 500
+
+
+@blueprint.route("/api/aggregate-stats", methods=["GET"])
+def aggregate_stats():
+    """マテリアライズドビューの統計情報を取得するAPI"""
+    try:
+        config = flask.current_app.config["CONFIG"]
+        conn = connect_database(config)
+
+        # ビューの存在確認
+        exists = modes.database_postgresql.check_materialized_views_exist(conn)
+
+        # 統計情報を取得
+        stats = modes.database_postgresql.get_materialized_view_stats(conn)
+        conn.close()
+
+        return flask.jsonify({
+            "exists": exists,
+            "stats": stats,
+        })
+
+    except Exception as e:
+        logging.exception("Error getting aggregate stats")
+        return flask.jsonify({"error": "Failed to get stats", "details": str(e)}), 500
 
 
 @blueprint.route("/api/data-range", methods=["GET"])

@@ -61,6 +61,26 @@ class DataRangeResult(TypedDict):
     count: int
 
 
+class AggregationLevel(TypedDict):
+    """集約レベルの設定"""
+
+    table: str
+    time_interval: str
+    altitude_bin: int
+    max_days: int
+
+
+# 期間に応じた集約レベルの定義
+AGGREGATION_LEVELS: list[AggregationLevel] = [
+    # 7日以内は生データ
+    {"table": "meteorological_data", "time_interval": "raw", "altitude_bin": 0, "max_days": 7},
+    # 7-30日は1時間×500m集約
+    {"table": "hourly_altitude_grid", "time_interval": "1 hour", "altitude_bin": 500, "max_days": 30},
+    # 30日以上は6時間×500m集約
+    {"table": "sixhour_altitude_grid", "time_interval": "6 hours", "altitude_bin": 500, "max_days": 9999},
+]
+
+
 should_terminate = threading.Event()
 
 
@@ -162,6 +182,73 @@ def open(host: str, port: int, database: str, user: str, password: str) -> PgCon
         # BRIN インデックス（時系列データに効果的、メモリ効率良い）
         # 大量の時系列データでの範囲検索で効果的、メモリ使用量が少ない
         cur.execute("CREATE INDEX IF NOT EXISTS idx_time_brin ON meteorological_data USING BRIN (time);")
+
+        # マテリアライズドビュー: 1時間×500m高度帯の集約データ
+        # 7日〜30日の期間表示に使用
+        cur.execute("""
+            CREATE MATERIALIZED VIEW IF NOT EXISTS hourly_altitude_grid AS
+            SELECT
+                date_trunc('hour', time) AS time_bucket,
+                (floor(altitude / 500) * 500)::int AS altitude_bin,
+                AVG(temperature) AS temperature,
+                AVG(wind_x) AS wind_x,
+                AVG(wind_y) AS wind_y,
+                AVG(wind_speed) AS wind_speed,
+                AVG(wind_angle) AS wind_angle,
+                COUNT(*) AS sample_count
+            FROM meteorological_data
+            WHERE distance <= 100
+              AND temperature > -100
+              AND altitude IS NOT NULL
+              AND altitude >= 0
+              AND altitude <= 13000
+            GROUP BY date_trunc('hour', time), (floor(altitude / 500) * 500)::int;
+        """)
+
+        # 1時間集約ビューのインデックス
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_hourly_grid_time
+            ON hourly_altitude_grid (time_bucket);
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_hourly_grid_time_alt
+            ON hourly_altitude_grid (time_bucket, altitude_bin);
+        """)
+
+        # マテリアライズドビュー: 6時間×500m高度帯の集約データ
+        # 30日以上の長期間表示に使用
+        cur.execute("""
+            CREATE MATERIALIZED VIEW IF NOT EXISTS sixhour_altitude_grid AS
+            SELECT
+                date_trunc('hour', time)
+                    - (EXTRACT(hour FROM time)::int % 6) * interval '1 hour' AS time_bucket,
+                (floor(altitude / 500) * 500)::int AS altitude_bin,
+                AVG(temperature) AS temperature,
+                AVG(wind_x) AS wind_x,
+                AVG(wind_y) AS wind_y,
+                AVG(wind_speed) AS wind_speed,
+                AVG(wind_angle) AS wind_angle,
+                COUNT(*) AS sample_count
+            FROM meteorological_data
+            WHERE distance <= 100
+              AND temperature > -100
+              AND altitude IS NOT NULL
+              AND altitude >= 0
+              AND altitude <= 13000
+            GROUP BY
+                date_trunc('hour', time) - (EXTRACT(hour FROM time)::int % 6) * interval '1 hour',
+                (floor(altitude / 500) * 500)::int;
+        """)
+
+        # 6時間集約ビューのインデックス
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sixhour_grid_time
+            ON sixhour_altitude_grid (time_bucket);
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sixhour_grid_time_alt
+            ON sixhour_altitude_grid (time_bucket, altitude_bin);
+        """)
 
     return conn
 
@@ -505,6 +592,228 @@ def fetch_data_range(conn: PgConnection) -> DataRangeResult:
     else:
         # データがない場合
         return {"earliest": None, "latest": None, "count": 0}
+
+
+def get_aggregation_level(days: float) -> AggregationLevel:
+    """
+    期間に応じた適切な集約レベルを取得する
+
+    Args:
+        days: クエリ対象の期間（日数）
+
+    Returns:
+        適切な集約レベルの設定
+
+    """
+    for level in AGGREGATION_LEVELS:
+        if days <= level["max_days"]:
+            return level
+    return AGGREGATION_LEVELS[-1]
+
+
+def fetch_aggregated_by_time(
+    conn: PgConnection,
+    time_start: datetime.datetime,
+    time_end: datetime.datetime,
+    max_altitude: float | None = None,
+) -> list[dict[str, Any]]:
+    """
+    期間に応じて適切な集約レベルのデータを取得する
+
+    Args:
+        conn: データベース接続
+        time_start: 開始時刻
+        time_end: 終了時刻
+        max_altitude: 最大高度フィルタ（Noneの場合はフィルタなし）
+
+    Returns:
+        取得されたデータのリスト（生データ形式に変換済み）
+
+    """
+    days = (time_end - time_start).total_seconds() / 86400
+    level = get_aggregation_level(days)
+
+    logging.info(
+        "Using aggregation level: %s (period: %.1f days, interval: %s, altitude_bin: %dm)",
+        level["table"],
+        days,
+        level["time_interval"],
+        level["altitude_bin"],
+    )
+
+    # 生データの場合は既存の関数を使用
+    if level["table"] == "meteorological_data":
+        return fetch_by_time(
+            conn,
+            time_start,
+            time_end,
+            distance=100,  # 集約ビューは既にdistance<=100でフィルタ済み
+            columns=["time", "altitude", "temperature", "wind_x", "wind_y", "wind_speed", "wind_angle"],
+            max_altitude=max_altitude,
+        )
+
+    # 集約データを取得
+    start = time.perf_counter()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        if max_altitude is not None:
+            query = f"""
+                SELECT
+                    time_bucket AS time,
+                    altitude_bin AS altitude,
+                    temperature,
+                    wind_x,
+                    wind_y,
+                    wind_speed,
+                    wind_angle,
+                    sample_count
+                FROM {level["table"]}
+                WHERE time_bucket >= %s
+                  AND time_bucket <= %s
+                  AND altitude_bin <= %s
+                ORDER BY time_bucket, altitude_bin
+            """  # noqa: S608
+            cur.execute(
+                query,
+                (
+                    time_start.astimezone(datetime.timezone.utc),
+                    time_end.astimezone(datetime.timezone.utc),
+                    max_altitude,
+                ),
+            )
+        else:
+            query = f"""
+                SELECT
+                    time_bucket AS time,
+                    altitude_bin AS altitude,
+                    temperature,
+                    wind_x,
+                    wind_y,
+                    wind_speed,
+                    wind_angle,
+                    sample_count
+                FROM {level["table"]}
+                WHERE time_bucket >= %s
+                  AND time_bucket <= %s
+                ORDER BY time_bucket, altitude_bin
+            """  # noqa: S608
+            cur.execute(
+                query,
+                (
+                    time_start.astimezone(datetime.timezone.utc),
+                    time_end.astimezone(datetime.timezone.utc),
+                ),
+            )
+
+        cur.itersize = 10000
+        data = cur.fetchall()
+
+        logging.info(
+            "Elapsed time: %.2f sec (aggregated data from %s, %s rows)",
+            time.perf_counter() - start,
+            level["table"],
+            f"{len(data):,}",
+        )
+
+        return data
+
+
+def refresh_materialized_views(conn: PgConnection) -> dict[str, float]:
+    """
+    全てのマテリアライズドビューを更新する
+
+    Args:
+        conn: データベース接続
+
+    Returns:
+        各ビューの更新にかかった時間（秒）
+
+    """
+    views = ["hourly_altitude_grid", "sixhour_altitude_grid"]
+    timings: dict[str, float] = {}
+
+    for view in views:
+        start = time.perf_counter()
+        try:
+            with conn.cursor() as cur:
+                # CONCURRENTLYを使用すると、更新中もビューを読み取り可能
+                # ただし、初回はインデックスが必要
+                cur.execute(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view}")
+            elapsed = time.perf_counter() - start
+            timings[view] = elapsed
+            logging.info("Refreshed %s in %.2f sec", view, elapsed)
+        except psycopg2.errors.ObjectNotInPrerequisiteState:
+            # CONCURRENTLY が使えない場合（ユニークインデックスがない）は通常のREFRESH
+            with conn.cursor() as cur:
+                cur.execute(f"REFRESH MATERIALIZED VIEW {view}")
+            elapsed = time.perf_counter() - start
+            timings[view] = elapsed
+            logging.info("Refreshed %s (non-concurrent) in %.2f sec", view, elapsed)
+        except Exception:
+            logging.exception("Failed to refresh %s", view)
+            timings[view] = -1
+
+    return timings
+
+
+def check_materialized_views_exist(conn: PgConnection) -> dict[str, bool]:
+    """
+    マテリアライズドビューの存在を確認する
+
+    Args:
+        conn: データベース接続
+
+    Returns:
+        各ビューの存在フラグ
+
+    """
+    views = ["hourly_altitude_grid", "sixhour_altitude_grid"]
+    result: dict[str, bool] = {}
+
+    with conn.cursor() as cur:
+        for view in views:
+            cur.execute(
+                "SELECT EXISTS (SELECT 1 FROM pg_matviews WHERE matviewname = %s)",
+                (view,),
+            )
+            exists = cur.fetchone()[0]
+            result[view] = exists
+
+    return result
+
+
+def get_materialized_view_stats(conn: PgConnection) -> dict[str, dict[str, Any]]:
+    """
+    マテリアライズドビューの統計情報を取得する
+
+    Args:
+        conn: データベース接続
+
+    Returns:
+        各ビューの統計情報
+
+    """
+    views = ["hourly_altitude_grid", "sixhour_altitude_grid"]
+    stats: dict[str, dict[str, Any]] = {}
+
+    for view in views:
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    f"""
+                    SELECT
+                        COUNT(*) as row_count,
+                        MIN(time_bucket) as earliest,
+                        MAX(time_bucket) as latest
+                    FROM {view}
+                    """  # noqa: S608
+                )
+                result = cur.fetchone()
+                stats[view] = dict(result) if result else {"row_count": 0, "earliest": None, "latest": None}
+        except Exception:  # noqa: PERF203
+            logging.exception("Failed to get stats for %s", view)
+            stats[view] = {"error": True}
+
+    return stats
 
 
 if __name__ == "__main__":
