@@ -70,13 +70,14 @@ class AggregationLevel(TypedDict):
     max_days: int
 
 
-# 期間に応じた集約レベルの定義
+# 期間に応じたサンプリングレベルの定義
+# 長期間では時間×高度帯から代表点を1つ選ぶことでデータ量を削減しつつ品質を維持
 AGGREGATION_LEVELS: list[AggregationLevel] = [
     # 7日以内は生データ
     {"table": "meteorological_data", "time_interval": "raw", "altitude_bin": 0, "max_days": 7},
-    # 7-30日は1時間×500m集約
+    # 7-30日は1時間×500m帯から代表点をサンプリング
     {"table": "hourly_altitude_grid", "time_interval": "1 hour", "altitude_bin": 500, "max_days": 30},
-    # 30日以上は6時間×500m集約
+    # 30日以上は6時間×500m帯から代表点をサンプリング
     {"table": "sixhour_altitude_grid", "time_interval": "6 hours", "altitude_bin": 500, "max_days": 9999},
 ]
 
@@ -183,26 +184,28 @@ def open(host: str, port: int, database: str, user: str, password: str) -> PgCon
         # 大量の時系列データでの範囲検索で効果的、メモリ使用量が少ない
         cur.execute("CREATE INDEX IF NOT EXISTS idx_time_brin ON meteorological_data USING BRIN (time);")
 
-        # マテリアライズドビュー: 1時間×500m高度帯の集約データ
+        # マテリアライズドビュー: 1時間×500m高度帯からの代表点サンプリング
         # 7日〜30日の期間表示に使用
+        # 平均ではなく実際のデータ点を保持することで描画品質を維持
         cur.execute("""
             CREATE MATERIALIZED VIEW IF NOT EXISTS hourly_altitude_grid AS
-            SELECT
+            SELECT DISTINCT ON (time_bucket, altitude_bin)
                 date_trunc('hour', time) AS time_bucket,
                 (floor(altitude / 500) * 500)::int AS altitude_bin,
-                AVG(temperature) AS temperature,
-                AVG(wind_x) AS wind_x,
-                AVG(wind_y) AS wind_y,
-                AVG(wind_speed) AS wind_speed,
-                AVG(wind_angle) AS wind_angle,
-                COUNT(*) AS sample_count
+                time,
+                altitude,
+                temperature,
+                wind_x,
+                wind_y,
+                wind_speed,
+                wind_angle
             FROM meteorological_data
             WHERE distance <= 100
               AND temperature > -100
               AND altitude IS NOT NULL
               AND altitude >= 0
               AND altitude <= 13000
-            GROUP BY date_trunc('hour', time), (floor(altitude / 500) * 500)::int;
+            ORDER BY time_bucket, altitude_bin, time DESC;
         """)
 
         # 1時間集約ビューのインデックス
@@ -215,29 +218,30 @@ def open(host: str, port: int, database: str, user: str, password: str) -> PgCon
             ON hourly_altitude_grid (time_bucket, altitude_bin);
         """)
 
-        # マテリアライズドビュー: 6時間×500m高度帯の集約データ
+        # マテリアライズドビュー: 6時間×500m高度帯からの代表点サンプリング
         # 30日以上の長期間表示に使用
+        # 平均ではなく実際のデータ点を保持することで描画品質を維持
         cur.execute("""
             CREATE MATERIALIZED VIEW IF NOT EXISTS sixhour_altitude_grid AS
-            SELECT
+            SELECT DISTINCT ON (time_bucket, altitude_bin)
                 date_trunc('hour', time)
                     - (EXTRACT(hour FROM time)::int % 6) * interval '1 hour' AS time_bucket,
                 (floor(altitude / 500) * 500)::int AS altitude_bin,
-                AVG(temperature) AS temperature,
-                AVG(wind_x) AS wind_x,
-                AVG(wind_y) AS wind_y,
-                AVG(wind_speed) AS wind_speed,
-                AVG(wind_angle) AS wind_angle,
-                COUNT(*) AS sample_count
+                time,
+                altitude,
+                temperature,
+                wind_x,
+                wind_y,
+                wind_speed,
+                wind_angle
             FROM meteorological_data
             WHERE distance <= 100
               AND temperature > -100
               AND altitude IS NOT NULL
               AND altitude >= 0
               AND altitude <= 13000
-            GROUP BY
-                date_trunc('hour', time) - (EXTRACT(hour FROM time)::int % 6) * interval '1 hour',
-                (floor(altitude / 500) * 500)::int;
+            ORDER BY
+                time_bucket, altitude_bin, time DESC;
         """)
 
         # 6時間集約ビューのインデックス
@@ -652,25 +656,24 @@ def fetch_aggregated_by_time(
             max_altitude=max_altitude,
         )
 
-    # 集約データを取得
+    # サンプリングデータを取得（実際のデータ点を使用）
     start = time.perf_counter()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         if max_altitude is not None:
             query = f"""
                 SELECT
-                    time_bucket AS time,
-                    altitude_bin AS altitude,
+                    time,
+                    altitude,
                     temperature,
                     wind_x,
                     wind_y,
                     wind_speed,
-                    wind_angle,
-                    sample_count
+                    wind_angle
                 FROM {level["table"]}
                 WHERE time_bucket >= %s
                   AND time_bucket <= %s
-                  AND altitude_bin <= %s
-                ORDER BY time_bucket, altitude_bin
+                  AND altitude <= %s
+                ORDER BY time
             """  # noqa: S608
             cur.execute(
                 query,
@@ -683,18 +686,17 @@ def fetch_aggregated_by_time(
         else:
             query = f"""
                 SELECT
-                    time_bucket AS time,
-                    altitude_bin AS altitude,
+                    time,
+                    altitude,
                     temperature,
                     wind_x,
                     wind_y,
                     wind_speed,
-                    wind_angle,
-                    sample_count
+                    wind_angle
                 FROM {level["table"]}
                 WHERE time_bucket >= %s
                   AND time_bucket <= %s
-                ORDER BY time_bucket, altitude_bin
+                ORDER BY time
             """  # noqa: S608
             cur.execute(
                 query,
@@ -708,7 +710,7 @@ def fetch_aggregated_by_time(
         data = cur.fetchall()
 
         logging.info(
-            "Elapsed time: %.2f sec (aggregated data from %s, %s rows)",
+            "Elapsed time: %.2f sec (sampled data from %s, %s rows)",
             time.perf_counter() - start,
             level["table"],
             f"{len(data):,}",
