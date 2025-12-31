@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useLayoutEffect } from 'react'
+import { useRef, useLayoutEffect, useEffect, useState } from 'react'
 import styles from './GraphDisplay.module.css'
+import { useGraphJobs } from '../hooks/useGraphJobs'
 
 interface GraphDisplayProps {
   dateRange: {
@@ -11,69 +12,26 @@ interface GraphDisplayProps {
 }
 
 interface GraphInfo {
-  endpoint: string
+  name: string        // APIで使用するグラフ名
+  endpoint: string    // 従来のエンドポイント（コンテナRef用）
   title: string
-  filename: string
   size: [number, number]  // [width, height] in pixels
 }
 
-// graph.pyのGRAPH_DEF_MAPのsize定義をコピー
+// graph.pyのGRAPH_DEF_MAPに対応
 const graphs: GraphInfo[] = [
-  { endpoint: '/modes-sensing/api/graph/scatter_2d', title: '2D散布図', filename: 'scatter_2d.png', size: [2400, 1600] },
-  { endpoint: '/modes-sensing/api/graph/contour_2d', title: '2D等高線プロット', filename: 'contour.png', size: [2400, 1600] },
-  { endpoint: '/modes-sensing/api/graph/density', title: '密度プロット', filename: 'density.png', size: [2400, 1600] },
-  { endpoint: '/modes-sensing/api/graph/heatmap', title: 'ヒートマップ', filename: 'heatmap.png', size: [2400, 1600] },
-  { endpoint: '/modes-sensing/api/graph/temperature', title: '高度別温度時系列', filename: 'temperature.png', size: [2400, 1600] },
-  { endpoint: '/modes-sensing/api/graph/wind_direction', title: '風向・風速分布', filename: 'wind_direction.png', size: [2400, 1600] },
-  { endpoint: '/modes-sensing/api/graph/scatter_3d', title: '3D散布図', filename: 'scatter_3d.png', size: [2800, 2800] },
-  { endpoint: '/modes-sensing/api/graph/contour_3d', title: '3D等高線プロット', filename: 'contour_3d.png', size: [2800, 2800] }
+  { name: 'scatter_2d', endpoint: '/modes-sensing/api/graph/scatter_2d', title: '2D散布図', size: [2400, 1600] },
+  { name: 'contour_2d', endpoint: '/modes-sensing/api/graph/contour_2d', title: '2D等高線プロット', size: [2400, 1600] },
+  { name: 'density', endpoint: '/modes-sensing/api/graph/density', title: '密度プロット', size: [2400, 1600] },
+  { name: 'heatmap', endpoint: '/modes-sensing/api/graph/heatmap', title: 'ヒートマップ', size: [2400, 1600] },
+  { name: 'temperature', endpoint: '/modes-sensing/api/graph/temperature', title: '高度別温度時系列', size: [2400, 1600] },
+  { name: 'wind_direction', endpoint: '/modes-sensing/api/graph/wind_direction', title: '風向・風速分布', size: [2400, 1600] },
+  { name: 'scatter_3d', endpoint: '/modes-sensing/api/graph/scatter_3d', title: '3D散布図', size: [2800, 2800] },
+  { name: 'contour_3d', endpoint: '/modes-sensing/api/graph/contour_3d', title: '3D等高線プロット', size: [2800, 2800] }
 ]
 
-// 設定キーを生成する関数（10分単位でキャッシュ可能）
-const generateSettingsKey = (start: Date, end: Date, limitAltitude: boolean): string => {
-  // 10分単位のタイムスロットを計算（将来のキャッシュ用）
-  const tenMinutesInMs = 10 * 60 * 1000
-  const timeSlot = Math.floor(Date.now() / tenMinutesInMs) * tenMinutesInMs
-  // 期間と高度制限を含むユニークキー
-  return `${start.getTime()}-${end.getTime()}-${limitAltitude}-${timeSlot}`
-}
-
-// 画像URLを生成する関数
-const buildImageUrl = (
-  graph: GraphInfo,
-  start: Date,
-  end: Date,
-  limitAltitude: boolean,
-  forceReload: boolean = false
-): string => {
-  const params = new URLSearchParams()
-  params.set('start', JSON.stringify(start.toISOString()))
-  params.set('end', JSON.stringify(end.toISOString()))
-  params.set('limit_altitude', limitAltitude ? 'true' : 'false')
-
-  // キャッシュバスター: 設定が同じなら同じURL（10分間隔でキャッシュ可能）
-  const cacheKey = generateSettingsKey(start, end, limitAltitude)
-  params.set('_t', cacheKey)
-
-  // 強制リロード時はランダム値を追加
-  if (forceReload) {
-    params.set('_r', Math.random().toString(36).substring(2, 11))
-  }
-
-  const url = `${graph.endpoint}?${params.toString()}`
-
-  // デバッグログ
-  const periodDays = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
-  console.log(`[buildImageUrl] ${graph.endpoint}:`, {
-    periodDays: periodDays.toFixed(2),
-    start: start.toISOString(),
-    end: end.toISOString(),
-    limitAltitude,
-    url
-  })
-
-  return url
-}
+// グラフ名のリストを生成
+const graphNames = graphs.map(g => g.name)
 
 // コンテナ高さを計算するヘルパー関数
 const calculateActualHeight = (graph: GraphInfo, containerWidth: number): number => {
@@ -83,10 +41,13 @@ const calculateActualHeight = (graph: GraphInfo, containerWidth: number): number
 }
 
 const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, onImageClick }) => {
-  // 画像の状態管理
-  const [imageUrls, setImageUrls] = useState<Record<string, string>>({})
-  const [loading, setLoading] = useState<Record<string, boolean>>({})
-  const [errors, setErrors] = useState<Record<string, string>>({})
+  // 非同期ジョブフックを使用
+  const { jobs, reloadJob } = useGraphJobs({
+    dateRange,
+    limitAltitude,
+    graphs: graphNames,
+    pollingInterval: 1000
+  })
 
   // コンテナ幅の追跡
   const containerRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -94,86 +55,6 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
 
   // 通知用ref
   const notificationRef = useRef<HTMLDivElement>(null)
-
-  // 前回の設定を追跡するためのref（キー文字列として保存）
-  const lastSettingsRef = useRef<string>('')
-
-  // 現在の設定からキーを生成
-  const currentSettingsKey = `${dateRange.start.getTime()}-${dateRange.end.getTime()}-${limitAltitude}`
-
-  // デバッグ: 設定変更を検出
-  useEffect(() => {
-    const periodDays = (dateRange.end.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24)
-    console.log(`[GraphDisplay] Settings:`, {
-      periodDays: periodDays.toFixed(2),
-      start: dateRange.start.toISOString(),
-      end: dateRange.end.toISOString(),
-      limitAltitude,
-      currentKey: currentSettingsKey,
-      lastKey: lastSettingsRef.current,
-      isNewSettings: currentSettingsKey !== lastSettingsRef.current
-    })
-  }, [dateRange, limitAltitude, currentSettingsKey])
-
-  // 設定が変わったら画像URLを更新
-  useEffect(() => {
-    // 設定が変わっていない場合はスキップ
-    if (lastSettingsRef.current === currentSettingsKey) {
-      console.log(`[GraphDisplay useEffect] Skipping - same settings`)
-      return
-    }
-
-    console.log(`[GraphDisplay useEffect] Settings changed, updating URLs`)
-    console.log(`  Previous: ${lastSettingsRef.current}`)
-    console.log(`  Current: ${currentSettingsKey}`)
-
-    // 設定を更新
-    lastSettingsRef.current = currentSettingsKey
-
-    // 全グラフのURLを生成
-    const newUrls: Record<string, string> = {}
-    const newLoading: Record<string, boolean> = {}
-
-    graphs.forEach(graph => {
-      const url = buildImageUrl(graph, dateRange.start, dateRange.end, limitAltitude)
-      newUrls[graph.endpoint] = url
-      newLoading[graph.endpoint] = true
-    })
-
-    // 状態を更新
-    setImageUrls(newUrls)
-    setLoading(newLoading)
-    setErrors({})
-
-  }, [dateRange.start, dateRange.end, limitAltitude, currentSettingsKey])
-
-  // 画像読み込み完了ハンドラ
-  const handleImageLoad = (endpoint: string) => {
-    console.log(`[GraphDisplay] Image loaded: ${endpoint}`)
-    setLoading(prev => ({ ...prev, [endpoint]: false }))
-    setErrors(prev => ({ ...prev, [endpoint]: '' }))
-  }
-
-  // 画像読み込みエラーハンドラ
-  const handleImageError = (endpoint: string, title: string) => {
-    console.error(`[GraphDisplay] Image error: ${endpoint}`)
-    setLoading(prev => ({ ...prev, [endpoint]: false }))
-    setErrors(prev => ({ ...prev, [endpoint]: `${title}の読み込みに失敗しました` }))
-  }
-
-  // 画像リロードハンドラ
-  const handleReload = (endpoint: string) => {
-    const graph = graphs.find(g => g.endpoint === endpoint)
-    if (!graph) return
-
-    console.log(`[GraphDisplay] Reloading: ${endpoint}`)
-    setLoading(prev => ({ ...prev, [endpoint]: true }))
-    setErrors(prev => ({ ...prev, [endpoint]: '' }))
-
-    // 強制リロードでURLを更新
-    const newUrl = buildImageUrl(graph, dateRange.start, dateRange.end, limitAltitude, true)
-    setImageUrls(prev => ({ ...prev, [endpoint]: newUrl }))
-  }
 
   // コンテナ幅を測定
   const measureContainerWidths = () => {
@@ -255,6 +136,18 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
     return `${year}-${month}-${day} ${hours}:${minutes}`
   }
 
+  // 進捗状況のテキストを取得
+  const getProgressText = (status: string, progress: number): string => {
+    switch (status) {
+      case 'pending':
+        return '待機中...'
+      case 'processing':
+        return `生成中... ${progress}%`
+      default:
+        return ''
+    }
+  }
+
   return (
     <>
       <div className="box" id="graph">
@@ -286,14 +179,16 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
 
         <div className="columns is-multiline">
           {graphs.map(graph => {
-            const endpoint = graph.endpoint
-            const isLoading = loading[endpoint] ?? true
-            const error = errors[endpoint]
-            const imageUrl = imageUrls[endpoint]
-            const is3D = endpoint.includes('3d')
+            const job = jobs[graph.name]
+            const is3D = graph.name.includes('3d')
+
+            // ジョブの状態を取得
+            const isJobLoading = !job || job.status === 'pending' || job.status === 'processing'
+            const hasError = job?.status === 'failed' || job?.status === 'timeout'
+            const progress = job?.progress ?? 0
 
             // コンテナ高さを計算
-            const containerWidth = containerWidths[endpoint]
+            const containerWidth = containerWidths[graph.endpoint]
             let containerHeight: number
             if (containerWidth) {
               containerHeight = calculateActualHeight(graph, containerWidth)
@@ -309,9 +204,9 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
 
             return (
               <div
-                key={endpoint}
+                key={graph.endpoint}
                 className={is3D ? 'column is-full' : 'column is-half'}
-                ref={(el) => { containerRefs.current[endpoint] = el }}
+                ref={(el) => { containerRefs.current[graph.endpoint] = el }}
               >
                 <div className="card" style={{ height: `${cardHeight}px` }}>
                   <div className="card-content" style={{
@@ -329,21 +224,28 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
                       overflow: 'hidden',
                       flex: '1 1 auto'
                     }}>
-                      {/* ローディング表示 */}
-                      {isLoading && (
-                        <div className="has-text-centered">
+                      {/* ローディング表示（進捗バー付き） */}
+                      {isJobLoading && (
+                        <div className="has-text-centered" style={{ width: '80%' }}>
                           <div className="loader"></div>
-                          <p className="mt-2">グラフの生成中...</p>
+                          <progress
+                            className="progress is-primary is-small mt-2"
+                            value={progress}
+                            max="100"
+                          />
+                          <p className="mt-1 is-size-7">
+                            {getProgressText(job?.status ?? 'pending', progress)}
+                          </p>
                         </div>
                       )}
 
                       {/* エラー表示 */}
-                      {error && !isLoading && (
+                      {hasError && (
                         <div className="notification is-danger is-light">
-                          <div>{error}</div>
+                          <div>{job?.error || 'グラフの生成に失敗しました'}</div>
                           <button
                             className="button is-small is-danger mt-2"
-                            onClick={() => handleReload(endpoint)}
+                            onClick={() => reloadJob(graph.name)}
                           >
                             <span className="icon">
                               <i className="fas fa-redo"></i>
@@ -354,11 +256,11 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
                       )}
 
                       {/* 画像表示 */}
-                      {imageUrl && (
+                      {job?.status === 'completed' && job.resultUrl && (
                         <figure
                           className="image"
                           style={{
-                            display: isLoading ? 'none' : 'flex',
+                            display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                             height: '100%',
@@ -366,8 +268,8 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
                           }}
                         >
                           <img
-                            key={imageUrl}  // URLが変わったら強制的にリマウント
-                            src={imageUrl}
+                            key={job.resultUrl}
+                            src={job.resultUrl}
                             alt={graph.title}
                             style={{
                               width: '100%',
@@ -375,9 +277,8 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
                               objectFit: 'contain',
                               cursor: 'pointer'
                             }}
-                            onClick={() => onImageClick(imageUrl)}
-                            onLoad={() => handleImageLoad(endpoint)}
-                            onError={() => handleImageError(endpoint, graph.title)}
+                            onClick={() => onImageClick(job.resultUrl!)}
+                            onError={() => reloadJob(graph.name)}
                             loading="eager"
                           />
                         </figure>
