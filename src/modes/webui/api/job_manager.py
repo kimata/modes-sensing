@@ -48,6 +48,7 @@ class Job:
     result: bytes | None = None  # PNG画像データ
     error: str | None = None
     progress: int = 0  # 0-100
+    stage: str | None = None  # 現在の処理段階
 
 
 class JobManager:
@@ -65,9 +66,9 @@ class JobManager:
     _lock = threading.Lock()
 
     # 設定
-    JOB_EXPIRY_SECONDS = 600  # 10分後に結果を削除
+    JOB_EXPIRY_SECONDS = 1800  # 30分後に結果を削除（長時間ジョブ対応）
     CLEANUP_INTERVAL = 60  # 1分ごとにクリーンアップ
-    JOB_TIMEOUT_SECONDS = 300  # 5分でジョブをタイムアウトとみなす
+    JOB_TIMEOUT_SECONDS = 1200  # 20分でジョブをタイムアウトとみなす（半年分のグラフ対応）
 
     def __new__(cls) -> JobManager:  # noqa: PYI034
         if cls._instance is None:
@@ -106,6 +107,7 @@ class JobManager:
 
         Returns:
             作成されたジョブのID（UUID）
+
         """
         self._ensure_cleanup_thread()
 
@@ -132,17 +134,19 @@ class JobManager:
 
         Returns:
             ジョブ情報、見つからない場合はNone
+
         """
         with self._jobs_lock:
             return self._jobs.get(job_id)
 
-    def update_status(
+    def update_status(  # noqa: PLR0913
         self,
         job_id: str,
         status: JobStatus,
         result: bytes | None = None,
         error: str | None = None,
         progress: int | None = None,
+        stage: str | None = None,
     ) -> None:
         """
         ジョブステータスを更新
@@ -153,6 +157,8 @@ class JobManager:
             result: 完了時の結果（PNG画像データ）
             error: エラー時のメッセージ
             progress: 進捗率（0-100）
+            stage: 現在の処理段階
+
         """
         with self._jobs_lock:
             job = self._jobs.get(job_id)
@@ -168,12 +174,15 @@ class JobManager:
                     job.error = error
                 if progress is not None:
                     job.progress = progress
+                if stage is not None:
+                    job.stage = stage
 
                 logging.debug(
-                    "Updated job %s: status=%s, progress=%d",
+                    "Updated job %s: status=%s, progress=%d, stage=%s",
                     job_id,
                     status.value,
                     job.progress,
+                    job.stage,
                 )
 
     def get_job_status_dict(self, job_id: str) -> dict[str, Any] | None:
@@ -185,6 +194,7 @@ class JobManager:
 
         Returns:
             ステータス辞書、見つからない場合はNone
+
         """
         job = self.get_job(job_id)
         if not job:
@@ -202,6 +212,7 @@ class JobManager:
             "graph_name": job.graph_name,
             "error": job.error,
             "elapsed_seconds": elapsed,
+            "stage": job.stage,
         }
 
     def _cleanup_old_jobs(self) -> None:
@@ -256,6 +267,7 @@ class JobManager:
 
         Returns:
             ステータス別のジョブ数
+
         """
         with self._jobs_lock:
             stats: dict[str, int] = {}
