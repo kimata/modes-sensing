@@ -27,6 +27,7 @@ import my_lib.footprint
 import modes.database_postgresql
 import modes.receiver
 from modes.config import AppConfig
+from modes.database_postgresql import DBConfig
 
 SCHEMA_CONFIG = "config.schema"
 
@@ -67,10 +68,10 @@ def execute(config: AppConfig, liveness_file: pathlib.Path, count: int = 0) -> N
         if historical_records:
             # receiver.pyの履歴データ形式に変換
             historical_data = [
-                {
-                    "altitude": record["altitude"],
-                    "temperature": record["temperature"],
-                }
+                modes.receiver.HistoryData(
+                    altitude=record["altitude"],
+                    temperature=record["temperature"],
+                )
                 for record in historical_records
             ]
 
@@ -84,32 +85,25 @@ def execute(config: AppConfig, liveness_file: pathlib.Path, count: int = 0) -> N
         logging.warning("履歴データの取得に失敗しました: %s", e)
         # エラーが発生しても処理を継続
 
-    # receiver.start に渡す area 設定（辞書形式）
-    area_dict = {
-        "lat": {"ref": config.filter.area.lat.ref},
-        "lon": {"ref": config.filter.area.lon.ref},
-        "distance": config.filter.area.distance,
-    }
-
     modes.receiver.start(
         config.modes.decoder.host,
         config.modes.decoder.port,
         measurement_queue,
-        area_dict,
+        config.filter.area,
+        liveness_file=config.liveness.file.receiver,
     )
 
-    # store_queue に渡す database 設定（辞書形式）
-    db_config_dict = {
-        "host": config.database.host,
-        "port": config.database.port,
-        "name": config.database.name,
-        "user": config.database.user,
-        "pass": config.database.password,
-    }
+    db_config = DBConfig(
+        host=config.database.host,
+        port=config.database.port,
+        name=config.database.name,
+        user=config.database.user,
+        password=config.database.password,
+    )
 
     try:
         modes.database_postgresql.store_queue(
-            conn, measurement_queue, liveness_file, count, db_config=db_config_dict
+            conn, measurement_queue, liveness_file, db_config, count
         )
     except Exception:
         logging.exception("Failed to store data")

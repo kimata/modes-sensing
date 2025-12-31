@@ -1580,10 +1580,10 @@ def data_range():
         result = modes.database_postgresql.fetch_data_range(conn)
         conn.close()
 
-        if result["earliest"] and result["latest"]:
+        if result.earliest and result.latest:
             # タイムゾーン情報を追加してJSONシリアライゼーション可能にする
-            earliest = result["earliest"]
-            latest = result["latest"]
+            earliest = result.earliest
+            latest = result.latest
 
             # データベースはJST naive datetimeで保存されている（TZ=Asia/Tokyoのアプリケーション側で統一）
             # タイムゾーン情報がない場合はJSTとして扱う
@@ -1595,7 +1595,7 @@ def data_range():
             response_data = {
                 "earliest": earliest.isoformat(),
                 "latest": latest.isoformat(),
-                "count": result["count"],
+                "count": result.count,
             }
         else:
             # データがない場合

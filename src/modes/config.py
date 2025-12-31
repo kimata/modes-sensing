@@ -41,7 +41,7 @@ class CoordinateRef:
 
 
 @dataclass(frozen=True)
-class AreaConfig:
+class Area:
     """エリアフィルタ設定"""
 
     lat: CoordinateRef
@@ -53,7 +53,7 @@ class AreaConfig:
 class FilterConfig:
     """フィルタ設定"""
 
-    area: AreaConfig
+    area: Area
 
 
 @dataclass(frozen=True)
@@ -76,6 +76,7 @@ class LivenessFileConfig:
     """Liveness ファイル設定"""
 
     collector: pathlib.Path
+    receiver: pathlib.Path | None = None  # receiver専用Liveness（オプション）
 
 
 @dataclass(frozen=True)
@@ -118,7 +119,7 @@ def load_from_dict(config_dict: dict[str, Any], base_dir: pathlib.Path | None = 
             password=config_dict["database"]["pass"],
         ),
         filter=FilterConfig(
-            area=AreaConfig(
+            area=Area(
                 lat=CoordinateRef(ref=config_dict["filter"]["area"]["lat"]["ref"]),
                 lon=CoordinateRef(ref=config_dict["filter"]["area"]["lon"]["ref"]),
                 distance=config_dict["filter"]["area"]["distance"],
@@ -134,6 +135,11 @@ def load_from_dict(config_dict: dict[str, Any], base_dir: pathlib.Path | None = 
         liveness=LivenessConfig(
             file=LivenessFileConfig(
                 collector=pathlib.Path(config_dict["liveness"]["file"]["collector"]),
+                receiver=(
+                    pathlib.Path(config_dict["liveness"]["file"]["receiver"])
+                    if config_dict.get("liveness", {}).get("file", {}).get("receiver")
+                    else None
+                ),
             ),
         ),
         base_dir=base_dir,

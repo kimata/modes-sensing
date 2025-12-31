@@ -15,10 +15,12 @@ from __future__ import annotations
 import contextlib
 import datetime
 import logging
+import pathlib
 import queue
 import threading
 import time
-from typing import TYPE_CHECKING, Any, TypedDict
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 import my_lib.footprint
 import psycopg2
@@ -26,12 +28,23 @@ import psycopg2.extras
 
 if TYPE_CHECKING:
     import multiprocessing
-    import pathlib
 
     from psycopg2.extensions import connection as PgConnection  # noqa: N812
 
 
-class WindData(TypedDict):
+@dataclass(frozen=True)
+class DBConfig:
+    """データベース接続設定"""
+
+    host: str
+    port: int
+    name: str
+    user: str
+    password: str
+
+
+@dataclass
+class WindData:
     """風向・風速データ"""
 
     x: float
@@ -40,20 +53,22 @@ class WindData(TypedDict):
     speed: float
 
 
-class MeasurementData(TypedDict, total=False):
+@dataclass
+class MeasurementData:
     """測定データ（receiver.py から受け取る形式）"""
 
     callsign: str
-    distance: float
     altitude: float
     latitude: float
     longitude: float
     temperature: float
     wind: WindData
-    method: str | None
+    distance: float | None = None
+    method: str | None = None
 
 
-class DataRangeResult(TypedDict):
+@dataclass(frozen=True)
+class DataRangeResult:
     """データ範囲クエリの結果"""
 
     earliest: datetime.datetime | None
@@ -61,7 +76,8 @@ class DataRangeResult(TypedDict):
     count: int
 
 
-class AggregationLevel(TypedDict):
+@dataclass(frozen=True)
+class AggregationLevel:
     """集約レベルの設定"""
 
     table: str
@@ -74,13 +90,17 @@ class AggregationLevel(TypedDict):
 # 長期間では時間×高度帯から代表点を1つ選ぶことでデータ量を削減しつつ品質を維持
 AGGREGATION_LEVELS: list[AggregationLevel] = [
     # 7日以内は生データ
-    {"table": "meteorological_data", "time_interval": "raw", "altitude_bin": 0, "max_days": 7},
+    AggregationLevel(table="meteorological_data", time_interval="raw", altitude_bin=0, max_days=7),
     # 7-30日は1時間×500m帯から代表点をサンプリング
-    {"table": "hourly_altitude_grid", "time_interval": "1 hour", "altitude_bin": 500, "max_days": 30},
+    AggregationLevel(table="hourly_altitude_grid", time_interval="1 hour", altitude_bin=500, max_days=30),
     # 30日以上は6時間×500m帯から代表点をサンプリング
-    {"table": "sixhour_altitude_grid", "time_interval": "6 hours", "altitude_bin": 500, "max_days": 9999},
+    AggregationLevel(table="sixhour_altitude_grid", time_interval="6 hours", altitude_bin=500, max_days=9999),
 ]
 
+
+# 再接続設定
+MAX_RECONNECT_RETRIES: int = 5
+RECONNECT_DELAY: float = 5.0
 
 should_terminate = threading.Event()
 
@@ -267,120 +287,175 @@ def insert(conn: PgConnection, data: MeasurementData) -> None:
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 datetime.datetime.now(),
-                data["callsign"],
-                data["distance"],
-                data["altitude"],
-                data["latitude"],
-                data["longitude"],
-                data["temperature"],
-                data["wind"]["x"],
-                data["wind"]["y"],
-                data["wind"]["angle"],
-                data["wind"]["speed"],
-                data.get("method"),  # methodがない場合はNoneを挿入
+                data.callsign,
+                data.distance,
+                data.altitude,
+                data.latitude,
+                data.longitude,
+                data.temperature,
+                data.wind.x,
+                data.wind.y,
+                data.wind.angle,
+                data.wind.speed,
+                data.method,
             ),
         )
 
 
-def store_queue(  # noqa: C901
+def _attempt_reconnect(db_config: DBConfig) -> PgConnection | None:
+    """データベースへの再接続を試行する
+
+    Args:
+        db_config: データベース接続設定
+
+    Returns:
+        再接続成功時は新しい接続、失敗時はNone
+
+    """
+    for attempt in range(1, MAX_RECONNECT_RETRIES + 1):
+        if should_terminate.is_set():
+            return None
+
+        logging.warning(
+            "再接続を試行します（%d/%d回目、%.1f秒待機）...",
+            attempt,
+            MAX_RECONNECT_RETRIES,
+            RECONNECT_DELAY,
+        )
+        time.sleep(RECONNECT_DELAY)
+
+        try:
+            new_conn = open(
+                db_config.host,
+                db_config.port,
+                db_config.name,
+                db_config.user,
+                db_config.password,
+            )
+            logging.info("データベースへの再接続に成功しました（%d回目）", attempt)
+            return new_conn
+        except Exception:
+            logging.exception("再接続に失敗しました（%d回目）", attempt)
+
+    logging.error("すべての再接続試行（%d回）に失敗しました", MAX_RECONNECT_RETRIES)
+    return None
+
+
+class _StoreState:
+    """store_queueの内部状態を管理するクラス"""
+
+    def __init__(self, conn: PgConnection, max_consecutive_errors: int = 3) -> None:
+        self.conn = conn
+        self.consecutive_errors = 0
+        self.max_consecutive_errors = max_consecutive_errors
+        self.processed_count = 0
+        self.should_stop = False
+
+    def reset_errors(self) -> None:
+        self.consecutive_errors = 0
+
+    def increment_errors(self) -> bool:
+        """エラーカウントを増加し、上限に達したかを返す"""
+        self.consecutive_errors += 1
+        return self.consecutive_errors >= self.max_consecutive_errors
+
+
+def store_queue(
     conn: PgConnection,
     measurement_queue: multiprocessing.Queue[MeasurementData],
     liveness_file: pathlib.Path,
+    db_config: DBConfig,
     count: int = 0,
-    db_config: dict[str, Any] | None = None,
 ) -> None:
-    """
-    データベースへのデータ格納を行うワーカー関数
+    """データベースへのデータ格納を行うワーカー関数
 
     Args:
         conn: データベース接続
         measurement_queue: 測定データのキュー
         liveness_file: ヘルスチェック用ファイルパス
+        db_config: 再接続用のデータベース設定
         count: 処理するデータ数（0の場合は無制限）
-        db_config: 再接続用のデータベース設定（config["database"]形式）
 
     """
-    logging.info("Start store worker")
+    logging.info("データ保存ワーカーを開始します")
+    state = _StoreState(conn)
 
-    i = 0
-    consecutive_errors = 0
-    max_consecutive_errors = 3
-
-    while True:
+    while not state.should_stop and not should_terminate.is_set():
         try:
-            data = measurement_queue.get(timeout=1)
-            insert(conn, data)
-            my_lib.footprint.update(liveness_file)
+            _process_one_item(state, measurement_queue, liveness_file)
 
-            # 成功したらエラーカウンタをリセット
-            consecutive_errors = 0
-
-            i += 1
-            if (count != 0) and (i == count):
+            if count != 0 and state.processed_count >= count:
                 break
 
         except queue.Empty:
-            # タイムアウトはエラーとしてカウントしない
-            pass
+            continue
 
         except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-            consecutive_errors += 1
-            logging.error(  # noqa: TRY400
-                "Database connection error (%d/%d consecutive): %s",
-                consecutive_errors,
-                max_consecutive_errors,
-                str(e),
-            )
-
-            if consecutive_errors >= max_consecutive_errors:
-                if db_config:
-                    logging.error("Maximum consecutive errors reached. Attempting to reconnect...")  # noqa: TRY400
-
-                    with contextlib.suppress(Exception):
-                        # 既存の接続をクローズ
-                        conn.close()
-
-                    try:
-                        # 再接続を試みる
-                        conn = open(
-                            db_config["host"],
-                            db_config["port"],
-                            db_config["name"],
-                            db_config["user"],
-                            db_config["pass"],
-                        )
-                        logging.info("Successfully reconnected to database")
-                        consecutive_errors = 0  # 再接続成功したらカウンタをリセット
-                        continue
-                    except Exception:
-                        logging.exception("Reconnection failed")
-                        break
-                else:
-                    logging.error(  # noqa: TRY400
-                        "Failed to reconnect after %d consecutive errors. Terminating.",
-                        max_consecutive_errors,
-                    )
-                    break
+            _handle_db_error(state, e, db_config)
 
         except Exception:
-            consecutive_errors += 1
-            logging.exception(
-                "Unexpected error in store_queue (%d/%d consecutive)",
-                consecutive_errors,
-                max_consecutive_errors,
-            )
-
-            if consecutive_errors >= max_consecutive_errors:
-                logging.error("Maximum consecutive errors reached. Terminating.")  # noqa: TRY400
-                break
-
-        if should_terminate.is_set():
-            break
+            _handle_unexpected_error(state)
 
     with contextlib.suppress(Exception):
-        conn.close()
+        state.conn.close()
 
-    logging.warning("Stop store worker")
+    logging.warning("データ保存ワーカーを停止します")
+
+
+def _process_one_item(
+    state: _StoreState,
+    measurement_queue: multiprocessing.Queue[MeasurementData],
+    liveness_file: pathlib.Path,
+) -> None:
+    """キューから1件取得してDBに保存する"""
+    data = measurement_queue.get(timeout=1)
+    insert(state.conn, data)
+    my_lib.footprint.update(liveness_file)
+    state.reset_errors()
+    state.processed_count += 1
+
+
+def _handle_db_error(
+    state: _StoreState,
+    error: Exception,
+    db_config: DBConfig,
+) -> None:
+    """データベース接続エラーを処理する"""
+    logging.error(
+        "データベース接続エラー（連続%d/%d回目）: %s",
+        state.consecutive_errors + 1,
+        state.max_consecutive_errors,
+        str(error),
+    )
+
+    if not state.increment_errors():
+        return
+
+    # 最大エラー数に達した場合、再接続を試行
+    logging.warning("最大連続エラー数に達しました。再接続を開始します...")
+
+    with contextlib.suppress(Exception):
+        state.conn.close()
+
+    new_conn = _attempt_reconnect(db_config)
+    if new_conn:
+        state.conn = new_conn
+        state.reset_errors()
+    else:
+        state.should_stop = True
+
+
+def _handle_unexpected_error(state: _StoreState) -> None:
+    """予期しないエラーを処理する"""
+    logging.exception(
+        "データ保存ワーカーで予期しないエラーが発生しました（連続%d/%d回目）",
+        state.consecutive_errors + 1,
+        state.max_consecutive_errors,
+    )
+
+    if state.increment_errors():
+        logging.error("最大連続エラー数に達しました。処理を終了します")
+        state.should_stop = True
 
 
 def store_term() -> None:
@@ -573,7 +648,7 @@ def fetch_data_range(conn: PgConnection) -> DataRangeResult:
         conn: データベース接続
 
     Returns:
-        dict: earliest, latest, countを含む辞書
+        DataRangeResult: earliest, latest, countを含むデータ
 
     """
     query = """
@@ -595,14 +670,14 @@ def fetch_data_range(conn: PgConnection) -> DataRangeResult:
     )
 
     if result and result["earliest"] and result["latest"]:
-        return {
-            "earliest": result["earliest"],
-            "latest": result["latest"],
-            "count": result["count"],
-        }
+        return DataRangeResult(
+            earliest=result["earliest"],
+            latest=result["latest"],
+            count=result["count"],
+        )
     else:
         # データがない場合
-        return {"earliest": None, "latest": None, "count": 0}
+        return DataRangeResult(earliest=None, latest=None, count=0)
 
 
 def get_aggregation_level(days: float) -> AggregationLevel:
@@ -617,7 +692,7 @@ def get_aggregation_level(days: float) -> AggregationLevel:
 
     """
     for level in AGGREGATION_LEVELS:
-        if days <= level["max_days"]:
+        if days <= level.max_days:
             return level
     return AGGREGATION_LEVELS[-1]
 
@@ -646,10 +721,10 @@ def fetch_aggregated_by_time(
 
     logging.info(
         "Using aggregation level: %s (period: %.1f days, interval: %s, altitude_bin: %dm)",
-        level["table"],
+        level.table,
         days,
-        level["time_interval"],
-        level["altitude_bin"],
+        level.time_interval,
+        level.altitude_bin,
     )
 
     # フォールバック時に使用するカラムリスト
@@ -659,7 +734,7 @@ def fetch_aggregated_by_time(
     ]
 
     # 生データの場合は既存の関数を使用
-    if level["table"] == "meteorological_data":
+    if level.table == "meteorological_data":
         return fetch_by_time(
             conn,
             time_start,
@@ -671,10 +746,10 @@ def fetch_aggregated_by_time(
 
     # マテリアライズドビューが存在するか確認
     view_exists = check_materialized_views_exist(conn)
-    if not view_exists.get(level["table"], False):
+    if not view_exists.get(level.table, False):
         logging.warning(
             "Materialized view %s does not exist, falling back to raw data",
-            level["table"],
+            level.table,
         )
         return fetch_by_time(
             conn,
@@ -699,7 +774,7 @@ def fetch_aggregated_by_time(
                         wind_y,
                         wind_speed,
                         wind_angle
-                    FROM {level["table"]}
+                    FROM {level.table}
                     WHERE time_bucket >= %s
                       AND time_bucket <= %s
                       AND altitude <= %s
@@ -725,7 +800,7 @@ def fetch_aggregated_by_time(
                         wind_y,
                         wind_speed,
                         wind_angle
-                    FROM {level["table"]}
+                    FROM {level.table}
                     WHERE time_bucket >= %s
                       AND time_bucket <= %s
                     ORDER BY time
@@ -746,7 +821,7 @@ def fetch_aggregated_by_time(
             logging.info(
                 "Elapsed time: %.2f sec (sampled data from %s, %s rows)",
                 time.perf_counter() - start,
-                level["table"],
+                level.table,
                 f"{len(data):,}",
             )
 
@@ -754,7 +829,7 @@ def fetch_aggregated_by_time(
             if not data:
                 logging.warning(
                     "No data in materialized view %s, falling back to raw data",
-                    level["table"],
+                    level.table,
                 )
                 return fetch_by_time(
                     conn,
@@ -770,7 +845,7 @@ def fetch_aggregated_by_time(
     except psycopg2.Error as e:
         logging.warning(
             "Error fetching from materialized view %s: %s, falling back to raw data",
-            level["table"],
+            level.table,
             str(e),
         )
         return fetch_by_time(
@@ -917,6 +992,14 @@ if __name__ == "__main__":
         config["database"]["pass"],
     )
 
+    db_config = DBConfig(
+        host=config["database"]["host"],
+        port=config["database"]["port"],
+        name=config["database"]["name"],
+        user=config["database"]["user"],
+        password=config["database"]["pass"],
+    )
+
     store_queue(
-        conn, measurement_queue, config["liveness"]["file"]["collector"], db_config=config["database"]
+        conn, measurement_queue, pathlib.Path(config["liveness"]["file"]["collector"]), db_config
     )

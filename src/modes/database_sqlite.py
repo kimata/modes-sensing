@@ -16,24 +16,16 @@ import datetime
 import logging
 import queue
 import time
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any
 
 import my_lib.footprint
 import my_lib.sqlite_util
 
+from modes.database_postgresql import DataRangeResult, MeasurementData
+
 if TYPE_CHECKING:
     import pathlib
     import sqlite3
-
-    from modes.database_postgresql import MeasurementData
-
-
-class DataRangeResult(TypedDict):
-    """データ範囲クエリの結果"""
-
-    earliest: datetime.datetime | None
-    latest: datetime.datetime | None
-    count: int
 
 
 def open(log_db_path: pathlib.Path) -> sqlite3.Connection:  # noqa: A001
@@ -61,17 +53,17 @@ def insert(sqlite: sqlite3.Connection, data: MeasurementData) -> None:
         "INSERT INTO meteorological_data VALUES "
         '(NULL, strftime("%s", "now"), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         (
-            data["callsign"],
-            data["distance"],
-            data["altitude"],
-            data["latitude"],
-            data["longitude"],
-            data["temperature"],
-            data["wind"]["x"],
-            data["wind"]["y"],
-            data["wind"]["angle"],
-            data["wind"]["speed"],
-            data.get("method"),  # methodがない場合はNoneを挿入
+            data.callsign,
+            data.distance,
+            data.altitude,
+            data.latitude,
+            data.longitude,
+            data.temperature,
+            data.wind.x,
+            data.wind.y,
+            data.wind.angle,
+            data.wind.speed,
+            data.method,
         ),
     )
     sqlite.commit()
@@ -286,7 +278,7 @@ def fetch_data_range(conn: sqlite3.Connection) -> DataRangeResult:
         conn: SQLite接続
 
     Returns:
-        dict: earliest, latest, countを含む辞書
+        DataRangeResult: earliest, latest, countを含むデータクラス
 
     """
     query = """
@@ -330,14 +322,14 @@ def fetch_data_range(conn: sqlite3.Connection) -> DataRangeResult:
                 tzinfo=datetime.timezone.utc
             ) + datetime.timedelta(hours=9)
 
-        return {
-            "earliest": earliest,
-            "latest": latest,
-            "count": result["count"],
-        }
+        return DataRangeResult(
+            earliest=earliest,
+            latest=latest,
+            count=result["count"],
+        )
     else:
         # データがない場合
-        return {"earliest": None, "latest": None, "count": 0}
+        return DataRangeResult(earliest=None, latest=None, count=0)
 
 
 if __name__ == "__main__":
