@@ -67,6 +67,7 @@ class JobManager:
     # 設定
     JOB_EXPIRY_SECONDS = 600  # 10分後に結果を削除
     CLEANUP_INTERVAL = 60  # 1分ごとにクリーンアップ
+    JOB_TIMEOUT_SECONDS = 300  # 5分でジョブをタイムアウトとみなす
 
     def __new__(cls) -> JobManager:  # noqa: PYI034
         if cls._instance is None:
@@ -204,9 +205,25 @@ class JobManager:
         }
 
     def _cleanup_old_jobs(self) -> None:
-        """古いジョブを削除"""
+        """古いジョブを削除し、タイムアウトしたジョブをマーク"""
         current_time = time.time()
         with self._jobs_lock:
+            # タイムアウトしたジョブ（PENDING/PROCESSINGのまま長時間経過）を検出
+            for job in self._jobs.values():
+                if job.status in (JobStatus.PENDING, JobStatus.PROCESSING):
+                    elapsed = current_time - job.created_at
+                    if elapsed > self.JOB_TIMEOUT_SECONDS:
+                        job.status = JobStatus.TIMEOUT
+                        job.completed_at = current_time
+                        job.error = f"Job timed out after {elapsed:.0f} seconds"
+                        logging.warning(
+                            "Job %s timed out for graph %s after %.0f seconds",
+                            job.job_id,
+                            job.graph_name,
+                            elapsed,
+                        )
+
+            # 完了から一定時間経過したジョブを削除
             expired_ids = [
                 job_id
                 for job_id, job in self._jobs.items()

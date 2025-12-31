@@ -1307,6 +1307,14 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
     img.save(bytes_io, "PNG")
     bytes_io.seek(0)
 
+    image_size = len(bytes_io.getvalue())
+    logging.info(
+        "[DEBUG] plot_in_subprocess() completed for %s: elapsed=%.2f sec, image_size=%d bytes",
+        graph_name,
+        elapsed,
+        image_size,
+    )
+
     return bytes_io.getvalue(), elapsed
 
 

@@ -136,8 +136,16 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, enhanced_sig_handler)
 
     # Flaskアプリケーションを実行
+    # テスト環境（TEST=true）ではリローダーを無効にする
+    # リローダーはマルチプロセス処理（非同期グラフ生成）と相互作用の問題を起こすため
+    is_test_mode = os.environ.get("TEST", "").lower() == "true"
+    use_reloader = not is_test_mode and debug_mode
+
+    if is_test_mode:
+        logging.info("Test mode detected, disabling Flask reloader for multiprocessing compatibility")
+
     try:
-        app.run(host="0.0.0.0", port=port, threaded=True, use_reloader=True, debug=debug_mode)  # noqa: S104
+        app.run(host="0.0.0.0", port=port, threaded=True, use_reloader=use_reloader, debug=debug_mode)  # noqa: S104
     except KeyboardInterrupt:
         logging.info("Received KeyboardInterrupt, shutting down...")
         enhanced_sig_handler(signal.SIGINT, None)
