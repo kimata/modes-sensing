@@ -1605,6 +1605,115 @@ def graph(graph_name):  # noqa: PLR0915
     return res
 
 
+@blueprint.route("/api/debug/date-parse", methods=["GET"])
+def debug_date_parse():  # noqa: PLR0915
+    """デバッグ用：日付パース処理をテストするAPI"""
+    import json
+
+    time_end_str = flask.request.args.get("end", None)
+    time_start_str = flask.request.args.get("start", None)
+
+    result = {
+        "raw_params": {
+            "start": time_start_str,
+            "end": time_end_str,
+        },
+        "parsed": {},
+        "aggregation": {},
+        "data_sample": {},
+    }
+
+    default_time_end = my_lib.time.now()
+    default_time_start = default_time_end - datetime.timedelta(days=1)
+
+    # 日付パース
+    if time_end_str:
+        try:
+            parsed_end = json.loads(time_end_str)
+            time_end = datetime.datetime.fromisoformat(parsed_end.replace("Z", "+00:00"))
+            time_end = time_end.astimezone(my_lib.time.get_zoneinfo())
+            result["parsed"]["end"] = {
+                "json_parsed": parsed_end,
+                "datetime": str(time_end),
+                "utc": str(time_end.astimezone(datetime.timezone.utc)),
+            }
+        except Exception as e:
+            result["parsed"]["end_error"] = str(e)
+            time_end = default_time_end
+    else:
+        time_end = default_time_end
+        result["parsed"]["end"] = {"default": str(default_time_end)}
+
+    if time_start_str:
+        try:
+            parsed_start = json.loads(time_start_str)
+            time_start = datetime.datetime.fromisoformat(parsed_start.replace("Z", "+00:00"))
+            time_start = time_start.astimezone(my_lib.time.get_zoneinfo())
+            result["parsed"]["start"] = {
+                "json_parsed": parsed_start,
+                "datetime": str(time_start),
+                "utc": str(time_start.astimezone(datetime.timezone.utc)),
+            }
+        except Exception as e:
+            result["parsed"]["start_error"] = str(e)
+            time_start = default_time_start
+    else:
+        time_start = default_time_start
+        result["parsed"]["start"] = {"default": str(default_time_start)}
+
+    # 期間計算
+    period_days = (time_end - time_start).total_seconds() / 86400
+    result["period_days"] = period_days
+
+    # 集約レベル
+    level = modes.database_postgresql.get_aggregation_level(period_days)
+    result["aggregation"] = {
+        "table": level["table"],
+        "time_interval": level["time_interval"],
+        "altitude_bin": level["altitude_bin"],
+    }
+
+    # データサンプル取得
+    try:
+        config = flask.current_app.config["CONFIG"]
+        conn = connect_database(config)
+
+        # マテリアライズドビューの存在確認
+        view_exists = modes.database_postgresql.check_materialized_views_exist(conn)
+        result["views_exist"] = view_exists
+
+        # データ取得テスト（最初の10件のみ）
+        if period_days > 7:
+            raw_data = modes.database_postgresql.fetch_aggregated_by_time(
+                conn, time_start, time_end, max_altitude=None
+            )
+        else:
+            raw_data = modes.database_postgresql.fetch_by_time(
+                conn, time_start, time_end, distance=100
+            )
+
+        conn.close()
+
+        if raw_data:
+            times = [r["time"] for r in raw_data]
+            result["data_sample"] = {
+                "total_rows": len(raw_data),
+                "min_time": str(min(times)),
+                "max_time": str(max(times)),
+                "first_3": [
+                    {k: str(v) if isinstance(v, datetime.datetime) else v for k, v in row.items()}
+                    for row in raw_data[:3]
+                ],
+            }
+        else:
+            result["data_sample"] = {"error": "No data returned"}
+
+    except Exception as e:
+        result["data_sample"] = {"error": str(e)}
+
+    return flask.jsonify(result)
+
+
 if __name__ == "__main__":
 
     def plot(raw_data):
