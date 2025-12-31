@@ -443,11 +443,13 @@ def fetch_by_time(  # noqa: PLR0913
                 f"AND altitude IS NOT NULL AND altitude <= %s "
                 f"ORDER BY time"
             )
+            # データベースはnaive datetime（サーバローカルタイム=JST）で保存されているため、
+            # クエリ時もタイムゾーン情報を除去してnaive datetimeとして比較する
             cur.execute(
                 query,
                 (
-                    time_start.astimezone(datetime.timezone.utc),
-                    time_end.astimezone(datetime.timezone.utc),
+                    time_start.replace(tzinfo=None),
+                    time_end.replace(tzinfo=None),
                     distance,
                     max_altitude,
                 ),
@@ -459,11 +461,13 @@ def fetch_by_time(  # noqa: PLR0913
                 f"AND altitude IS NOT NULL "
                 f"ORDER BY time"
             )
+            # データベースはnaive datetime（サーバローカルタイム=JST）で保存されているため、
+            # クエリ時もタイムゾーン情報を除去してnaive datetimeとして比較する
             cur.execute(
                 query,
                 (
-                    time_start.astimezone(datetime.timezone.utc),
-                    time_end.astimezone(datetime.timezone.utc),
+                    time_start.replace(tzinfo=None),
+                    time_end.replace(tzinfo=None),
                     distance,
                 ),
             )
@@ -698,11 +702,13 @@ def fetch_aggregated_by_time(
                       AND altitude <= %s
                     ORDER BY time
                 """  # noqa: S608
+                # データベースはnaive datetime（サーバローカルタイム=JST）で保存されているため、
+                # クエリ時もタイムゾーン情報を除去してnaive datetimeとして比較する
                 cur.execute(
                     query,
                     (
-                        time_start.astimezone(datetime.timezone.utc),
-                        time_end.astimezone(datetime.timezone.utc),
+                        time_start.replace(tzinfo=None),
+                        time_end.replace(tzinfo=None),
                         max_altitude,
                     ),
                 )
@@ -721,11 +727,13 @@ def fetch_aggregated_by_time(
                       AND time_bucket <= %s
                     ORDER BY time
                 """  # noqa: S608
+                # データベースはnaive datetime（サーバローカルタイム=JST）で保存されているため、
+                # クエリ時もタイムゾーン情報を除去してnaive datetimeとして比較する
                 cur.execute(
                     query,
                     (
-                        time_start.astimezone(datetime.timezone.utc),
-                        time_end.astimezone(datetime.timezone.utc),
+                        time_start.replace(tzinfo=None),
+                        time_end.replace(tzinfo=None),
                     ),
                 )
 
