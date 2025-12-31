@@ -19,50 +19,36 @@ import math
 import queue
 import socket
 import threading
-from typing import Any, TypedDict
+import time
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, TypedDict
 
+import my_lib.footprint
 import numpy as np
+
+if TYPE_CHECKING:
+    import multiprocessing
+    import pathlib
+
+    from modes.config import Area
+
 import numpy.typing as npt
 import pyModeS
 import sklearn.ensemble
 import sklearn.linear_model
 
+from modes.database_postgresql import MeasurementData, WindData
 
-class WindData(TypedDict):
-    """風向・風速データ"""
-
-    x: float
-    y: float
-    angle: float
-    speed: float
+# receiver.py内ではMeteorologicalDataという名前で使用
+MeteorologicalData = MeasurementData
 
 
-class MeteorologicalData(TypedDict, total=False):
-    """気象データ"""
-
-    callsign: str
-    altitude: float
-    latitude: float
-    longitude: float
-    temperature: float
-    wind: WindData
-    distance: float
-    method: str | None
-
-
-class HistoryData(TypedDict):
+@dataclass
+class HistoryData:
     """履歴データ（外れ値検出用）"""
 
     altitude: float
     temperature: float
-
-
-class AreaInfo(TypedDict):
-    """エリア情報"""
-
-    lat: dict[str, float]
-    lon: dict[str, float]
-    distance: int
 
 
 class MessageFragment(TypedDict, total=False):
@@ -76,9 +62,18 @@ class MessageFragment(TypedDict, total=False):
 
 FRAGMENT_BUF_SIZE: int = 100
 
+# 再接続設定
+RECONNECT_MAX_RETRIES: int = 10
+RECONNECT_BASE_DELAY: float = 2.0
+RECONNECT_MAX_DELAY: float = 60.0
+SOCKET_TIMEOUT: float = 30.0
+
 fragment_list: list[MessageFragment] = []
 
 should_terminate = threading.Event()
+
+# receiver専用Livenessファイルパス
+_receiver_liveness_file: pathlib.Path | None = None
 
 HISTRY_SAMPLES: int = 30000
 meteorological_history: collections.deque[HistoryData] = collections.deque(maxlen=HISTRY_SAMPLES)
@@ -147,15 +142,15 @@ def calc_wind(  # noqa: PLR0913
     wind_x = ground_x - air_x
     wind_y = ground_y - air_y
 
-    return {
-        "x": wind_x,
-        "y": wind_y,
+    return WindData(
+        x=wind_x,
+        y=wind_y,
         # NOTE: 北を 0 として，風が来る方の角度
-        "angle": math.degrees(
+        angle=math.degrees(
             (math.pi / 2 - math.atan2(wind_y, wind_x) + 2 * math.pi + math.pi) % (2 * math.pi)
         ),
-        "speed": math.sqrt(wind_x * wind_x + wind_y * wind_y),
-    }
+        speed=math.sqrt(wind_x * wind_x + wind_y * wind_y),
+    )
 
 
 def calc_meteorological_data(  # noqa: PLR0913
@@ -187,14 +182,14 @@ def calc_meteorological_data(  # noqa: PLR0913
             trueair,
             mach,
         )
-    return {
-        "callsign": callsign,
-        "altitude": altitude,
-        "latitude": latitude,
-        "longitude": longitude,
-        "temperature": temperature,
-        "wind": wind,
-    }
+    return MeasurementData(
+        callsign=callsign,
+        altitude=altitude,
+        latitude=latitude,
+        longitude=longitude,
+        temperature=temperature,
+        wind=wind,
+    )
 
 
 def is_physically_reasonable(
@@ -371,14 +366,14 @@ def is_outlier_data(
         valid_data = [
             data
             for data in meteorological_history
-            if data["altitude"] is not None and data["temperature"] is not None
+            if data.altitude is not None and data.temperature is not None
         ]
 
         if len(valid_data) < OUTLIER_DETECTION_MIN_SAMPLES:
             return False
 
-        altitudes = np.array([[data["altitude"]] for data in valid_data])
-        temperatures = np.array([data["temperature"] for data in valid_data])
+        altitudes = np.array([[data.altitude] for data in valid_data])
+        temperatures = np.array([data.temperature for data in valid_data])
 
         # 第一段階：線形回帰で高度-温度関係を学習
         regression_model = sklearn.linear_model.LinearRegression()
@@ -427,78 +422,165 @@ def round_floats(obj: Any, ndigits: int = 1) -> Any:
         return obj
 
 
+def _is_fragment_complete(fragment: MessageFragment) -> bool:
+    """フラグメントが完全かどうかを判定する"""
+    required_types = ["adsb_pos", "adsb_sign", "bsd50", "bsd60"]
+    return all(packet_type in fragment for packet_type in required_types)
+
+
+def _process_complete_fragment(
+    fragment: MessageFragment,
+    data_queue: queue.Queue[MeteorologicalData],
+    area_config: Area,
+) -> None:
+    """完全なフラグメントを処理してキューに送信する"""
+    global meteorological_history
+
+    distance = calc_distance(
+        area_config.lat.ref,
+        area_config.lon.ref,
+        fragment["adsb_pos"][1],
+        fragment["adsb_pos"][2],
+    )
+    meteorological_data = calc_meteorological_data(
+        *fragment["adsb_sign"],
+        *fragment["adsb_pos"],
+        *fragment["bsd50"],
+        *fragment["bsd60"],
+    )
+    meteorological_data.distance = distance
+    meteorological_data.method = "mode-s"
+
+    # 温度異常値は外れ値検出の対象外
+    if meteorological_data.temperature < -100:
+        logging.debug("温度異常値のため外れ値検出をスキップ")
+        return
+
+    # 外れ値検出
+    is_outlier = is_outlier_data(
+        meteorological_data.temperature,
+        meteorological_data.altitude,
+        meteorological_data.callsign,
+    )
+    if is_outlier:
+        return
+
+    # 正常値の場合、queueに送信し履歴に追加
+    logging.info(round_floats(meteorological_data))
+    data_queue.put(meteorological_data)
+    meteorological_history.append(
+        HistoryData(
+            altitude=meteorological_data.altitude,
+            temperature=meteorological_data.temperature,
+        )
+    )
+
+
+def _add_new_fragment(icao: str, packet_type: str, data: tuple[Any, ...]) -> None:
+    """新しいフラグメントをリストに追加する"""
+    global fragment_list
+
+    fragment_list.append({"icao": icao, packet_type: data})
+    if len(fragment_list) >= FRAGMENT_BUF_SIZE:
+        fragment_list.pop(0)
+
+
 def message_pairing(
     icao: str,
     packet_type: str,
     data: tuple[Any, ...],
-    queue: queue.Queue[MeteorologicalData],
-    area_info: AreaInfo,
+    data_queue: queue.Queue[MeteorologicalData],
+    area_config: Area,
 ) -> None:
-    global fragment_list, meteorological_history
+    """メッセージフラグメントをペアリングして気象データを生成する"""
+    global fragment_list
 
     if not all(value is not None for value in data):
         logging.warning("データに欠損があるので捨てます．(type: %s, data: %s)", packet_type, data)
         return
 
-    fragment = next((fragment for fragment in fragment_list if fragment["icao"] == icao), None)
+    fragment = next((f for f in fragment_list if f["icao"] == icao), None)
 
     if fragment is None:
-        fragment_list.append({"icao": icao, packet_type: data})
-        if len(fragment_list) == FRAGMENT_BUF_SIZE:
-            fragment_list.pop(0)
+        _add_new_fragment(icao, packet_type, data)
+        return
 
-    else:
-        fragment[packet_type] = data
+    fragment[packet_type] = data
 
-        if all(packet_type in fragment for packet_type in ["adsb_pos", "adsb_sign", "bsd50", "bsd60"]):
-            distance = calc_distance(
-                area_info["lat"]["ref"],
-                area_info["lon"]["ref"],
-                fragment["adsb_pos"][1],
-                fragment["adsb_pos"][2],
-            )
-            meteorological_data = calc_meteorological_data(
-                *fragment["adsb_sign"],
-                *fragment["adsb_pos"],
-                *fragment["bsd50"],
-                *fragment["bsd60"],
-            )
-            meteorological_data["distance"] = distance
-            meteorological_data["method"] = "mode-s"
+    if not _is_fragment_complete(fragment):
+        return
 
-            # 温度が異常値でない場合のみ外れ値検出を実行
-            if meteorological_data["temperature"] >= -100:
-                # 外れ値検出
-                is_outlier = is_outlier_data(
-                    meteorological_data["temperature"],
-                    meteorological_data["altitude"],
-                    meteorological_data["callsign"],
-                )
-
-                if not is_outlier:
-                    # 正常値の場合、queueに送信し履歴に追加
-                    logging.info(round_floats(meteorological_data))
-
-                    queue.put(meteorological_data)
-
-                    meteorological_history.append(
-                        {
-                            "altitude": meteorological_data["altitude"],
-                            "temperature": meteorological_data["temperature"],
-                        }
-                    )
-            else:
-                # 温度異常値は外れ値検出の対象外（従来通りの処理）
-                logging.debug("温度異常値のため外れ値検出をスキップ")
-
-            fragment_list.remove(fragment)
+    _process_complete_fragment(fragment, data_queue, area_config)
+    fragment_list.remove(fragment)
 
 
-def process_message(  # noqa: C901
+def _process_adsb_position(
     message: str,
-    queue: queue.Queue[MeteorologicalData],
-    area_info: AreaInfo,
+    icao: str,
+    data_queue: queue.Queue[MeteorologicalData],
+    area_config: Area,
 ) -> None:
+    """ADS-B位置情報メッセージを処理する"""
+    altitude = pyModeS.adsb.altitude(message)
+    if altitude == 0:
+        return
+
+    latitude, longitude = pyModeS.adsb.position_with_ref(
+        message, area_config.lat.ref, area_config.lon.ref
+    )
+    message_pairing(icao, "adsb_pos", (altitude, latitude, longitude), data_queue, area_config)
+
+
+def _process_adsb_message(
+    message: str,
+    icao: str,
+    data_queue: queue.Queue[MeteorologicalData],
+    area_config: Area,
+) -> None:
+    """ADS-Bメッセージ（dformat=17）を処理する"""
+    logging.debug("receive ADSB")
+    code = pyModeS.typecode(message)
+
+    if code is None:
+        return
+
+    # 位置情報（typecode 5-18, 20-22）
+    if (5 <= code <= 18) or (20 <= code <= 22):
+        _process_adsb_position(message, icao, data_queue, area_config)
+    # コールサイン（typecode 1-4）
+    elif 1 <= code <= 4:
+        callsign = pyModeS.adsb.callsign(message).rstrip("_")
+        message_pairing(icao, "adsb_sign", (callsign,), data_queue, area_config)
+
+
+def _process_commb_message(
+    message: str,
+    icao: str,
+    data_queue: queue.Queue[MeteorologicalData],
+    area_config: Area,
+) -> None:
+    """Comm-Bメッセージ（dformat=20,21）を処理する"""
+    if pyModeS.bds.bds50.is50(message):
+        logging.debug("receive BDS50")
+        trackangle = pyModeS.commb.trk50(message)
+        groundspeed = pyModeS.commb.gs50(message)
+        trueair = pyModeS.commb.tas50(message)
+        message_pairing(icao, "bsd50", (trackangle, groundspeed, trueair), data_queue, area_config)
+
+    elif pyModeS.bds.bds60.is60(message):
+        logging.debug("receive BDS60")
+        heading = pyModeS.commb.hdg60(message)
+        indicatedair = pyModeS.commb.ias60(message)
+        mach = pyModeS.commb.mach60(message)
+        message_pairing(icao, "bsd60", (heading, indicatedair, mach), data_queue, area_config)
+
+
+def process_message(
+    message: str,
+    data_queue: queue.Queue[MeteorologicalData],
+    area_config: Area,
+) -> None:
+    """受信したMode-Sメッセージを解析して処理する"""
     logging.debug("receive: %s", message)
 
     if len(message) < 2:
@@ -512,74 +594,123 @@ def process_message(  # noqa: C901
 
     icao = str(pyModeS.icao(message))
     dformat = pyModeS.df(message)
+
     if dformat == 17:
-        logging.debug("receive ADSB")
-        code = pyModeS.typecode(message)
-
-        if code is not None:
-            if (5 <= code <= 18) or (20 <= code <= 22):
-                altitude = pyModeS.adsb.altitude(message)
-                if altitude != 0:
-                    latitude, longitude = pyModeS.adsb.position_with_ref(
-                        message, area_info["lat"]["ref"], area_info["lon"]["ref"]
-                    )
-
-                    message_pairing(
-                        icao,
-                        "adsb_pos",
-                        (altitude, latitude, longitude),
-                        queue,
-                        area_info,
-                    )
-            elif 1 <= code <= 4:
-                callsign = pyModeS.adsb.callsign(message).rstrip("_")
-                message_pairing(icao, "adsb_sign", (callsign,), queue, area_info)
-
+        _process_adsb_message(message, icao, data_queue, area_config)
     elif dformat in (20, 21):
-        if pyModeS.bds.bds50.is50(message):
-            logging.debug("receive BDS50")
+        _process_commb_message(message, icao, data_queue, area_config)
 
-            trackangle = pyModeS.commb.trk50(message)
-            groundspeed = pyModeS.commb.gs50(message)
-            trueair = pyModeS.commb.tas50(message)
 
-            message_pairing(icao, "bsd50", (trackangle, groundspeed, trueair), queue, area_info)
+def _calculate_retry_delay(retry_count: int) -> float:
+    """指数バックオフで再接続遅延時間を計算する"""
+    return min(RECONNECT_BASE_DELAY * (2 ** (retry_count - 1)), RECONNECT_MAX_DELAY)
 
-        elif pyModeS.bds.bds60.is60(message):
-            logging.debug("receive BDS60")
 
-            heading = pyModeS.commb.hdg60(message)
-            indicatedair = pyModeS.commb.ias60(message)
-            mach = pyModeS.commb.mach60(message)
+def _wait_with_interrupt(delay: float) -> None:
+    """中断可能な待機を行う"""
+    for _ in range(int(delay * 10)):
+        if should_terminate.is_set():
+            break
+        time.sleep(0.1)
 
-            message_pairing(icao, "bsd60", (heading, indicatedair, mach), queue, area_info)
+
+def _process_socket_messages(
+    sock: socket.socket,
+    data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
+    area_config: Area,
+) -> None:
+    """ソケットからメッセージを受信して処理する"""
+    for line in receive_lines(sock):
+        if should_terminate.is_set():
+            break
+
+        try:
+            process_message(line, data_queue, area_config)
+
+            # データ受信成功時にLivenessファイル更新
+            if _receiver_liveness_file is not None:
+                my_lib.footprint.update(_receiver_liveness_file)
+
+        except Exception:
+            logging.exception("メッセージ処理に失敗しました")
+
+
+def _handle_connection(
+    host: str,
+    port: int,
+    data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
+    area_config: Area,
+) -> bool:
+    """TCP接続を確立しメッセージを処理する
+
+    Returns:
+        接続が正常に閉じられた場合True、エラーの場合False
+
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(SOCKET_TIMEOUT)
+        sock.connect((host, port))
+        logging.info("%s:%d に接続しました", host, port)
+
+        _process_socket_messages(sock, data_queue, area_config)
+
+        if should_terminate.is_set():
+            return True
+
+        logging.warning("リモートホストによって接続が閉じられました")
+        return True
 
 
 def worker(
     host: str,
     port: int,
-    queue: queue.Queue[MeteorologicalData],
-    area_info: AreaInfo,
+    data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
+    area_config: Area,
 ) -> None:
-    logging.info("Start receive worker")
+    """再接続機能付きワーカー
 
+    TCP接続が切断された場合、指数バックオフで再接続を試みます。
+    最大リトライ回数に達した場合のみワーカーを終了します。
+    """
+    logging.info("受信ワーカーを開始します")
     should_terminate.clear()
+    retry_count = 0
 
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.connect((host, port))
-            for line in receive_lines(sock):
-                if should_terminate.is_set():
-                    break
+    while not should_terminate.is_set():
+        try:
+            _handle_connection(host, port, data_queue, area_config)
+            retry_count = 0  # 接続成功でリセット
 
-                try:
-                    process_message(line, queue, area_info)
-                except Exception:
-                    logging.exception("Failed to process message")
-    except Exception:
-        logging.exception("メッセージ受信でエラーが発生しました．")
+            if should_terminate.is_set():
+                break
 
-    logging.warning("Stop receive worker")
+        except TimeoutError:
+            logging.warning("ソケットタイムアウトが発生しました")
+
+        except (OSError, ConnectionError) as e:
+            retry_count += 1
+            if retry_count > RECONNECT_MAX_RETRIES:
+                logging.error(  # noqa: TRY400
+                    "最大再接続回数（%d回）に達しました。処理を終了します",
+                    RECONNECT_MAX_RETRIES,
+                )
+                break
+
+            delay = _calculate_retry_delay(retry_count)
+            logging.warning(
+                "接続に失敗しました（%d/%d回目）: %s。%.1f秒後に再試行します...",
+                retry_count,
+                RECONNECT_MAX_RETRIES,
+                e,
+                delay,
+            )
+            _wait_with_interrupt(delay)
+
+        except Exception:
+            logging.exception("受信ワーカーで予期しないエラーが発生しました")
+            break
+
+    logging.warning("受信ワーカーを停止します")
 
 
 def init(data: list[HistoryData]) -> None:
@@ -589,10 +720,27 @@ def init(data: list[HistoryData]) -> None:
 def start(
     host: str,
     port: int,
-    queue: queue.Queue[MeteorologicalData],
-    area_info: AreaInfo,
+    data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
+    area: Area,
+    liveness_file: pathlib.Path | None = None,
 ) -> threading.Thread:
-    thread = threading.Thread(target=worker, args=(host, port, queue, area_info))
+    """receiverワーカースレッドを開始する
+
+    Args:
+        host: 接続先ホスト
+        port: 接続先ポート
+        data_queue: データを送信するキュー
+        area: エリア設定
+        liveness_file: receiver専用Livenessファイルパス（オプション）
+
+    Returns:
+        開始されたスレッド
+
+    """
+    global _receiver_liveness_file  # noqa: PLW0603
+    _receiver_liveness_file = liveness_file
+
+    thread = threading.Thread(target=worker, args=(host, port, data_queue, area))
     thread.start()
 
     return thread
