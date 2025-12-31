@@ -1055,12 +1055,14 @@ def test_altitude_checkbox_functionality(page_init, host, port):
     # 新しい画像の読み込み完了まで待機
     wait_for_images_to_load(page, expected_count=8, timeout=45000)
 
-    # 画像のsrcが変更されたことを確認（limit_altitude=trueのパラメータが含まれる）
+    # 画像のsrcが変更されたことを確認（非同期APIでは新しいジョブIDが含まれる）
     updated_src = first_image.get_attribute("src")
     logging.info("Updated image src (limit_altitude=true): %s", updated_src[:100] + "...")
 
-    # srcにlimit_altitude=trueパラメータが含まれていることを確認
-    assert "limit_altitude=true" in updated_src, "高度制限パラメータが含まれていません"  # noqa: S101
+    # srcが変更されたことを確認（新しいジョブIDが異なる）
+    assert updated_src != initial_src, "高度制限変更後に画像srcが変更されていません"  # noqa: S101
+    # 新しいAPIでは /api/graph/job/<id>/result 形式
+    assert "/api/graph/job/" in updated_src, "新しいAPIのURL形式ではありません"  # noqa: S101
 
     # チェックボックスを再度クリック（高度制限を無効にする）
     altitude_checkbox.click()
@@ -1074,12 +1076,13 @@ def test_altitude_checkbox_functionality(page_init, host, port):
     # 新しい画像の読み込み完了まで待機
     wait_for_images_to_load(page, expected_count=8, timeout=45000)
 
-    # 画像のsrcが元に戻ったことを確認（limit_altitude=falseのパラメータが含まれる）
+    # 画像のsrcが変更されたことを確認（非同期APIでは新しいジョブIDが含まれる）
     final_src = first_image.get_attribute("src")
     logging.info("Final image src (limit_altitude=false): %s", final_src[:100] + "...")
 
-    # srcにlimit_altitude=falseパラメータが含まれていることを確認
-    assert "limit_altitude=false" in final_src, "高度制限解除パラメータが含まれていません"  # noqa: S101
+    # srcが再度変更されたことを確認（高度制限解除で新しいジョブが作成される）
+    assert final_src != updated_src, "高度制限解除後に画像srcが変更されていません"  # noqa: S101
+    assert "/api/graph/job/" in final_src, "新しいAPIのURL形式ではありません"  # noqa: S101
 
     logging.info("Altitude checkbox functionality test passed")
 
@@ -1128,10 +1131,13 @@ def test_altitude_limit_with_different_periods(page_init, host, port):
         time.sleep(3)
         wait_for_images_to_load(page, expected_count=8, timeout=30000)
 
-        # 画像のsrcに高度制限パラメータが含まれることを確認
+        # 画像のsrcが新しいAPI形式であることを確認（高度制限あり）
         first_image = page.locator('img[alt="2D散布図"]')
         src_with_limit = first_image.get_attribute("src")
-        assert "limit_altitude=true" in src_with_limit, f"{period_name}で高度制限パラメータが含まれていません"  # noqa: S101
+        assert src_with_limit is not None, f"{period_name}で画像srcが取得できません"  # noqa: S101
+        assert "/api/graph/job/" in src_with_limit, (  # noqa: S101
+            f"{period_name}で新しいAPI形式ではありません: {src_with_limit}"
+        )
 
         # 高度制限を無効にする
         altitude_checkbox.click()
@@ -1141,10 +1147,14 @@ def test_altitude_limit_with_different_periods(page_init, host, port):
         time.sleep(3)
         wait_for_images_to_load(page, expected_count=8, timeout=30000)
 
-        # 画像のsrcに高度制限解除パラメータが含まれることを確認
+        # 画像のsrcが変更されたことを確認（高度制限解除で再生成）
         src_without_limit = first_image.get_attribute("src")
-        assert "limit_altitude=false" in src_without_limit, (  # noqa: S101
-            f"{period_name}で高度制限解除パラメータが含まれていません"
+        assert src_without_limit is not None, f"{period_name}で画像srcが取得できません"  # noqa: S101
+        assert "/api/graph/job/" in src_without_limit, (  # noqa: S101
+            f"{period_name}で新しいAPI形式ではありません: {src_without_limit}"
+        )
+        assert src_with_limit != src_without_limit, (  # noqa: S101
+            f"{period_name}で高度制限変更後に画像が再生成されていません"
         )
 
     logging.info("Altitude limit with different periods test passed")
@@ -1180,17 +1190,17 @@ def test_altitude_limit_graph_types(page_init, host, port):
     time.sleep(5)
     wait_for_images_to_load(page, expected_count=8, timeout=60000)
 
-    # 各グラフタイプで高度制限パラメータが適用されることを確認
+    # 各グラフタイプで新しいAPI形式が使用されていることを確認
     for graph_type in graph_types:
         image_locator = page.locator(f'img[alt="{graph_type}"]')
         expect(image_locator).to_be_attached()
 
         src_attribute = image_locator.get_attribute("src")
-        assert src_attribute is not None  # noqa: S101
-        assert "limit_altitude=true" in src_attribute, (  # noqa: S101
-            f"{graph_type}に高度制限パラメータが含まれていません"
+        assert src_attribute is not None, f"{graph_type}の画像srcがnullです"  # noqa: S101
+        assert "/api/graph/job/" in src_attribute, (  # noqa: S101
+            f"{graph_type}で新しいAPI形式ではありません: {src_attribute}"
         )
 
-        logging.info("✓ %s: altitude limit parameter applied", graph_type)
+        logging.info("✓ %s: new async API format applied", graph_type)
 
     logging.info("All graph types altitude limit test passed")
