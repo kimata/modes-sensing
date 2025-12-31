@@ -204,8 +204,8 @@ def wait_for_all_images_individually(page, timeout=30000):
             raise Exception(msg)  # noqa: TRY002
 
 
-def wait_for_images_to_load(page, expected_count=8, timeout=30000):
-    """指定された数の画像が読み込まれるまで待機"""
+def wait_for_images_to_load(page, expected_count=8, timeout=120000):
+    """指定された数の画像が読み込まれるまで待機（非同期API対応で120秒デフォルト）"""
     try:
         # 複数回チェックして安定した状態になるまで待つ
         page.wait_for_function(
@@ -309,7 +309,7 @@ def test_all_images_display_correctly(page_init, host, port):
         "3D等高線プロット",
     ]
 
-    # まず全画像要素の存在を確認
+    # まず全画像要素の存在を確認（非同期APIでジョブ完了まで待機）
     page.wait_for_function(
         f"""
         () => {{
@@ -325,7 +325,7 @@ def test_all_images_display_correctly(page_init, host, port):
             return foundCount >= 8;
         }}
         """,
-        timeout=30000,
+        timeout=120000,  # 非同期API対応で120秒に延長
     )
 
     # 全画像の表示状態を一括で確認（効率化）
@@ -353,7 +353,7 @@ def test_all_images_display_correctly(page_init, host, port):
                 return visibleCount >= 8;
             }}
             """,
-            timeout=45000,  # 45秒に短縮
+            timeout=120000,  # 非同期API対応で120秒に延長
         )
     except Exception as e:
         logging.error("Failed to wait for all images to be visible: %s", e)  # noqa: TRY400
@@ -388,7 +388,7 @@ def test_all_images_display_correctly(page_init, host, port):
                 return loadedCount >= 8;
             }}
             """,
-            timeout=45000,  # 45秒に短縮
+            timeout=120000,  # 非同期API対応で120秒に延長
         )
     except Exception as e:
         logging.error("Failed to wait for all images to be loaded: %s", e)  # noqa: TRY400
@@ -626,9 +626,9 @@ def test_period_selection_buttons(page_init, host, port):
             error_msg = f"{period_name} ボタンがアクティブになっていません (class: {class_attribute})"
             raise AssertionError(error_msg) from e
 
-        # 画像の再読み込み完了まで待機
+        # 画像の再読み込み完了まで待機（非同期API対応）
         time.sleep(5)  # ボタンクリック後の処理完了を待つ
-        wait_for_images_to_load(page, expected_count=8, timeout=30000)
+        wait_for_images_to_load(page, expected_count=8, timeout=120000)
 
         # 少なくとも1つの画像要素が存在することを確認
         images = page.locator(
@@ -874,9 +874,9 @@ def test_custom_date_range(page_init, host, port):  # noqa: PLR0915
     class_attribute = custom_button.get_attribute("class")
     assert "is-primary" in class_attribute, "カスタムボタンがアクティブになっていません"  # noqa: S101
 
-    # 画像の読み込み完了まで待機
+    # 画像の読み込み完了まで待機（非同期API対応）
     time.sleep(5)
-    wait_for_images_to_load(page, expected_count=8, timeout=30000)
+    wait_for_images_to_load(page, expected_count=8, timeout=120000)
 
     # 画像要素が存在していることを確認
     images = page.locator(
@@ -894,7 +894,7 @@ def test_wind_direction_graph_display(page_init, host, port):
     page = page_init
     page.goto(app_url(host, port))
 
-    # 画像要素が存在することを先に確認
+    # 画像要素が存在することを先に確認（非同期APIでジョブ完了まで待機）
     page.wait_for_function(
         """
         () => {
@@ -902,7 +902,7 @@ def test_wind_direction_graph_display(page_init, host, port):
             return img !== null;
         }
         """,
-        timeout=30000,
+        timeout=120000,  # 非同期API対応で120秒に延長
     )
 
     # 風向グラフが読み込まれて表示されるまで待機
@@ -923,7 +923,7 @@ def test_wind_direction_graph_display(page_init, host, port):
             return style.display !== 'none';
         }
         """,
-        timeout=60000,
+        timeout=120000,  # 非同期API対応で120秒に延長
     )
 
     # 風向グラフ要素の存在確認
@@ -931,9 +931,10 @@ def test_wind_direction_graph_display(page_init, host, port):
     expect(wind_graph).to_be_attached()
     expect(wind_graph).to_be_visible()
 
-    # src属性の確認（wind_directionエンドポイントを含むか）
+    # src属性の確認（非同期APIのURL形式か）
     src_attribute = wind_graph.get_attribute("src")
-    assert src_attribute and "wind_direction" in src_attribute, "風向グラフのsrc属性が正しくありません"  # noqa: S101, PT018
+    assert src_attribute is not None, "風向グラフのsrc属性がnullです"  # noqa: S101
+    assert "/api/graph/job/" in src_attribute, f"風向グラフのsrc属性が正しくありません: {src_attribute}"  # noqa: S101
 
     logging.info("Wind direction graph test passed successfully")
 
@@ -943,8 +944,8 @@ def test_image_modal_functionality(page_init, host, port):
     page = page_init
     page.goto(app_url(host, port))
 
-    # 画像の読み込み完了まで待機
-    wait_for_images_to_load(page, expected_count=8, timeout=45000)
+    # 画像の読み込み完了まで待機（非同期API対応）
+    wait_for_images_to_load(page, expected_count=8, timeout=120000)
 
     # 画像が実際に表示状態になるまで待機（isLoadingがfalseになるまで）
     page.wait_for_function(
@@ -964,7 +965,7 @@ def test_image_modal_functionality(page_init, host, port):
             return computedStyle.display !== 'none' && firstImage.complete && firstImage.naturalWidth > 0;
         }
         """,
-        timeout=45000,  # 45秒に短縮
+        timeout=120000,  # 非同期API対応で120秒に延長
     )
 
     # 最初の画像をクリック
@@ -1032,8 +1033,8 @@ def test_altitude_checkbox_functionality(page_init, host, port):
     page = page_init
     page.goto(app_url(host, port))
 
-    # 初期画像の読み込み完了まで待機（高度制限なしのデフォルト状態）
-    wait_for_images_to_load(page, expected_count=8, timeout=45000)
+    # 初期画像の読み込み完了まで待機（高度制限なしのデフォルト状態、非同期API対応）
+    wait_for_images_to_load(page, expected_count=8, timeout=120000)
 
     # チェックボックス要素を取得
     altitude_checkbox = page.locator('input[type="checkbox"]')
@@ -1052,8 +1053,8 @@ def test_altitude_checkbox_functionality(page_init, host, port):
     # 画像が再生成されるまで待機
     time.sleep(3)
 
-    # 新しい画像の読み込み完了まで待機
-    wait_for_images_to_load(page, expected_count=8, timeout=45000)
+    # 新しい画像の読み込み完了まで待機（非同期API対応）
+    wait_for_images_to_load(page, expected_count=8, timeout=120000)
 
     # 画像のsrcが変更されたことを確認（非同期APIでは新しいジョブIDが含まれる）
     updated_src = first_image.get_attribute("src")
@@ -1073,8 +1074,8 @@ def test_altitude_checkbox_functionality(page_init, host, port):
     # 画像が再生成されるまで待機
     time.sleep(3)
 
-    # 新しい画像の読み込み完了まで待機
-    wait_for_images_to_load(page, expected_count=8, timeout=45000)
+    # 新しい画像の読み込み完了まで待機（非同期API対応）
+    wait_for_images_to_load(page, expected_count=8, timeout=120000)
 
     # 画像のsrcが変更されたことを確認（非同期APIでは新しいジョブIDが含まれる）
     final_src = first_image.get_attribute("src")
@@ -1120,16 +1121,16 @@ def test_altitude_limit_with_different_periods(page_init, host, port):
         page.click(button_selector)
         time.sleep(2)
 
-        # 初期画像読み込み完了まで待機（高度制限なし）
-        wait_for_images_to_load(page, expected_count=8, timeout=30000)
+        # 初期画像読み込み完了まで待機（高度制限なし、非同期API対応）
+        wait_for_images_to_load(page, expected_count=8, timeout=120000)
 
         # 高度制限を有効にする
         altitude_checkbox.click()
         expect(altitude_checkbox).to_be_checked()
 
-        # 画像再生成まで待機
+        # 画像再生成まで待機（非同期API対応）
         time.sleep(3)
-        wait_for_images_to_load(page, expected_count=8, timeout=30000)
+        wait_for_images_to_load(page, expected_count=8, timeout=120000)
 
         # 画像のsrcが新しいAPI形式であることを確認（高度制限あり）
         first_image = page.locator('img[alt="2D散布図"]')
@@ -1143,9 +1144,9 @@ def test_altitude_limit_with_different_periods(page_init, host, port):
         altitude_checkbox.click()
         expect(altitude_checkbox).not_to_be_checked()
 
-        # 画像再生成まで待機
+        # 画像再生成まで待機（非同期API対応）
         time.sleep(3)
-        wait_for_images_to_load(page, expected_count=8, timeout=30000)
+        wait_for_images_to_load(page, expected_count=8, timeout=120000)
 
         # 画像のsrcが変更されたことを確認（高度制限解除で再生成）
         src_without_limit = first_image.get_attribute("src")
@@ -1165,8 +1166,8 @@ def test_altitude_limit_graph_types(page_init, host, port):
     page = page_init
     page.goto(app_url(host, port))
 
-    # 初期画像読み込み完了まで待機
-    wait_for_images_to_load(page, expected_count=8, timeout=45000)
+    # 初期画像読み込み完了まで待機（非同期API対応）
+    wait_for_images_to_load(page, expected_count=8, timeout=120000)
 
     # 全グラフタイプのリスト
     graph_types = [
@@ -1186,9 +1187,9 @@ def test_altitude_limit_graph_types(page_init, host, port):
     altitude_checkbox.click()
     expect(altitude_checkbox).to_be_checked()
 
-    # 画像再生成まで待機
+    # 画像再生成まで待機（非同期API対応）
     time.sleep(5)
-    wait_for_images_to_load(page, expected_count=8, timeout=60000)
+    wait_for_images_to_load(page, expected_count=8, timeout=120000)
 
     # 各グラフタイプで新しいAPI形式が使用されていることを確認
     for graph_type in graph_types:
