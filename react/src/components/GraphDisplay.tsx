@@ -151,9 +151,10 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
   const getStageText = (stage: string | null, progress: number): string => {
     if (stage) return stage
     // stageが未設定の場合、progressから推測
+    // バックエンドの推定と同期: 0-40%:取得, 40-70%:処理, 70-90%:描画, 90-100%:生成
     if (progress <= 10) return 'データベース接続中...'
-    if (progress <= 30) return 'データ取得中...'
-    if (progress <= 60) return 'データ処理中...'
+    if (progress <= 40) return 'データ取得中...'
+    if (progress <= 70) return 'データ処理中...'
     if (progress <= 90) return 'グラフ描画中...'
     return '画像生成中...'
   }

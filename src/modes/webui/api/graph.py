@@ -197,23 +197,35 @@ def _check_pending_results() -> None:
 
 
 def _estimate_progress_and_stage(job_id: str) -> tuple[int, str]:
-    """ジョブの進捗を推定して返す"""
+    """ジョブの進捗を推定して返す
+
+    実測に基づく推定時間:
+    - 1週間: 約16秒
+    - 1ヶ月: 約21秒
+    - 3ヶ月: 約133秒 (2分13秒)
+    - 4ヶ月: 約212秒 (3分32秒)
+
+    バッファを含めて少し長めに設定している。
+
+    """
     job = _job_manager.get_job(job_id)
     if not job or not job.started_at:
         return 10, "開始中..."
 
     elapsed = time.time() - job.started_at
-    # 期間に応じた推定処理時間を計算
+    # 期間に応じた推定処理時間を計算（実測+バッファ）
     period_days = (job.time_end - job.time_start).total_seconds() / 86400
 
     if period_days <= 7:
-        estimated_total = 15  # 1週間以内: 約15秒
+        estimated_total = 30  # 1週間以内: 約30秒（実測16秒+バッファ）
     elif period_days <= 30:
-        estimated_total = 45  # 1ヶ月以内: 約45秒
+        estimated_total = 60  # 1ヶ月以内: 約1分（実測21秒+バッファ）
     elif period_days <= 90:
-        estimated_total = 120  # 3ヶ月以内: 約2分
+        estimated_total = 180  # 3ヶ月以内: 約3分（実測2分13秒+バッファ）
+    elif period_days <= 180:
+        estimated_total = 600  # 6ヶ月以内: 約10分（外挿+バッファ）
     else:
-        estimated_total = 300  # それ以上: 約5分
+        estimated_total = 900  # それ以上: 約15分
 
     # 進捗を推定（10-95%の範囲）
     progress = min(95, 10 + int((elapsed / estimated_total) * 85))
@@ -221,9 +233,9 @@ def _estimate_progress_and_stage(job_id: str) -> tuple[int, str]:
     # 段階を推定
     if elapsed < 2:
         stage = "データベース接続中..."
-    elif elapsed < estimated_total * 0.3:
+    elif elapsed < estimated_total * 0.4:
         stage = "データ取得中..."
-    elif elapsed < estimated_total * 0.6:
+    elif elapsed < estimated_total * 0.7:
         stage = "データ処理中..."
     elif elapsed < estimated_total * 0.9:
         stage = "グラフ描画中..."
