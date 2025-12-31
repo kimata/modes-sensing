@@ -31,3 +31,4 @@ webapp:
 liveness:
     file:
         collector: /dev/shm/modes-sensing/liveness/collector
+        receiver: /dev/shm/modes-sensing/liveness/receiver
