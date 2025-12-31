@@ -45,6 +45,7 @@ import PIL.ImageFont
 import scipy.interpolate
 
 import modes.database_postgresql
+from modes.webui.api.job_manager import JobManager, JobStatus
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -1711,6 +1712,243 @@ def debug_date_parse():  # noqa: PLR0915
         result["data_sample"] = {"error": str(e)}
 
     return flask.jsonify(result)
+
+
+# =============================================================================
+# 非同期グラフ生成API
+# =============================================================================
+
+# グローバルJobManagerインスタンス
+_job_manager = JobManager()
+
+
+def _parse_datetime_from_request(date_str: str | None) -> datetime.datetime | None:
+    """リクエストパラメータから日時をパース"""
+    if not date_str:
+        return None
+    try:
+        # ISO形式の文字列をパース
+        dt = datetime.datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        # JSTに変換
+        return dt.astimezone(my_lib.time.get_zoneinfo())
+    except Exception:
+        logging.exception("Failed to parse datetime: %s", date_str)
+        return None
+
+
+def _start_job_async(  # noqa: PLR0913
+    config: dict[str, Any],
+    job_id: str,
+    graph_name: str,
+    time_start: datetime.datetime,
+    time_end: datetime.datetime,
+    limit_altitude: bool,
+) -> None:
+    """プロセスプールを使用してジョブを非同期実行"""
+    _job_manager.update_status(job_id, JobStatus.PROCESSING, progress=10)
+
+    pool = _pool_manager.get_pool()
+    figsize = tuple(x / IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name]["size"])
+
+    def callback(result: tuple[bytes, float]) -> None:
+        image_bytes, elapsed = result
+        _job_manager.update_status(job_id, JobStatus.COMPLETED, result=image_bytes, progress=100)
+        logging.info("Job %s completed for %s (%.2f sec)", job_id, graph_name, elapsed)
+
+    def error_callback(error: BaseException) -> None:
+        _job_manager.update_status(job_id, JobStatus.FAILED, error=str(error))
+        logging.error("Job %s failed for %s: %s", job_id, graph_name, error)
+
+    pool.apply_async(
+        plot_in_subprocess,
+        (config, graph_name, time_start, time_end, figsize, limit_altitude),
+        callback=callback,
+        error_callback=error_callback,
+    )
+
+    logging.info("Started async job %s for %s", job_id, graph_name)
+
+
+@blueprint.route("/api/graph/job", methods=["POST"])
+def create_graph_job():
+    """
+    グラフ生成ジョブを登録
+
+    Request Body:
+    {
+        "graphs": ["scatter_2d", "contour_2d", ...],  // 複数のグラフ名
+        "start": "2025-01-01T00:00:00Z",             // ISO形式
+        "end": "2025-01-07T00:00:00Z",               // ISO形式
+        "limit_altitude": false                       // 高度制限フラグ
+    }
+
+    Response:
+    {
+        "jobs": [
+            {"job_id": "uuid-1", "graph_name": "scatter_2d"},
+            {"job_id": "uuid-2", "graph_name": "contour_2d"},
+            ...
+        ]
+    }
+    """
+    try:
+        data = flask.request.get_json()
+        if not data:
+            return flask.jsonify({"error": "Request body is required"}), 400
+
+        # パラメータ解析
+        time_start = _parse_datetime_from_request(data.get("start"))
+        time_end = _parse_datetime_from_request(data.get("end"))
+        limit_altitude = data.get("limit_altitude", False)
+
+        if not time_start or not time_end:
+            return flask.jsonify({"error": "start and end are required"}), 400
+
+        # グラフ名のリストを取得
+        graphs = data.get("graphs", [])
+        if not graphs:
+            return flask.jsonify({"error": "graphs list is required"}), 400
+
+        config = flask.current_app.config["CONFIG"]
+        jobs = []
+
+        for graph_name in graphs:
+            if graph_name not in GRAPH_DEF_MAP:
+                logging.warning("Unknown graph name: %s", graph_name)
+                continue
+
+            job_id = _job_manager.create_job(graph_name, time_start, time_end, limit_altitude)
+            jobs.append({"job_id": job_id, "graph_name": graph_name})
+
+            # プロセスプールでジョブを開始
+            _start_job_async(config, job_id, graph_name, time_start, time_end, limit_altitude)
+
+        return flask.jsonify({"jobs": jobs})
+
+    except Exception as e:
+        logging.exception("Error creating graph jobs")
+        return flask.jsonify({"error": str(e)}), 500
+
+
+@blueprint.route("/api/graph/job/<job_id>/status", methods=["GET"])
+def get_job_status(job_id: str):
+    """
+    ジョブステータスを取得
+
+    Response:
+    {
+        "job_id": "uuid",
+        "status": "processing",  // pending, processing, completed, failed, timeout
+        "progress": 50,          // 0-100
+        "graph_name": "scatter_2d",
+        "error": null,
+        "elapsed_seconds": 12.5  // 処理開始からの経過時間
+    }
+    """
+    status_dict = _job_manager.get_job_status_dict(job_id)
+
+    if not status_dict:
+        return flask.jsonify({"error": "Job not found"}), 404
+
+    return flask.jsonify(status_dict)
+
+
+@blueprint.route("/api/graph/jobs/status", methods=["POST"])
+def get_jobs_status_batch():
+    """
+    複数ジョブのステータスを一括取得（ポーリング効率化）
+
+    Request Body:
+    {
+        "job_ids": ["uuid-1", "uuid-2", ...]
+    }
+
+    Response:
+    {
+        "jobs": {
+            "uuid-1": {"status": "completed", "progress": 100, ...},
+            "uuid-2": {"status": "processing", "progress": 45, ...}
+        }
+    }
+    """
+    try:
+        data = flask.request.get_json()
+        if not data:
+            return flask.jsonify({"error": "Request body is required"}), 400
+
+        job_ids = data.get("job_ids", [])
+        results: dict[str, dict[str, Any]] = {}
+
+        for job_id in job_ids:
+            status_dict = _job_manager.get_job_status_dict(job_id)
+            if status_dict:
+                # job_idはキーとして使うので、辞書から除外
+                results[job_id] = {
+                    "status": status_dict["status"],
+                    "progress": status_dict["progress"],
+                    "graph_name": status_dict["graph_name"],
+                    "error": status_dict["error"],
+                    "elapsed_seconds": status_dict["elapsed_seconds"],
+                }
+
+        return flask.jsonify({"jobs": results})
+
+    except Exception as e:
+        logging.exception("Error getting jobs status")
+        return flask.jsonify({"error": str(e)}), 500
+
+
+@blueprint.route("/api/graph/job/<job_id>/result", methods=["GET"])
+def get_job_result(job_id: str):
+    """
+    ジョブ結果（PNG画像）を取得
+
+    Response: image/png または JSON error
+    """
+    job = _job_manager.get_job(job_id)
+
+    if not job:
+        return flask.jsonify({"error": "Job not found"}), 404
+
+    if job.status in {JobStatus.PENDING, JobStatus.PROCESSING}:
+        return (
+            flask.jsonify(
+                {"error": "Job not completed", "status": job.status.value, "progress": job.progress}
+            ),
+            202,
+        )  # Accepted but not ready
+
+    if job.status in {JobStatus.FAILED, JobStatus.TIMEOUT}:
+        return (
+            flask.jsonify({"error": job.error or "Job failed", "status": job.status.value}),
+            500,
+        )
+
+    # 完了した場合は画像を返す
+    if not job.result:
+        return flask.jsonify({"error": "No result available"}), 500
+
+    res = flask.Response(job.result, mimetype="image/png")
+    res.headers["Cache-Control"] = "private, max-age=600"  # 10分間キャッシュ可能
+    return res
+
+
+@blueprint.route("/api/graph/jobs/stats", methods=["GET"])
+def get_jobs_stats():
+    """
+    ジョブ統計情報を取得（デバッグ用）
+
+    Response:
+    {
+        "pending": 2,
+        "processing": 3,
+        "completed": 10,
+        "failed": 1,
+        "total": 16
+    }
+    """
+    stats = _job_manager.get_stats()
+    return flask.jsonify(stats)
 
 
 if __name__ == "__main__":
