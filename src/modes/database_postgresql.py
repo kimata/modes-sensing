@@ -259,11 +259,14 @@ def open(host: str, port: int, database: str, user: str, password: str) -> PgCon
 
 def insert(conn: PgConnection, data: MeasurementData) -> None:
     with conn.cursor() as cur:
+        # CURRENT_TIMESTAMPではなくPython側で時刻を生成することで、
+        # アプリケーションコンテナのタイムゾーン設定（TZ=Asia/Tokyo）が確実に適用される
         cur.execute(
             "INSERT INTO meteorological_data (time, callsign, distance, altitude, latitude, longitude, "
             "temperature, wind_x, wind_y, wind_angle, wind_speed, method) "
-            "VALUES (CURRENT_TIMESTAMP, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
+                datetime.datetime.now(),
                 data["callsign"],
                 data["distance"],
                 data["altitude"],
