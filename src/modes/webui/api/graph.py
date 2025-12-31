@@ -196,24 +196,68 @@ def _check_pending_results() -> None:
             del _pending_async_results[job_id]
 
 
+def _estimate_progress_and_stage(job_id: str) -> tuple[int, str]:
+    """ジョブの進捗を推定して返す"""
+    job = _job_manager.get_job(job_id)
+    if not job or not job.started_at:
+        return 10, "開始中..."
+
+    elapsed = time.time() - job.started_at
+    # 期間に応じた推定処理時間を計算
+    period_days = (job.time_end - job.time_start).total_seconds() / 86400
+
+    if period_days <= 7:
+        estimated_total = 15  # 1週間以内: 約15秒
+    elif period_days <= 30:
+        estimated_total = 45  # 1ヶ月以内: 約45秒
+    elif period_days <= 90:
+        estimated_total = 120  # 3ヶ月以内: 約2分
+    else:
+        estimated_total = 300  # それ以上: 約5分
+
+    # 進捗を推定（10-95%の範囲）
+    progress = min(95, 10 + int((elapsed / estimated_total) * 85))
+
+    # 段階を推定
+    if elapsed < 2:
+        stage = "データベース接続中..."
+    elif elapsed < estimated_total * 0.3:
+        stage = "データ取得中..."
+    elif elapsed < estimated_total * 0.6:
+        stage = "データ処理中..."
+    elif elapsed < estimated_total * 0.9:
+        stage = "グラフ描画中..."
+    else:
+        stage = "画像生成中..."
+
+    return progress, stage
+
+
 def _check_single_job(job_id: str, async_result: multiprocessing.pool.AsyncResult, graph_name: str) -> bool:
     """単一のジョブをチェックし、完了していればTrueを返す"""
     try:
         if not async_result.ready():
+            # 未完了の場合は進捗を更新
+            progress, stage = _estimate_progress_and_stage(job_id)
+            _job_manager.update_status(
+                job_id, JobStatus.PROCESSING, progress=progress, stage=stage
+            )
             return False
 
         try:
             result = async_result.get(timeout=1)
             image_bytes, elapsed = result
             _job_manager.update_status(
-                job_id, JobStatus.COMPLETED, result=image_bytes, progress=100
+                job_id, JobStatus.COMPLETED, result=image_bytes, progress=100, stage="完了"
             )
             logging.info(
                 "Job %s completed for %s (%.2f sec) via polling", job_id, graph_name, elapsed
             )
         except Exception:
             logging.exception("Job %s failed for %s", job_id, graph_name)
-            _job_manager.update_status(job_id, JobStatus.FAILED, error="Job execution failed")
+            _job_manager.update_status(
+                job_id, JobStatus.FAILED, error="Job execution failed", stage="エラー"
+            )
         return True
     except Exception:
         logging.exception("Error checking job %s", job_id)
@@ -1817,7 +1861,7 @@ def _start_job_async(  # noqa: PLR0913
     limit_altitude: bool,
 ) -> None:
     """プロセスプールを使用してジョブを非同期実行（ポーリング方式）"""
-    _job_manager.update_status(job_id, JobStatus.PROCESSING, progress=10)
+    _job_manager.update_status(job_id, JobStatus.PROCESSING, progress=10, stage="開始中...")
 
     pool = _pool_manager.get_pool()
     figsize = tuple(x / IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name]["size"])
@@ -1958,6 +2002,7 @@ def get_jobs_status_batch():
                     "graph_name": status_dict["graph_name"],
                     "error": status_dict["error"],
                     "elapsed_seconds": status_dict["elapsed_seconds"],
+                    "stage": status_dict["stage"],
                 }
 
         return flask.jsonify({"jobs": results})

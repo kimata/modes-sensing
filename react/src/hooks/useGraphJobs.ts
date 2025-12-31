@@ -16,6 +16,7 @@ interface JobStatusInfo {
   graph_name: string
   error: string | null
   elapsed_seconds: number | null
+  stage?: string  // 現在の処理段階
 }
 
 interface BatchStatusResponse {
@@ -29,6 +30,9 @@ export interface GraphJob {
   progress: number
   error: string | null
   resultUrl: string | null
+  elapsedSeconds: number | null
+  stage: string | null
+  startTime: number | null  // ジョブ開始時刻（Date.now()）
 }
 
 interface UseGraphJobsOptions {
@@ -109,6 +113,8 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
               status: status.status,
               progress: status.progress,
               error: status.error,
+              elapsedSeconds: status.elapsed_seconds,
+              stage: status.stage || null,
               resultUrl: status.status === 'completed'
                 ? `/modes-sensing/api/graph/job/${jobId}/result`
                 : null
@@ -185,6 +191,7 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
       // 初期状態を設定
       const initialJobs: Record<string, GraphJob> = {}
       const newJobIds: string[] = []
+      const now = Date.now()
 
       data.jobs.forEach(job => {
         initialJobs[job.graph_name] = {
@@ -193,7 +200,10 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
           status: 'pending',
           progress: 0,
           error: null,
-          resultUrl: null
+          resultUrl: null,
+          elapsedSeconds: null,
+          stage: null,
+          startTime: now
         }
         newJobIds.push(job.job_id)
       })
@@ -241,7 +251,10 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
             status: 'pending',
             progress: 0,
             error: null,
-            resultUrl: null
+            resultUrl: null,
+            elapsedSeconds: null,
+            stage: null,
+            startTime: Date.now()
           }
         }))
 
