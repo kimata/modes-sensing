@@ -94,6 +94,28 @@
             "required": [
                 "area"
             ]
+        },
+        "liveness": {
+            "type": "object",
+            "properties": {
+                "file": {
+                    "type": "object",
+                    "properties": {
+                        "collector": {
+                            "type": "string"
+                        },
+                        "receiver": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "collector"
+                    ]
+                }
+            },
+            "required": [
+                "file"
+            ]
         }
     },
     "required": [
