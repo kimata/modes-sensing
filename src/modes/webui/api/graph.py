@@ -21,6 +21,7 @@ import json
 import logging
 import multiprocessing
 import pathlib
+import threading
 import time
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -154,6 +155,69 @@ class ProcessPoolManager:
 
 # プロセスプールマネージャーのインスタンス
 _pool_manager = ProcessPoolManager()
+
+# 非同期ジョブの完了を追跡するためのデータ構造
+# job_id -> (async_result, graph_name)
+_pending_async_results: dict[str, tuple[multiprocessing.pool.AsyncResult, str]] = {}
+_async_results_lock = threading.Lock()
+_result_checker_started = False
+
+
+def _start_result_checker_thread() -> None:
+    """非同期ジョブの完了をポーリングするバックグラウンドスレッドを開始"""
+    global _result_checker_started  # noqa: PLW0603
+    if _result_checker_started:
+        return
+
+    def result_checker_loop() -> None:
+        while True:
+            time.sleep(0.5)  # 0.5秒ごとにチェック
+            try:
+                _check_pending_results()
+            except Exception:
+                logging.exception("Error in result checker thread")
+
+    thread = threading.Thread(target=result_checker_loop, daemon=True, name="AsyncResultChecker")
+    thread.start()
+    _result_checker_started = True
+    logging.info("Started async result checker thread")
+
+
+def _check_pending_results() -> None:
+    """保留中の非同期結果をチェックし、完了したものを処理"""
+    with _async_results_lock:
+        completed_jobs = []
+        for job_id, (async_result, graph_name) in list(_pending_async_results.items()):
+            if not _check_single_job(job_id, async_result, graph_name):
+                continue
+            completed_jobs.append(job_id)
+
+        for job_id in completed_jobs:
+            del _pending_async_results[job_id]
+
+
+def _check_single_job(job_id: str, async_result: multiprocessing.pool.AsyncResult, graph_name: str) -> bool:
+    """単一のジョブをチェックし、完了していればTrueを返す"""
+    try:
+        if not async_result.ready():
+            return False
+
+        try:
+            result = async_result.get(timeout=1)
+            image_bytes, elapsed = result
+            _job_manager.update_status(
+                job_id, JobStatus.COMPLETED, result=image_bytes, progress=100
+            )
+            logging.info(
+                "Job %s completed for %s (%.2f sec) via polling", job_id, graph_name, elapsed
+            )
+        except Exception:
+            logging.exception("Job %s failed for %s", job_id, graph_name)
+            _job_manager.update_status(job_id, JobStatus.FAILED, error="Job execution failed")
+        return True
+    except Exception:
+        logging.exception("Error checking job %s", job_id)
+        return True
 
 
 def connect_database(config: dict[str, Any]) -> PgConnection:
@@ -1752,29 +1816,26 @@ def _start_job_async(  # noqa: PLR0913
     time_end: datetime.datetime,
     limit_altitude: bool,
 ) -> None:
-    """プロセスプールを使用してジョブを非同期実行"""
+    """プロセスプールを使用してジョブを非同期実行（ポーリング方式）"""
     _job_manager.update_status(job_id, JobStatus.PROCESSING, progress=10)
 
     pool = _pool_manager.get_pool()
     figsize = tuple(x / IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name]["size"])
 
-    def callback(result: tuple[bytes, float]) -> None:
-        image_bytes, elapsed = result
-        _job_manager.update_status(job_id, JobStatus.COMPLETED, result=image_bytes, progress=100)
-        logging.info("Job %s completed for %s (%.2f sec)", job_id, graph_name, elapsed)
+    # ポーリングスレッドを起動（まだ起動していない場合）
+    _start_result_checker_thread()
 
-    def error_callback(error: BaseException) -> None:
-        _job_manager.update_status(job_id, JobStatus.FAILED, error=str(error))
-        logging.error("Job %s failed for %s: %s", job_id, graph_name, error)
-
-    pool.apply_async(
+    # コールバックを使わずにAsyncResultを直接取得
+    async_result = pool.apply_async(
         plot_in_subprocess,
         (config, graph_name, time_start, time_end, figsize, limit_altitude),
-        callback=callback,
-        error_callback=error_callback,
     )
 
-    logging.info("Started async job %s for %s", job_id, graph_name)
+    # 保留中の結果リストに追加（ポーリングスレッドが監視）
+    with _async_results_lock:
+        _pending_async_results[job_id] = (async_result, graph_name)
+
+    logging.info("Started async job %s for %s (polling mode)", job_id, graph_name)
 
 
 @blueprint.route("/api/graph/job", methods=["POST"])
