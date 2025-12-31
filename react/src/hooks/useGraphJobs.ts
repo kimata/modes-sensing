@@ -264,24 +264,24 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
     await createJobs()
   }, [createJobs])
 
-  // 日付範囲や設定が変わったらジョブを再作成
+  // graphs配列の変更を検出（参照ではなく内容で比較）
+  const graphsKey = graphs.join(',')
+
+  // 日付範囲、設定、グラフリストが変わったらジョブを再作成
+  // 単一のuseEffectで全ての依存関係を管理（重複呼び出しを防止）
   useEffect(() => {
     mountedRef.current = true
-    createJobs()
+
+    if (enabled) {
+      createJobs()
+    }
 
     return () => {
       mountedRef.current = false
       stopPolling()
     }
-  }, [dateRange.start.getTime(), dateRange.end.getTime(), limitAltitude, enabled])
-
-  // graphs配列の変更を検出（参照ではなく内容で比較）
-  const graphsKey = graphs.join(',')
-  useEffect(() => {
-    if (enabled) {
-      createJobs()
-    }
-  }, [graphsKey])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateRange.start.getTime(), dateRange.end.getTime(), limitAltitude, enabled, graphsKey])
 
   return {
     jobs,
