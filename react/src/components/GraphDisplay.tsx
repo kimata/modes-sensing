@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react'
+import { useState, useEffect, useRef, useLayoutEffect } from 'react'
 import styles from './GraphDisplay.module.css'
 
 interface GraphDisplayProps {
@@ -29,7 +29,53 @@ const graphs: GraphInfo[] = [
   { endpoint: '/modes-sensing/api/graph/contour_3d', title: '3D等高線プロット', filename: 'contour_3d.png', size: [2800, 2800] }
 ]
 
-// Helper function moved outside component
+// 設定キーを生成する関数（10分単位でキャッシュ可能）
+const generateSettingsKey = (start: Date, end: Date, limitAltitude: boolean): string => {
+  // 10分単位のタイムスロットを計算（将来のキャッシュ用）
+  const tenMinutesInMs = 10 * 60 * 1000
+  const timeSlot = Math.floor(Date.now() / tenMinutesInMs) * tenMinutesInMs
+  // 期間と高度制限を含むユニークキー
+  return `${start.getTime()}-${end.getTime()}-${limitAltitude}-${timeSlot}`
+}
+
+// 画像URLを生成する関数
+const buildImageUrl = (
+  graph: GraphInfo,
+  start: Date,
+  end: Date,
+  limitAltitude: boolean,
+  forceReload: boolean = false
+): string => {
+  const params = new URLSearchParams()
+  params.set('start', JSON.stringify(start.toISOString()))
+  params.set('end', JSON.stringify(end.toISOString()))
+  params.set('limit_altitude', limitAltitude ? 'true' : 'false')
+
+  // キャッシュバスター: 設定が同じなら同じURL（10分間隔でキャッシュ可能）
+  const cacheKey = generateSettingsKey(start, end, limitAltitude)
+  params.set('_t', cacheKey)
+
+  // 強制リロード時はランダム値を追加
+  if (forceReload) {
+    params.set('_r', Math.random().toString(36).substring(2, 11))
+  }
+
+  const url = `${graph.endpoint}?${params.toString()}`
+
+  // デバッグログ
+  const periodDays = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+  console.log(`[buildImageUrl] ${graph.endpoint}:`, {
+    periodDays: periodDays.toFixed(2),
+    start: start.toISOString(),
+    end: end.toISOString(),
+    limitAltitude,
+    url
+  })
+
+  return url
+}
+
+// コンテナ高さを計算するヘルパー関数
 const calculateActualHeight = (graph: GraphInfo, containerWidth: number): number => {
   const [imageWidth, imageHeight] = graph.size
   const aspectRatio = imageHeight / imageWidth
@@ -37,183 +83,123 @@ const calculateActualHeight = (graph: GraphInfo, containerWidth: number): number
 }
 
 const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, onImageClick }) => {
-  // シンプルな状態管理のみ
-  const [loading, setLoading] = useState<{ [key: string]: boolean }>(() => {
-    const initial: { [key: string]: boolean } = {}
-    graphs.forEach(graph => {
-      initial[graph.endpoint] = true
-    })
-    return initial
-  })
+  // 画像の状態管理
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState<Record<string, boolean>>({})
+  const [errors, setErrors] = useState<Record<string, string>>({})
 
-  const [errors, setErrors] = useState<{ [key: string]: string }>({})
-  const [imageUrls, setImageUrls] = useState<{ [key: string]: string }>({})
-  const containerRefs = useRef<{ [key: string]: HTMLDivElement | null }>({})
-  const [containerWidths, setContainerWidths] = useState<{ [key: string]: number }>({})
+  // コンテナ幅の追跡
+  const containerRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const [containerWidths, setContainerWidths] = useState<Record<string, number>>({})
+
+  // 通知用ref
   const notificationRef = useRef<HTMLDivElement>(null)
-  const [isInitialLoad, setIsInitialLoad] = useState(true)
-  const initialLoadCompleteRef = useRef(false)
 
-  // シンプルなURL生成
-  const getImageUrl = useCallback((graph: GraphInfo, forceReload = false) => {
-    // キャッシュバスター用のキーを生成
-    // dateRange と limitAltitude が変わったらURLが変わるようにする
-    // rangeKeyは期間とaltitude設定を一意に識別するため、これだけで十分
-    const rangeKey = `${dateRange.start.getTime()}-${dateRange.end.getTime()}-${limitAltitude}`
+  // 前回の設定を追跡するためのref（キー文字列として保存）
+  const lastSettingsRef = useRef<string>('')
 
-    const params = new URLSearchParams({
-      start: JSON.stringify(dateRange.start.toISOString()),
-      end: JSON.stringify(dateRange.end.toISOString()),
-      limit_altitude: limitAltitude ? 'true' : 'false',
-      _t: rangeKey,
-      // 強制リロード時はランダム値を追加してキャッシュを確実にバイパス
-      ...(forceReload && { _r: Math.random().toString(36).substr(2, 9) })
-    })
+  // 現在の設定からキーを生成
+  const currentSettingsKey = `${dateRange.start.getTime()}-${dateRange.end.getTime()}-${limitAltitude}`
 
-    // デバッグ: リクエストされる日付範囲とURLを確認
+  // デバッグ: 設定変更を検出
+  useEffect(() => {
     const periodDays = (dateRange.end.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24)
-    const fullUrl = `${graph.endpoint}?${params}`
-    console.log(`[GraphDisplay] ${graph.endpoint}:`)
-    console.log(`  period=${periodDays.toFixed(2)} days`)
-    console.log(`  start=${dateRange.start.toISOString()}`)
-    console.log(`  end=${dateRange.end.toISOString()}`)
-    console.log(`  URL params: start=${params.get('start')}, end=${params.get('end')}`)
-    console.log(`  Full URL: ${fullUrl}`)
-
-    return fullUrl
-  }, [dateRange, limitAltitude])
-
-  // シンプルな画像ハンドラー
-  const handleImageLoad = useCallback((key: string) => {
-    setLoading(prev => {
-      const newLoading = { ...prev, [key]: false }
-
-      // 初回ロードが完了したらフラグを更新
-      if (isInitialLoad && !initialLoadCompleteRef.current) {
-        // 全てのグラフの初回ロードが完了したか確認
-        const allLoaded = graphs.every(g => {
-          const loadingState = newLoading[g.endpoint]
-          return loadingState === false
-        })
-
-        if (allLoaded) {
-          initialLoadCompleteRef.current = true
-          setIsInitialLoad(false)
-        }
-      }
-
-      return newLoading
+    console.log(`[GraphDisplay] Settings:`, {
+      periodDays: periodDays.toFixed(2),
+      start: dateRange.start.toISOString(),
+      end: dateRange.end.toISOString(),
+      limitAltitude,
+      currentKey: currentSettingsKey,
+      lastKey: lastSettingsRef.current,
+      isNewSettings: currentSettingsKey !== lastSettingsRef.current
     })
-    setErrors(prev => ({ ...prev, [key]: '' }))
-  }, [isInitialLoad])
+  }, [dateRange, limitAltitude, currentSettingsKey])
 
-  const handleImageError = useCallback((key: string, title: string) => {
-    setLoading(prev => {
-      const newLoading = { ...prev, [key]: false }
-
-      // 初回ロードが完了したらフラグを更新（エラーでも完了とみなす）
-      if (isInitialLoad && !initialLoadCompleteRef.current) {
-        // 全てのグラフの初回ロードが完了したか確認
-        const allLoaded = graphs.every(g => {
-          const loadingState = newLoading[g.endpoint]
-          return loadingState === false
-        })
-
-        if (allLoaded) {
-          initialLoadCompleteRef.current = true
-          setIsInitialLoad(false)
-        }
-      }
-
-      return newLoading
-    })
-    setErrors(prev => ({ ...prev, [key]: `${title}の読み込みに失敗しました` }))
-  }, [isInitialLoad])
-
-  const handleReload = useCallback((key: string) => {
-    const graph = graphs.find(g => g.endpoint === key)
-    if (graph) {
-      setErrors(prev => ({ ...prev, [key]: '' }))
-      setLoading(prev => ({ ...prev, [key]: true }))
-      // リロード時は強制リロード
-      setImageUrls(prev => ({ ...prev, [key]: getImageUrl(graph, true) }))
+  // 設定が変わったら画像URLを更新
+  useEffect(() => {
+    // 設定が変わっていない場合はスキップ
+    if (lastSettingsRef.current === currentSettingsKey) {
+      console.log(`[GraphDisplay useEffect] Skipping - same settings`)
+      return
     }
-  }, [getImageUrl])
 
-  // コンテナ幅測定
-  const measureContainerWidths = () => {
-    const newWidths: { [key: string]: number } = {}
+    console.log(`[GraphDisplay useEffect] Settings changed, updating URLs`)
+    console.log(`  Previous: ${lastSettingsRef.current}`)
+    console.log(`  Current: ${currentSettingsKey}`)
+
+    // 設定を更新
+    lastSettingsRef.current = currentSettingsKey
+
+    // 全グラフのURLを生成
+    const newUrls: Record<string, string> = {}
+    const newLoading: Record<string, boolean> = {}
+
     graphs.forEach(graph => {
-      const key = graph.endpoint
-      const container = containerRefs.current[key]
+      const url = buildImageUrl(graph, dateRange.start, dateRange.end, limitAltitude)
+      newUrls[graph.endpoint] = url
+      newLoading[graph.endpoint] = true
+    })
+
+    // 状態を更新
+    setImageUrls(newUrls)
+    setLoading(newLoading)
+    setErrors({})
+
+  }, [dateRange.start, dateRange.end, limitAltitude, currentSettingsKey])
+
+  // 画像読み込み完了ハンドラ
+  const handleImageLoad = (endpoint: string) => {
+    console.log(`[GraphDisplay] Image loaded: ${endpoint}`)
+    setLoading(prev => ({ ...prev, [endpoint]: false }))
+    setErrors(prev => ({ ...prev, [endpoint]: '' }))
+  }
+
+  // 画像読み込みエラーハンドラ
+  const handleImageError = (endpoint: string, title: string) => {
+    console.error(`[GraphDisplay] Image error: ${endpoint}`)
+    setLoading(prev => ({ ...prev, [endpoint]: false }))
+    setErrors(prev => ({ ...prev, [endpoint]: `${title}の読み込みに失敗しました` }))
+  }
+
+  // 画像リロードハンドラ
+  const handleReload = (endpoint: string) => {
+    const graph = graphs.find(g => g.endpoint === endpoint)
+    if (!graph) return
+
+    console.log(`[GraphDisplay] Reloading: ${endpoint}`)
+    setLoading(prev => ({ ...prev, [endpoint]: true }))
+    setErrors(prev => ({ ...prev, [endpoint]: '' }))
+
+    // 強制リロードでURLを更新
+    const newUrl = buildImageUrl(graph, dateRange.start, dateRange.end, limitAltitude, true)
+    setImageUrls(prev => ({ ...prev, [endpoint]: newUrl }))
+  }
+
+  // コンテナ幅を測定
+  const measureContainerWidths = () => {
+    const newWidths: Record<string, number> = {}
+    graphs.forEach(graph => {
+      const container = containerRefs.current[graph.endpoint]
       if (container) {
         const rect = container.getBoundingClientRect()
-        newWidths[key] = rect.width
+        newWidths[graph.endpoint] = rect.width
       }
     })
     setContainerWidths(newWidths)
   }
 
+  // 初回マウント時にコンテナ幅を測定
   useLayoutEffect(() => {
-    setTimeout(() => {
-      measureContainerWidths()
-    }, 100)
+    setTimeout(measureContainerWidths, 100)
   }, [])
 
+  // リサイズ時にコンテナ幅を再測定
   useEffect(() => {
-    const handleResize = () => {
-      measureContainerWidths()
-    }
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
+    window.addEventListener('resize', measureContainerWidths)
+    return () => window.removeEventListener('resize', measureContainerWidths)
   }, [])
 
-  // 前回の設定キーを追跡（より確実な比較のためにキーベースで管理）
-  const prevSettingsKeyRef = useRef<string | null>(null)
-
-  // dateRangeが変更されたら画像URLを更新
-  useEffect(() => {
-    // 現在の設定を一意のキーとして生成
-    const currentSettingsKey = `${dateRange.start.getTime()}-${dateRange.end.getTime()}-${limitAltitude}`
-
-    // デバッグ: dateRange変更を検出
-    const periodDays = (dateRange.end.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24)
-    console.log(`[GraphDisplay useEffect] dateRange changed:`)
-    console.log(`  period=${periodDays.toFixed(2)} days`)
-    console.log(`  start=${dateRange.start.toISOString()}`)
-    console.log(`  end=${dateRange.end.toISOString()}`)
-    console.log(`  limitAltitude=${limitAltitude}`)
-    console.log(`  isInitialLoad=${isInitialLoad}`)
-    console.log(`  prevKey=${prevSettingsKeyRef.current}`)
-    console.log(`  currentKey=${currentSettingsKey}`)
-
-    // 前回と同じ設定かチェック（キーベースで確実に比較）
-    if (prevSettingsKeyRef.current === currentSettingsKey && !isInitialLoad) {
-      // 同じ設定の場合、ローディング状態をスキップしてすでに表示されている画像を維持
-      console.log(`[GraphDisplay useEffect] Skipping - same settings key`)
-      return
-    }
-
-    // 現在の設定キーを記録
-    prevSettingsKeyRef.current = currentSettingsKey
-
-    const newUrls: { [key: string]: string } = {}
-    const newLoading: { [key: string]: boolean } = {}
-
-    graphs.forEach(graph => {
-      const key = graph.endpoint
-      const url = getImageUrl(graph, false)
-      newUrls[key] = url
-      newLoading[key] = true
-    })
-
-    // 状態を同期して更新
-    setImageUrls(newUrls)
-    setLoading(newLoading)
-    setErrors({})
-  }, [dateRange, limitAltitude, getImageUrl, isInitialLoad])
-
-  // パーマリンクコピー関数
+  // パーマリンクコピー関連
   const showCopyNotification = (message: string) => {
     if (!notificationRef.current) return
     notificationRef.current.textContent = message
@@ -224,44 +210,42 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
   }
 
   const copyPermalink = (elementId: string) => {
-    const currentUrl = window.location.origin + window.location.pathname
-    const permalink = currentUrl + '#' + elementId
+    const permalink = window.location.origin + window.location.pathname + '#' + elementId
 
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-      navigator.clipboard.writeText(permalink).then(() => {
-        showCopyNotification('パーマリンクをコピーしました')
-        window.history.pushState(null, '', '#' + elementId)
-      }).catch(() => {
-        fallbackCopyToClipboard(permalink, elementId)
-      })
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(permalink)
+        .then(() => {
+          showCopyNotification('パーマリンクをコピーしました')
+          window.history.pushState(null, '', '#' + elementId)
+        })
+        .catch(() => fallbackCopyToClipboard(permalink, elementId))
     } else {
       fallbackCopyToClipboard(permalink, elementId)
     }
   }
 
   const fallbackCopyToClipboard = (text: string, elementId: string) => {
-    try {
-      const textArea = document.createElement('textarea')
-      textArea.value = text
-      textArea.style.position = 'fixed'
-      textArea.style.left = '-9999px'
-      document.body.appendChild(textArea)
-      textArea.focus()
-      textArea.select()
-      const successful = document.execCommand('copy')
-      document.body.removeChild(textArea)
+    const textArea = document.createElement('textarea')
+    textArea.value = text
+    textArea.style.cssText = 'position:fixed;left:-9999px'
+    document.body.appendChild(textArea)
+    textArea.select()
 
-      if (successful) {
+    try {
+      if (document.execCommand('copy')) {
         showCopyNotification('パーマリンクをコピーしました')
         window.history.pushState(null, '', '#' + elementId)
       } else {
         showCopyNotification('コピーに失敗しました')
       }
-    } catch (err) {
+    } catch {
       showCopyNotification('コピーに失敗しました')
+    } finally {
+      document.body.removeChild(textArea)
     }
   }
 
+  // 日付表示用フォーマット
   const formatDateForDisplay = (date: Date): string => {
     const year = date.getFullYear()
     const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -302,31 +286,34 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
 
         <div className="columns is-multiline">
           {graphs.map(graph => {
-            const key = graph.endpoint
-            const isLoading = loading[key]
-            const error = errors[key]
-            const imageUrl = imageUrls[key]
+            const endpoint = graph.endpoint
+            const isLoading = loading[endpoint] ?? true
+            const error = errors[endpoint]
+            const imageUrl = imageUrls[endpoint]
+            const is3D = endpoint.includes('3d')
 
-            const is3D = graph.endpoint.includes('3d')
-            const actualContainerWidth = containerWidths[key]
-
-            let calculatedHeight: number
-            if (actualContainerWidth) {
-              calculatedHeight = calculateActualHeight(graph, actualContainerWidth)
+            // コンテナ高さを計算
+            const containerWidth = containerWidths[endpoint]
+            let containerHeight: number
+            if (containerWidth) {
+              containerHeight = calculateActualHeight(graph, containerWidth)
             } else {
               const [width, height] = graph.size
               const aspectRatio = height / width
               const estimatedWidth = is3D ? 600 : 350
-              calculatedHeight = estimatedWidth * aspectRatio
+              containerHeight = estimatedWidth * aspectRatio
             }
 
-            const containerHeight = calculatedHeight + 'px'
             const cardPadding = 16
-            const cardHeight = calculatedHeight + cardPadding + 'px'
+            const cardHeight = containerHeight + cardPadding
 
             return (
-              <div key={key} className={is3D ? 'column is-full' : 'column is-half'} ref={(el) => { containerRefs.current[key] = el }}>
-                <div className="card" style={{ height: cardHeight }}>
+              <div
+                key={endpoint}
+                className={is3D ? 'column is-full' : 'column is-half'}
+                ref={(el) => { containerRefs.current[endpoint] = el }}
+              >
+                <div className="card" style={{ height: `${cardHeight}px` }}>
                   <div className="card-content" style={{
                     padding: '0.5rem',
                     height: '100%',
@@ -334,7 +321,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
                     flexDirection: 'column'
                   }}>
                     <div className="image-container" style={{
-                      height: containerHeight,
+                      height: `${containerHeight}px`,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -342,6 +329,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
                       overflow: 'hidden',
                       flex: '1 1 auto'
                     }}>
+                      {/* ローディング表示 */}
                       {isLoading && (
                         <div className="has-text-centered">
                           <div className="loader"></div>
@@ -349,12 +337,13 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
                         </div>
                       )}
 
-                      {error && (
+                      {/* エラー表示 */}
+                      {error && !isLoading && (
                         <div className="notification is-danger is-light">
                           <div>{error}</div>
                           <button
                             className="button is-small is-danger mt-2"
-                            onClick={() => handleReload(key)}
+                            onClick={() => handleReload(endpoint)}
                           >
                             <span className="icon">
                               <i className="fas fa-redo"></i>
@@ -364,16 +353,20 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
                         </div>
                       )}
 
+                      {/* 画像表示 */}
                       {imageUrl && (
-                        <figure className="image" style={{
-                          display: isLoading ? 'none' : 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          height: '100%',
-                          margin: 0
-                        }}>
+                        <figure
+                          className="image"
+                          style={{
+                            display: isLoading ? 'none' : 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            height: '100%',
+                            margin: 0
+                          }}
+                        >
                           <img
-                            key={`${key}-${imageUrl}`}
+                            key={imageUrl}  // URLが変わったら強制的にリマウント
                             src={imageUrl}
                             alt={graph.title}
                             style={{
@@ -383,10 +376,8 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
                               cursor: 'pointer'
                             }}
                             onClick={() => onImageClick(imageUrl)}
-                            onLoad={() => handleImageLoad(key)}
-                            onError={() => {
-                              handleImageError(key, graph.title)
-                            }}
+                            onLoad={() => handleImageLoad(endpoint)}
+                            onError={() => handleImageError(endpoint, graph.title)}
                             loading="eager"
                           />
                         </figure>

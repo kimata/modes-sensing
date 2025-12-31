@@ -112,6 +112,12 @@ function App() {
   }, [isInitialDateRangeSet])
 
   const handleDateChange = (start: Date, end: Date) => {
+    const periodDays = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+    console.log(`[App] handleDateChange called:`, {
+      periodDays: periodDays.toFixed(2),
+      start: start.toISOString(),
+      end: end.toISOString()
+    })
     setDateRange({ start, end })
   }
 
