@@ -114,10 +114,21 @@ if __name__ == "__main__":
     atexit.register(cleanup_on_exit)
 
     # Enhanced signal handler for process group management
+    _sig_handler_state = {"entered": False}
+
     def enhanced_sig_handler(num, frame):  # noqa: ARG001
+        if _sig_handler_state["entered"]:
+            return  # 再入を防止
+        _sig_handler_state["entered"] = True
+
         logging.warning("receive signal %d", num)
 
         if num in (signal.SIGTERM, signal.SIGINT):
+            # シグナルを無視に設定してからプロセスグループを終了
+            # （自プロセスへのシグナルによる再入を防止）
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+
             # Flask reloader の子プロセスも含めて終了する
             try:
                 # 現在のプロセスがプロセスグループリーダーの場合、全体を終了
