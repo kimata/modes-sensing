@@ -217,7 +217,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
             const is3D = graph.name.includes('3d')
 
             // ジョブの状態を取得
-            const isJobLoading = !job || job.status === 'pending' || job.status === 'processing'
+            const isJobLoading = (!job || job.status === 'pending' || job.status === 'processing') && !job?.isRetrying
             const hasError = job?.status === 'failed' || job?.status === 'timeout'
             const progress = job?.progress ?? 0
 
@@ -295,12 +295,38 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
                         </div>
                       )}
 
-                      {/* エラー表示 */}
-                      {hasError && (
-                        <div className="notification is-danger is-light">
-                          <div>{job?.error || 'グラフの生成に失敗しました'}</div>
+                      {/* リトライ中表示 */}
+                      {job?.isRetrying && (
+                        <div className={`has-text-centered ${styles.loadingContainer}`} style={{ width: '80%' }}>
+                          <p className="is-size-6 has-text-weight-semibold mb-2">
+                            {graph.title}
+                          </p>
+                          <div className={styles.loaderWrapper}>
+                            <div className="loader"></div>
+                          </div>
+                          <progress
+                            className="progress is-warning is-small mt-2"
+                            value={progress}
+                            max="100"
+                          />
+                          <p className={`mt-1 is-size-7 has-text-weight-medium ${styles.pulsingText}`}>
+                            🔄 リトライ中...
+                          </p>
+                          <p className="is-size-7 has-text-grey">
+                            接続を再試行しています
+                          </p>
+                        </div>
+                      )}
+
+                      {/* エラー表示（リトライ後も失敗した場合） */}
+                      {hasError && !job?.isRetrying && (
+                        <div className="notification is-danger is-light" style={{ textAlign: 'center' }}>
+                          <p className="is-size-5 mb-2">❌ エラー</p>
+                          <p className="is-size-7 has-text-grey mb-3">
+                            {job?.error || 'グラフの生成に失敗しました'}
+                          </p>
                           <button
-                            className="button is-small is-danger mt-2"
+                            className="button is-small is-danger"
                             onClick={() => reloadJob(graph.name)}
                           >
                             <span className="icon">
