@@ -32,3 +32,14 @@ liveness:
     file:
         collector: /dev/shm/modes-sensing/liveness/collector
         receiver: /dev/shm/modes-sensing/liveness/receiver
+
+slack:
+    from: ModeS sensing
+
+    bot_token: xoxp-XXXXXXXXXXXX-XXXXXXXXXXXX-XXXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+    error:
+        channel:
+            name: "#error"
+            id: C04Q1CEGW9K
+        interval_min: 180
