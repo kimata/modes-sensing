@@ -70,7 +70,7 @@ class FontConfig:
 class WebappConfig:
     """Webアプリケーション設定"""
 
-    static_dir_path: str
+    static_dir_path: pathlib.Path
     cache_dir_path: pathlib.Path
 
 
@@ -156,7 +156,7 @@ def load_from_dict(config_dict: dict[str, Any], base_dir: pathlib.Path) -> Confi
             map=config_dict["font"]["map"],
         ),
         webapp=WebappConfig(
-            static_dir_path=config_dict["webapp"]["static_dir_path"],
+            static_dir_path=pathlib.Path(config_dict["webapp"]["static_dir_path"]),
             cache_dir_path=pathlib.Path(config_dict["webapp"]["cache_dir_path"]),
         ),
         liveness=LivenessConfig(
