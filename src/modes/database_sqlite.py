@@ -27,6 +27,7 @@ from modes.database_postgresql import DataRangeResult, MeasurementData
 
 if TYPE_CHECKING:
     import sqlite3
+    from collections.abc import Sequence
 
 
 def open(log_db_path: pathlib.Path) -> sqlite3.Connection:  # noqa: A001
@@ -74,7 +75,7 @@ def store_queue(
     sqlite: sqlite3.Connection,
     data_queue: queue.Queue[MeasurementData],
     liveness_file: pathlib.Path,
-    slack_config: my_lib.notify.slack.SlackConfigTypes,
+    slack_config: my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.SlackEmptyConfig,
     count: int = 0,
 ) -> None:
     """データベースへのデータ格納を行うワーカー関数
@@ -113,7 +114,7 @@ def fetch_by_time(
     time_end: datetime.datetime,
     distance: float,
     columns: list[str] | None = None,
-) -> list[dict[str, Any]]:
+) -> Sequence[dict[str, Any]]:
     """
     指定された時間範囲と距離でデータを取得する
 
@@ -200,7 +201,7 @@ def fetch_latest(
     limit: int,
     distance: float | None = None,
     columns: list[str] | None = None,
-) -> list[dict[str, Any]]:
+) -> Sequence[dict[str, Any]]:
     """
     最新のデータを指定された件数取得する
 
@@ -359,6 +360,7 @@ if __name__ == "__main__":
     import modes.receiver
     from modes.config import load_from_dict
 
+    assert __doc__ is not None  # noqa: S101
     args = docopt.docopt(__doc__)
 
     config_file = args["-c"]
@@ -369,7 +371,7 @@ if __name__ == "__main__":
     config_dict = my_lib.config.load(config_file, pathlib.Path(SCHEMA_CONFIG))
     config = load_from_dict(config_dict, pathlib.Path.cwd())
 
-    measurement_queue = queue.Queue()
+    measurement_queue: queue.Queue[MeasurementData] = queue.Queue()
 
     modes.receiver.start(config, measurement_queue)
 

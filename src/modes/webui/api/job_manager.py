@@ -65,6 +65,11 @@ class JobManager:
     _instance: JobManager | None = None
     _lock = threading.Lock()
 
+    # インスタンス属性の型アノテーション
+    _jobs: dict[str, Job]
+    _jobs_lock: threading.RLock
+    _cleanup_started: bool
+
     # 設定
     JOB_EXPIRY_SECONDS = 1800  # 30分後に結果を削除（長時間ジョブ対応）
     CLEANUP_INTERVAL = 60  # 1分ごとにクリーンアップ
@@ -75,7 +80,7 @@ class JobManager:
             with cls._lock:
                 if cls._instance is None:
                     instance = super().__new__(cls)
-                    instance._jobs: dict[str, Job] = {}
+                    instance._jobs = {}
                     instance._jobs_lock = threading.RLock()
                     instance._cleanup_started = False
                     cls._instance = instance

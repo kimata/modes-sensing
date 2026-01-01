@@ -30,6 +30,7 @@ import numpy as np
 
 if TYPE_CHECKING:
     import multiprocessing
+    from collections.abc import Generator
 
     from modes.config import Area, Config
 
@@ -78,14 +79,16 @@ should_terminate = threading.Event()
 _receiver_liveness_file: pathlib.Path = pathlib.Path()
 
 # Slack通知設定
-_slack_config: my_lib.notify.slack.SlackConfigTypes = my_lib.notify.slack.SlackEmptyConfig()
+_slack_config: my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.SlackEmptyConfig = (
+    my_lib.notify.slack.SlackEmptyConfig()
+)
 
 HISTRY_SAMPLES: int = 30000
 meteorological_history: collections.deque[HistoryData] = collections.deque(maxlen=HISTRY_SAMPLES)
 OUTLIER_DETECTION_MIN_SAMPLES: int = 100  # 外れ値検出を開始する最小サンプル数
 
 
-def receive_lines(sock: socket.socket) -> collections.abc.Generator[str, None, None]:
+def receive_lines(sock: socket.socket) -> Generator[str, None, None]:
     buffer = b""
 
     while True:
@@ -338,7 +341,7 @@ def detect_outlier_by_altitude_neighbors(  # noqa: PLR0913
             sigma_threshold,
         )
 
-    return is_outlier
+    return bool(is_outlier)
 
 
 def is_outlier_data(
@@ -437,23 +440,40 @@ def _is_fragment_complete(fragment: MessageFragment) -> bool:
 
 def _process_complete_fragment(
     fragment: MessageFragment,
-    data_queue: queue.Queue[MeteorologicalData],
+    data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
     area_config: Area,
 ) -> None:
     """完全なフラグメントを処理してキューに送信する"""
     global meteorological_history
 
+    # TypedDict の各キーを .get() で安全に取得
+    adsb_pos = fragment.get("adsb_pos")
+    adsb_sign = fragment.get("adsb_sign")
+    bsd50 = fragment.get("bsd50")
+    bsd60 = fragment.get("bsd60")
+
+    # 全てのデータが揃っていることを確認（_is_fragment_complete で確認済みだが型チェック用）
+    if adsb_pos is None or adsb_sign is None or bsd50 is None or bsd60 is None:
+        return
+
+    # タプル内の値が None でないことを確認
+    if adsb_pos[1] is None or adsb_pos[2] is None:
+        return
+    if any(v is None for v in bsd50) or any(v is None for v in bsd60):
+        return
+
     distance = calc_distance(
         area_config.lat.ref,
         area_config.lon.ref,
-        fragment["adsb_pos"][1],
-        fragment["adsb_pos"][2],
+        adsb_pos[1],
+        adsb_pos[2],
     )
+    # NOTE: 上記の None チェック後でもタプル要素の型は絞り込まれないため type: ignore が必要
     meteorological_data = calc_meteorological_data(
-        *fragment["adsb_sign"],
-        *fragment["adsb_pos"],
-        *fragment["bsd50"],
-        *fragment["bsd60"],
+        *adsb_sign,
+        *adsb_pos,  # type: ignore[arg-type]
+        *bsd50,  # type: ignore[arg-type]
+        *bsd60,  # type: ignore[arg-type]
         distance,
     )
 
@@ -486,7 +506,8 @@ def _add_new_fragment(icao: str, packet_type: str, data: tuple[Any, ...]) -> Non
     """新しいフラグメントをリストに追加する"""
     global fragment_list
 
-    fragment_list.append({"icao": icao, packet_type: data})
+    # 動的キーを使用するため type: ignore が必要
+    fragment_list.append({"icao": icao, packet_type: data})  # type: ignore[list-item, misc]
     if len(fragment_list) >= FRAGMENT_BUF_SIZE:
         fragment_list.pop(0)
 
@@ -495,7 +516,7 @@ def message_pairing(
     icao: str,
     packet_type: str,
     data: tuple[Any, ...],
-    data_queue: queue.Queue[MeteorologicalData],
+    data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
     area_config: Area,
 ) -> None:
     """メッセージフラグメントをペアリングして気象データを生成する"""
@@ -505,13 +526,14 @@ def message_pairing(
         logging.warning("データに欠損があるので捨てます．(type: %s, data: %s)", packet_type, data)
         return
 
-    fragment = next((f for f in fragment_list if f["icao"] == icao), None)
+    fragment = next((f for f in fragment_list if f.get("icao") == icao), None)
 
     if fragment is None:
         _add_new_fragment(icao, packet_type, data)
         return
 
-    fragment[packet_type] = data
+    # 動的キーを使用するため type: ignore が必要
+    fragment[packet_type] = data  # type: ignore[literal-required]
 
     if not _is_fragment_complete(fragment):
         return
@@ -523,7 +545,7 @@ def message_pairing(
 def _process_adsb_position(
     message: str,
     icao: str,
-    data_queue: queue.Queue[MeteorologicalData],
+    data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
     area_config: Area,
 ) -> None:
     """ADS-B位置情報メッセージを処理する"""
@@ -538,7 +560,7 @@ def _process_adsb_position(
 def _process_adsb_message(
     message: str,
     icao: str,
-    data_queue: queue.Queue[MeteorologicalData],
+    data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
     area_config: Area,
 ) -> None:
     """ADS-Bメッセージ（dformat=17）を処理する"""
@@ -560,7 +582,7 @@ def _process_adsb_message(
 def _process_commb_message(
     message: str,
     icao: str,
-    data_queue: queue.Queue[MeteorologicalData],
+    data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
     area_config: Area,
 ) -> None:
     """Comm-Bメッセージ（dformat=20,21）を処理する"""
@@ -581,7 +603,7 @@ def _process_commb_message(
 
 def process_message(
     message: str,
-    data_queue: queue.Queue[MeteorologicalData],
+    data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
     area_config: Area,
 ) -> None:
     """受信したMode-Sメッセージを解析して処理する"""
@@ -764,6 +786,9 @@ if __name__ == "__main__":
     import my_lib.config
     import my_lib.logger
 
+    from modes.config import load_from_dict
+
+    assert __doc__ is not None  # noqa: S101
     args = docopt.docopt(__doc__)
 
     config_file = args["-c"]
@@ -771,16 +796,12 @@ if __name__ == "__main__":
 
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
-    config = my_lib.config.load(config_file)
+    config_dict = my_lib.config.load(config_file)
+    config = load_from_dict(config_dict, pathlib.Path.cwd())
 
-    measurement_queue = queue.Queue()
+    measurement_queue: queue.Queue[MeteorologicalData] = queue.Queue()
 
-    start(
-        config["modes"]["decoder"]["host"],
-        config["modes"]["decoder"]["port"],
-        measurement_queue,
-        config["filter"]["area"],
-    )
+    start(config, measurement_queue)
 
     while True:
         logging.info(measurement_queue.get())

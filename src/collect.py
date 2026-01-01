@@ -27,7 +27,7 @@ import my_lib.footprint
 import modes.database_postgresql
 import modes.receiver
 from modes.config import Config
-from modes.database_postgresql import DBConfig
+from modes.database_postgresql import DBConfig, MeasurementData
 
 SCHEMA_CONFIG = "config.schema"
 
@@ -47,7 +47,7 @@ def execute(
 ) -> None:
     signal.signal(signal.SIGTERM, sig_handler)
 
-    measurement_queue: multiprocessing.Queue[dict] = multiprocessing.Queue()
+    measurement_queue: multiprocessing.Queue[MeasurementData] = multiprocessing.Queue()
 
     conn = modes.database_postgresql.open(
         config.database.host,
@@ -117,6 +117,7 @@ if __name__ == "__main__":
 
     from modes.config import load_from_dict
 
+    assert __doc__ is not None  # noqa: S101
     args = docopt.docopt(__doc__)
 
     config_file = args["-c"]

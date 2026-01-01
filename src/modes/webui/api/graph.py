@@ -20,6 +20,7 @@ import io
 import json
 import logging
 import multiprocessing
+import multiprocessing.pool
 import pathlib
 import threading
 import time
@@ -294,7 +295,7 @@ def set_tick_label_size(ax: Axes, is_3d: bool = False) -> None:
     ax.tick_params(axis="x", labelsize=TICK_LABEL_SIZE)
     ax.tick_params(axis="y", labelsize=TICK_LABEL_SIZE)
     if is_3d:
-        ax.tick_params(axis="z", labelsize=TICK_LABEL_SIZE)
+        ax.tick_params(axis="z", labelsize=TICK_LABEL_SIZE)  # type: ignore[arg-type]
 
 
 def set_axis_labels(
@@ -308,7 +309,7 @@ def set_axis_labels(
     if ylabel:
         ax.set_ylabel(ylabel, fontsize=AXIS_LABEL_SIZE)
     if zlabel:
-        ax.set_zlabel(zlabel, fontsize=AXIS_LABEL_SIZE)
+        ax.set_zlabel(zlabel, fontsize=AXIS_LABEL_SIZE)  # type: ignore[attr-defined]
 
 
 def set_temperature_range(ax: Axes, axis: str = "x", limit_altitude: bool = False) -> None:
@@ -494,7 +495,7 @@ def set_axis_2d_default(ax, time_range, limit_altitude=False):
     set_tick_label_size(ax)
 
     apply_time_axis_format(
-        ax, matplotlib.dates.date2num(time_range[-1]) - matplotlib.dates.date2num(time_range[0])
+        ax, float(matplotlib.dates.date2num(time_range[-1]) - matplotlib.dates.date2num(time_range[0]))
     )
 
 
@@ -852,7 +853,7 @@ def plot_heatmap(data, figsize, plot_time_start=None, plot_time_end=None, limit_
 
     im = ax.imshow(
         grid["temp_grid"],
-        extent=[grid["time_min"], grid["time_max"], grid["alt_min"], grid["alt_max"]],
+        extent=(grid["time_min"], grid["time_max"], grid["alt_min"], grid["alt_max"]),
         aspect="auto",
         origin="lower",
         cmap="plasma",
@@ -1796,9 +1797,9 @@ def debug_date_parse():  # noqa: PLR0915
     # 集約レベル
     level = modes.database_postgresql.get_aggregation_level(period_days)
     result["aggregation"] = {
-        "table": level["table"],
-        "time_interval": level["time_interval"],
-        "altitude_bin": level["altitude_bin"],
+        "table": level.table,
+        "time_interval": level.time_interval,
+        "altitude_bin": level.altitude_bin,
     }
 
     # データサンプル取得
@@ -1876,7 +1877,8 @@ def _start_job_async(  # noqa: PLR0913
     _job_manager.update_status(job_id, JobStatus.PROCESSING, progress=10, stage="開始中...")
 
     pool = _pool_manager.get_pool()
-    figsize = tuple(x / IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name]["size"])
+    # NOTE: GRAPH_DEF_MAP の型推論が不完全なため type: ignore が必要
+    figsize = tuple(x / IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name]["size"])  # type: ignore[union-attr, attr-defined]
 
     # ポーリングスレッドを起動（まだ起動していない場合）
     _start_result_checker_thread()
@@ -2079,7 +2081,7 @@ def get_jobs_stats():
 
 if __name__ == "__main__":
 
-    def plot(raw_data):
+    def plot_local(raw_data):
         data = prepare_data(raw_data)
 
         if data is None:
@@ -2106,6 +2108,7 @@ if __name__ == "__main__":
 
     import modes.database_postgresql
 
+    assert __doc__ is not None  # noqa: S101
     args = docopt.docopt(__doc__)
 
     config_file = args["-c"]
@@ -2126,7 +2129,7 @@ if __name__ == "__main__":
     time_end = my_lib.time.now()
     time_start = time_end - datetime.timedelta(days=period_days)
 
-    plot(
+    plot_local(
         modes.database_postgresql.fetch_by_time(
             conn,
             time_start,

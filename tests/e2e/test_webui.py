@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import requests
 from playwright.sync_api import expect
+from requests.adapters import HTTPAdapter
 
 APP_URL_TMPL = "http://{host}:{port}/modes-sensing/"
 
@@ -53,7 +54,7 @@ def wait_for_server_ready(host, port):
         try:
             # コネクションプールの設定を調整
             session = requests.Session()
-            adapter = requests.adapters.HTTPAdapter(
+            adapter = HTTPAdapter(
                 pool_connections=1,  # 接続プールサイズを制限
                 pool_maxsize=1,
                 max_retries=0,  # requests レベルでのリトライは無効化
@@ -477,6 +478,7 @@ def test_all_images_display_correctly(page_init, host, port):
 
         # 画像が実際に読み込まれているかチェック（CI環境対応で回数増加）
         is_loaded = False
+        image_state: dict = {}  # ループ外で参照するため初期化
         for attempt in range(5):  # CI環境対応で3回から5回に増加
             image_state = page.evaluate(f"""
                 () => {{

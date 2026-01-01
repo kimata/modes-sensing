@@ -98,10 +98,33 @@ class Config:
     font: FontConfig
     webapp: WebappConfig
     liveness: LivenessConfig
-    slack: my_lib.notify.slack.SlackConfigTypes = field(
+    slack: my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.SlackEmptyConfig = field(
         default_factory=my_lib.notify.slack.SlackEmptyConfig
     )
     base_dir: pathlib.Path = field(default_factory=pathlib.Path.cwd)
+
+
+def _parse_slack_config(
+    slack_dict: dict[str, Any],
+) -> my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.SlackEmptyConfig:
+    """Slack 設定をパースして SlackErrorOnlyConfig または SlackEmptyConfig を返す"""
+    parsed = my_lib.notify.slack.parse_config(slack_dict)
+
+    # SlackErrorOnlyConfig または SlackEmptyConfig のみを許可
+    if isinstance(parsed, (my_lib.notify.slack.SlackErrorOnlyConfig, my_lib.notify.slack.SlackEmptyConfig)):
+        return parsed
+
+    # その他の設定タイプの場合、SlackErrorOnlyConfig に変換を試みる
+    # NOTE: hasattr チェック後でも型が絞り込まれないため getattr を使用 (B009 を無視)
+    if hasattr(parsed, "error") and hasattr(parsed, "bot_token") and hasattr(parsed, "from_name"):
+        return my_lib.notify.slack.SlackErrorOnlyConfig(
+            bot_token=getattr(parsed, "bot_token"),  # noqa: B009
+            from_name=getattr(parsed, "from_name"),  # noqa: B009
+            error=getattr(parsed, "error"),  # noqa: B009
+        )
+
+    # 変換できない場合は空設定を返す
+    return my_lib.notify.slack.SlackEmptyConfig()
 
 
 def load_from_dict(config_dict: dict[str, Any], base_dir: pathlib.Path) -> Config:
@@ -140,6 +163,6 @@ def load_from_dict(config_dict: dict[str, Any], base_dir: pathlib.Path) -> Confi
                 receiver=pathlib.Path(config_dict["liveness"]["file"]["receiver"]),
             ),
         ),
-        slack=my_lib.notify.slack.parse_config(config_dict.get("slack", {})),
+        slack=_parse_slack_config(config_dict.get("slack", {})),
         base_dir=base_dir,
     )
