@@ -8,7 +8,7 @@ import pytest
 
 import modes.database_postgresql
 import modes.receiver
-from modes.config import AppConfig, load_from_dict
+from modes.config import Config, load_from_dict
 
 CONFIG_FILE = "config.example.yaml"
 SCHEMA_CONFIG = "config.schema"
@@ -23,27 +23,15 @@ def config_dict() -> dict:
 
 
 @pytest.fixture(scope="session")
-def config(config_dict: dict) -> AppConfig:
-    """AppConfig 形式の設定を返す"""
-    return load_from_dict(config_dict)
+def config(config_dict: dict) -> Config:
+    """Config 形式の設定を返す"""
+    return load_from_dict(config_dict, pathlib.Path.cwd())
 
 
-def test_receiver(config: AppConfig):
+def test_receiver(config: Config):
     measurement_queue = queue.Queue()
 
-    # receiver.start は辞書形式の area を期待する
-    area_dict = {
-        "lat": {"ref": config.filter.area.lat.ref},
-        "lon": {"ref": config.filter.area.lon.ref},
-        "distance": config.filter.area.distance,
-    }
-
-    modes.receiver.start(
-        config.modes.decoder.host,
-        config.modes.decoder.port,
-        measurement_queue,
-        area_dict,
-    )
+    modes.receiver.start(config, measurement_queue)
 
     while True:
         assert measurement_queue.get() is not None  # noqa: S101
@@ -52,7 +40,7 @@ def test_receiver(config: AppConfig):
         break
 
 
-def test_collect(config: AppConfig):
+def test_collect(config: Config):
     import my_lib.healthz
     from my_lib.healthz import HealthzTarget
 
@@ -67,7 +55,7 @@ def test_collect(config: AppConfig):
     assert my_lib.healthz.check_liveness(target)  # noqa: S101
 
 
-def test_graph(config: AppConfig, config_dict: dict):
+def test_graph(config: Config, config_dict: dict):
     import datetime
     import io
     import logging
@@ -128,7 +116,7 @@ def test_graph(config: AppConfig, config_dict: dict):
             assert img.height == graph_def["size"][1]  # noqa: S101
 
 
-def test_data_range_api(config: AppConfig):
+def test_data_range_api(config: Config):
     """データ範囲API機能をテスト"""
     import modes.database_postgresql
     import modes.webui.api.graph
@@ -284,7 +272,7 @@ def test_temperature_range_by_altitude_limit():
     )
 
 
-def test_database_altitude_filtering(config: AppConfig):
+def test_database_altitude_filtering(config: Config):
     """データベースクエリの高度フィルタリング機能をテスト"""
     import datetime
 
