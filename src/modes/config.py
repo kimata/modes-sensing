@@ -6,6 +6,8 @@ import pathlib
 from dataclasses import dataclass, field
 from typing import Any
 
+import my_lib.notify.slack
+
 
 @dataclass(frozen=True)
 class DecoderConfig:
@@ -76,7 +78,7 @@ class LivenessFileConfig:
     """Liveness ファイル設定"""
 
     collector: pathlib.Path
-    receiver: pathlib.Path | None = None  # receiver専用Liveness（オプション）
+    receiver: pathlib.Path
 
 
 @dataclass(frozen=True)
@@ -87,7 +89,7 @@ class LivenessConfig:
 
 
 @dataclass(frozen=True)
-class AppConfig:
+class Config:
     """アプリケーション全体の設定"""
 
     modes: ModesConfig
@@ -96,15 +98,15 @@ class AppConfig:
     font: FontConfig
     webapp: WebappConfig
     liveness: LivenessConfig
+    slack: my_lib.notify.slack.SlackConfigTypes = field(
+        default_factory=my_lib.notify.slack.SlackEmptyConfig
+    )
     base_dir: pathlib.Path = field(default_factory=pathlib.Path.cwd)
 
 
-def load_from_dict(config_dict: dict[str, Any], base_dir: pathlib.Path | None = None) -> AppConfig:
-    """辞書形式の設定を AppConfig に変換する"""
-    if base_dir is None:
-        base_dir = config_dict.get("base_dir", pathlib.Path.cwd())
-
-    return AppConfig(
+def load_from_dict(config_dict: dict[str, Any], base_dir: pathlib.Path) -> Config:
+    """辞書形式の設定を Config に変換する"""
+    return Config(
         modes=ModesConfig(
             decoder=DecoderConfig(
                 host=config_dict["modes"]["decoder"]["host"],
@@ -135,12 +137,9 @@ def load_from_dict(config_dict: dict[str, Any], base_dir: pathlib.Path | None = 
         liveness=LivenessConfig(
             file=LivenessFileConfig(
                 collector=pathlib.Path(config_dict["liveness"]["file"]["collector"]),
-                receiver=(
-                    pathlib.Path(config_dict["liveness"]["file"]["receiver"])
-                    if config_dict.get("liveness", {}).get("file", {}).get("receiver")
-                    else None
-                ),
+                receiver=pathlib.Path(config_dict["liveness"]["file"]["receiver"]),
             ),
         ),
+        slack=my_lib.notify.slack.parse_config(config_dict.get("slack", {})),
         base_dir=base_dir,
     )
