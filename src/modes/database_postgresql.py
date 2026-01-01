@@ -30,6 +30,7 @@ import psycopg2.extras
 if TYPE_CHECKING:
     import datetime
     import multiprocessing
+    from collections.abc import Sequence
 
     from psycopg2.extensions import connection as PgConnection  # noqa: N812
 
@@ -378,7 +379,7 @@ def store_queue(  # noqa: PLR0913
     measurement_queue: multiprocessing.Queue[MeasurementData],
     liveness_file: pathlib.Path,
     db_config: DBConfig,
-    slack_config: my_lib.notify.slack.SlackConfigTypes,
+    slack_config: my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.SlackEmptyConfig,
     count: int = 0,
 ) -> None:
     """データベースへのデータ格納を行うワーカー関数
@@ -434,7 +435,7 @@ def _handle_db_error(
     state: _StoreState,
     error: Exception,
     db_config: DBConfig,
-    slack_config: my_lib.notify.slack.SlackConfigTypes,
+    slack_config: my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.SlackEmptyConfig,
 ) -> None:
     """データベース接続エラーを処理する"""
     logging.error(
@@ -467,7 +468,7 @@ def _handle_db_error(
 
 def _handle_unexpected_error(
     state: _StoreState,
-    slack_config: my_lib.notify.slack.SlackConfigTypes,
+    slack_config: my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.SlackEmptyConfig,
 ) -> None:
     """予期しないエラーを処理する"""
     logging.exception(
@@ -498,7 +499,7 @@ def fetch_by_time(  # noqa: PLR0913
     distance: float,
     columns: list[str] | None = None,
     max_altitude: float | None = None,
-) -> list[dict[str, Any]]:
+) -> Sequence[dict[str, Any]]:
     """
     指定された時間範囲と距離でデータを取得する
 
@@ -597,7 +598,7 @@ def fetch_latest(
     limit: int,
     distance: float | None = None,
     columns: list[str] | None = None,
-) -> list[dict[str, Any]]:
+) -> Sequence[dict[str, Any]]:
     """
     最新のデータを指定された件数取得する
 
@@ -731,7 +732,7 @@ def fetch_aggregated_by_time(
     time_start: datetime.datetime,
     time_end: datetime.datetime,
     max_altitude: float | None = None,
-) -> list[dict[str, Any]]:
+) -> Sequence[dict[str, Any]]:
     """
     期間に応じて適切な集約レベルのデータを取得する
 
@@ -945,7 +946,8 @@ def check_materialized_views_exist(conn: PgConnection) -> dict[str, bool]:
                 "SELECT EXISTS (SELECT 1 FROM pg_matviews WHERE matviewname = %s)",
                 (view,),
             )
-            exists = cur.fetchone()[0]
+            row = cur.fetchone()
+            exists = row[0] if row else False
             result[view] = exists
 
     return result
@@ -998,6 +1000,7 @@ if __name__ == "__main__":
     import modes.receiver
     from modes.config import load_from_dict
 
+    assert __doc__ is not None  # noqa: S101
     args = docopt.docopt(__doc__)
 
     config_file = args["-c"]
@@ -1008,7 +1011,7 @@ if __name__ == "__main__":
     config_dict = my_lib.config.load(config_file, pathlib.Path(SCHEMA_CONFIG))
     config = load_from_dict(config_dict, pathlib.Path.cwd())
 
-    measurement_queue = multiprocessing.Queue()
+    measurement_queue: multiprocessing.Queue[MeasurementData] = multiprocessing.Queue()
 
     modes.receiver.start(config, measurement_queue)
 
