@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from types import FrameType
 
 import my_lib.footprint
+import my_lib.notify.slack
 
 import modes.database_postgresql
 import modes.receiver
@@ -40,7 +41,12 @@ def sig_handler(num: int, _: FrameType | None) -> None:
         modes.receiver.term()
 
 
-def execute(config: AppConfig, liveness_file: pathlib.Path, count: int = 0) -> None:
+def execute(
+    config: AppConfig,
+    liveness_file: pathlib.Path,
+    slack_config: my_lib.notify.slack.SlackConfigTypes,
+    count: int = 0,
+) -> None:
     signal.signal(signal.SIGTERM, sig_handler)
 
     measurement_queue: multiprocessing.Queue[dict] = multiprocessing.Queue()
@@ -91,6 +97,7 @@ def execute(config: AppConfig, liveness_file: pathlib.Path, count: int = 0) -> N
         measurement_queue,
         config.filter.area,
         liveness_file=config.liveness.file.receiver,
+        slack_config=slack_config,
     )
 
     db_config = DBConfig(
@@ -129,5 +136,6 @@ if __name__ == "__main__":
 
     config_dict = my_lib.config.load(config_file, pathlib.Path(SCHEMA_CONFIG))
     config = load_from_dict(config_dict)
+    slack_config = my_lib.notify.slack.parse_config(config_dict.get("slack", {}))
 
-    execute(config, config.liveness.file.collector, count)
+    execute(config, config.liveness.file.collector, slack_config, count)

@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypedDict
 
 import my_lib.footprint
+import my_lib.notify.slack
 import numpy as np
 
 if TYPE_CHECKING:
@@ -74,6 +75,9 @@ should_terminate = threading.Event()
 
 # receiver専用Livenessファイルパス
 _receiver_liveness_file: pathlib.Path | None = None
+
+# Slack通知設定
+_slack_config: my_lib.notify.slack.SlackConfigTypes = my_lib.notify.slack.SlackEmptyConfig()
 
 HISTRY_SAMPLES: int = 30000
 meteorological_history: collections.deque[HistoryData] = collections.deque(maxlen=HISTRY_SAMPLES)
@@ -690,9 +694,12 @@ def worker(
         except (OSError, ConnectionError) as e:
             retry_count += 1
             if retry_count > RECONNECT_MAX_RETRIES:
-                logging.error(  # noqa: TRY400
-                    "最大再接続回数（%d回）に達しました。処理を終了します",
-                    RECONNECT_MAX_RETRIES,
+                error_message = f"最大再接続回数（{RECONNECT_MAX_RETRIES}回）に達しました。処理を終了します"
+                logging.error(error_message)  # noqa: TRY400
+                my_lib.notify.slack.error(
+                    _slack_config,
+                    "Mode-S受信エラー",
+                    f"{error_message}\n接続先: {host}:{port}\n最後のエラー: {e}",
                 )
                 break
 
@@ -717,12 +724,13 @@ def init(data: list[HistoryData]) -> None:
     meteorological_history.extend(data)
 
 
-def start(
+def start(  # noqa: PLR0913
     host: str,
     port: int,
     data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
     area: Area,
     liveness_file: pathlib.Path | None = None,
+    slack_config: my_lib.notify.slack.SlackConfigTypes | None = None,
 ) -> threading.Thread:
     """receiverワーカースレッドを開始する
 
@@ -732,13 +740,16 @@ def start(
         data_queue: データを送信するキュー
         area: エリア設定
         liveness_file: receiver専用Livenessファイルパス（オプション）
+        slack_config: Slack通知設定（オプション）
 
     Returns:
         開始されたスレッド
 
     """
-    global _receiver_liveness_file  # noqa: PLW0603
+    global _receiver_liveness_file, _slack_config  # noqa: PLW0603
     _receiver_liveness_file = liveness_file
+    if slack_config is not None:
+        _slack_config = slack_config
 
     thread = threading.Thread(target=worker, args=(host, port, data_queue, area))
     thread.start()
