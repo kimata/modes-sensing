@@ -16,12 +16,14 @@ from __future__ import annotations
 import atexit
 import concurrent.futures
 import datetime
+import hashlib
 import io
 import json
 import logging
 import multiprocessing
 import multiprocessing.pool
 import pathlib
+import subprocess
 import threading
 import time
 from collections.abc import Callable
@@ -610,6 +612,110 @@ def prepare_data(raw_data):
         "temperatures": clean_temperatures,
         "dataframe": clean_df,
     }
+
+
+def prepare_data_numpy(numpy_data: dict) -> dict:
+    """NumPy配列形式のデータから描画用データを準備する（高速版）
+
+    fetch_by_time_numpy / fetch_aggregated_numpy から返されたデータを
+    グラフ描画用の形式に変換する。Pythonループを使わずベクトル化処理のみ。
+
+    Args:
+        numpy_data: fetch_by_time_numpy から返された辞書
+            {
+                "time": numpy.ndarray,
+                "altitude": numpy.ndarray,
+                "temperature": numpy.ndarray,
+                "wind_x": numpy.ndarray (オプション),
+                "wind_y": numpy.ndarray (オプション),
+                "wind_speed": numpy.ndarray (オプション),
+                "wind_angle": numpy.ndarray (オプション),
+                "count": int,
+            }
+
+    Returns:
+        グラフ描画用のデータ辞書
+
+    """
+    if numpy_data["count"] == 0:
+        return {
+            "count": 0,
+            "times": numpy.array([], dtype="datetime64[us]"),
+            "time_numeric": numpy.array([], dtype=numpy.float64),
+            "altitudes": numpy.array([], dtype=numpy.float64),
+            "temperatures": numpy.array([], dtype=numpy.float64),
+            "dataframe": pandas.DataFrame(),
+            # 風データ
+            "wind_x": numpy.array([], dtype=numpy.float64),
+            "wind_y": numpy.array([], dtype=numpy.float64),
+            "wind_speed": numpy.array([], dtype=numpy.float64),
+            "wind_angle": numpy.array([], dtype=numpy.float64),
+        }
+
+    times = numpy_data["time"]
+    altitudes = numpy_data["altitude"]
+    temperatures = numpy_data["temperature"]
+
+    # 複合条件による無効データフィルタリング（ベクトル化）
+    valid_mask = (
+        (temperatures > TEMPERATURE_THRESHOLD)
+        & numpy.isfinite(temperatures)
+        & numpy.isfinite(altitudes)
+        & (altitudes >= ALT_MIN)
+        & (altitudes <= ALT_MAX)
+    )
+
+    valid_count = numpy.count_nonzero(valid_mask)
+
+    if valid_count == 0:
+        return {
+            "count": 0,
+            "times": numpy.array([], dtype="datetime64[us]"),
+            "time_numeric": numpy.array([], dtype=numpy.float64),
+            "altitudes": numpy.array([], dtype=numpy.float64),
+            "temperatures": numpy.array([], dtype=numpy.float64),
+            "dataframe": pandas.DataFrame(),
+            "wind_x": numpy.array([], dtype=numpy.float64),
+            "wind_y": numpy.array([], dtype=numpy.float64),
+            "wind_speed": numpy.array([], dtype=numpy.float64),
+            "wind_angle": numpy.array([], dtype=numpy.float64),
+        }
+
+    # 有効データのみを連続メモリ配置で抽出（ベクトル化）
+    clean_times = times[valid_mask]
+    clean_altitudes = numpy.ascontiguousarray(altitudes[valid_mask])
+    clean_temperatures = numpy.ascontiguousarray(temperatures[valid_mask])
+
+    # datetime64[us] から matplotlib の date number に変換（ベクトル化）
+    # matplotlib の date number は 0001-01-01 からの日数
+    # numpy の datetime64[us] は 1970-01-01 からのマイクロ秒
+    # 719163 は 1970-01-01 の matplotlib date number
+    time_numeric = clean_times.astype("float64") / (86400 * 1e6) + 719163.0
+    time_numeric = numpy.ascontiguousarray(time_numeric)
+
+    # 風データの処理
+    result: dict = {
+        "count": valid_count,
+        "times": clean_times,
+        "time_numeric": time_numeric,
+        "altitudes": clean_altitudes,
+        "temperatures": clean_temperatures,
+        "dataframe": pandas.DataFrame(),  # 必要時に後で作成
+    }
+
+    # 風データがあれば追加
+    if "wind_x" in numpy_data:
+        result["wind_x"] = numpy.ascontiguousarray(numpy_data["wind_x"][valid_mask])
+        result["wind_y"] = numpy.ascontiguousarray(numpy_data["wind_y"][valid_mask])
+        result["wind_speed"] = numpy.ascontiguousarray(numpy_data["wind_speed"][valid_mask])
+        result["wind_angle"] = numpy.ascontiguousarray(numpy_data["wind_angle"][valid_mask])
+    else:
+        result["wind_x"] = numpy.array([], dtype=numpy.float64)
+        result["wind_y"] = numpy.array([], dtype=numpy.float64)
+        result["wind_speed"] = numpy.array([], dtype=numpy.float64)
+        result["wind_angle"] = numpy.array([], dtype=numpy.float64)
+
+    return result
 
 
 def set_font(font_config_dict):
@@ -1305,7 +1411,89 @@ GRAPH_DEF_MAP: dict[str, GraphDef] = {
 }
 
 
-def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_altitude=False):  # noqa: PLR0912, PLR0913, PLR0915
+# =============================================================================
+# キャッシュ機能
+# =============================================================================
+CACHE_TTL_SECONDS = 30 * 60  # 30分
+
+# git commit ハッシュのキャッシュ（プロセス起動時に一度だけ取得）
+_git_commit_hash: str | None = None
+
+
+def get_git_commit_hash() -> str:
+    """現在の git commit ハッシュを取得する（キャッシュ付き）"""
+    global _git_commit_hash  # noqa: PLW0603
+    if _git_commit_hash is not None:
+        return _git_commit_hash
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        _git_commit_hash = result.stdout.strip()[:12] if result.returncode == 0 else "unknown"
+    except Exception:
+        logging.warning("Failed to get git commit hash")
+        _git_commit_hash = "unknown"
+
+    return _git_commit_hash
+
+
+def generate_cache_key(
+    graph_name: str,
+    time_start: datetime.datetime,
+    time_end: datetime.datetime,
+    limit_altitude: bool,
+) -> str:
+    """キャッシュキーを生成する"""
+    git_commit = get_git_commit_hash()
+    # タイムスタンプを秒単位で丸める（ミリ秒の違いでキャッシュミスを防ぐ）
+    start_ts = int(time_start.timestamp())
+    end_ts = int(time_end.timestamp())
+    key_string = f"{graph_name}:{start_ts}:{end_ts}:{limit_altitude}:{git_commit}"
+    # ファイル名として使いやすいようにハッシュ化
+    return hashlib.sha256(key_string.encode()).hexdigest()[:32]
+
+
+def get_cache_file_path(cache_dir: pathlib.Path, cache_key: str) -> pathlib.Path:
+    """キャッシュファイルのパスを取得する"""
+    return cache_dir / f"{cache_key}.png"
+
+
+def get_cached_image(cache_dir: pathlib.Path, cache_key: str) -> bytes | None:
+    """キャッシュから画像を取得する（TTL チェック付き）"""
+    cache_file = get_cache_file_path(cache_dir, cache_key)
+
+    if not cache_file.exists():
+        return None
+
+    # ファイルの更新時刻をチェック
+    mtime = cache_file.stat().st_mtime
+    if time.time() - mtime > CACHE_TTL_SECONDS:
+        # TTL 超過
+        return None
+
+    try:
+        return cache_file.read_bytes()
+    except Exception:
+        logging.warning("Failed to read cache file: %s", cache_file)
+        return None
+
+
+def save_to_cache(cache_dir: pathlib.Path, cache_key: str, image_bytes: bytes) -> None:
+    """画像をキャッシュに保存する"""
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = get_cache_file_path(cache_dir, cache_key)
+        cache_file.write_bytes(image_bytes)
+    except Exception:
+        logging.warning("Failed to save to cache: %s", cache_key)
+
+
+def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_altitude=False):  # noqa: PLR0913, PLR0915
     """子プロセス内でデータ取得からグラフ描画まで一貫して実行する関数"""
     import matplotlib  # noqa: ICN001
 
@@ -1336,58 +1524,47 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
         extended_time_start = time_start
         extended_time_end = time_end
 
+    # 風向グラフの場合は風データも取得
+    include_wind = graph_name == "wind_direction"
+
+    # 高速版NumPyフェッチ関数を使用
     # 期間が7日を超える場合は集約データを使用（パフォーマンス最適化）
     if period_days > 7:
         # 集約データを使用（期間に応じて自動的に適切なレベルを選択）
-        raw_data = modes.database_postgresql.fetch_aggregated_by_time(
+        numpy_data = modes.database_postgresql.fetch_aggregated_numpy(
             conn,
             extended_time_start,
             extended_time_end,
             max_altitude=ALTITUDE_LIMIT if limit_altitude else None,
+            include_wind=include_wind,
         )
     else:
         # 7日以内は生データを使用
-        # 風向グラフの場合は風データも取得
-        if graph_name == "wind_direction":
-            columns = [
-                "time",
-                "altitude",
-                "temperature",
-                "distance",
-                "wind_x",
-                "wind_y",
-                "wind_speed",
-                "wind_angle",
-            ]
-        else:
-            # グラフ作成に必要な最小限のカラムのみ取得してパフォーマンス向上
-            columns = ["time", "altitude", "temperature", "distance"]
-
-        raw_data = modes.database_postgresql.fetch_by_time(
+        numpy_data = modes.database_postgresql.fetch_by_time_numpy(
             conn,
             extended_time_start,
             extended_time_end,
             config["filter"]["area"]["distance"],
-            columns=columns,
             max_altitude=ALTITUDE_LIMIT if limit_altitude else None,
+            include_wind=include_wind,
         )
     conn.close()
 
     # デバッグ: 取得したデータの時間範囲を確認
-    if raw_data:
-        times = [r["time"] for r in raw_data]
+    if numpy_data["count"] > 0:
+        times = numpy_data["time"]
         logging.info(
             "Data range for %s: %s to %s (%d rows)",
             graph_name,
-            min(times),
-            max(times),
-            len(raw_data),
+            times.min(),
+            times.max(),
+            numpy_data["count"],
         )
     else:
         logging.warning("No data fetched for %s", graph_name)
 
-    # データ準備（変換不要、直接処理）
-    data = prepare_data(raw_data)
+    # データ準備（高速版NumPy処理）
+    data = prepare_data_numpy(numpy_data)
 
     if data["count"] < 10:
         # データがない場合の画像を生成
@@ -1476,6 +1653,24 @@ def plot(config, graph_name, time_start, time_end, limit_altitude=False):
         period_days,
         limit_altitude,
     )
+
+    # キャッシュチェック
+    cache_dir_path = config.get("webapp", {}).get("cache_dir_path")
+    cache_key = generate_cache_key(graph_name, time_start, time_end, limit_altitude)
+    cached_image: bytes | None = None
+
+    if cache_dir_path:
+        cache_dir = pathlib.Path(cache_dir_path)
+        cached_image = get_cached_image(cache_dir, cache_key)
+        if cached_image:
+            logging.info(
+                "Serving %s from cache (key: %s, size: %d bytes)",
+                graph_name,
+                cache_key[:8],
+                len(cached_image),
+            )
+            return cached_image
+
     # グラフサイズを計算
     figsize = tuple(x / IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name].size)
 
@@ -1504,6 +1699,11 @@ def plot(config, graph_name, time_start, time_end, limit_altitude=False):
         logging.info(
             "plot() returning for %s, size: %d bytes", graph_name, len(image_bytes) if image_bytes else 0
         )
+
+        # キャッシュに保存
+        if cache_dir_path and image_bytes:
+            save_to_cache(pathlib.Path(cache_dir_path), cache_key, image_bytes)
+
         return image_bytes
     except multiprocessing.TimeoutError:
         logging.exception("Timeout in plot generation for %s (%d seconds)", graph_name, timeout_seconds)
@@ -1675,6 +1875,17 @@ def graph(graph_name):  # noqa: PLR0915
 
     config = flask.current_app.config["CONFIG"]
 
+    # キャッシュ用の ETag を生成（git commit を含む）
+    cache_key = generate_cache_key(graph_name, time_start, time_end, limit_altitude)
+    etag = f'"{cache_key}"'
+
+    # 条件付きリクエストのチェック
+    if_none_match = flask.request.headers.get("If-None-Match")
+    if if_none_match and if_none_match == etag:
+        # ETag が一致すれば 304 Not Modified を返す
+        logging.info("Returning 304 Not Modified for %s (ETag matched)", graph_name)
+        return flask.Response(status=304, headers={"ETag": etag})
+
     # グラフ生成を試行
     try:
         logging.info("Starting plot generation for %s", graph_name)
@@ -1688,11 +1899,9 @@ def graph(graph_name):  # noqa: PLR0915
         res = flask.Response(image_bytes, mimetype="image/png")
         logging.info("Flask response created for %s", graph_name)
 
-        # キャッシュを無効化（CDN/プロキシも含めて確実に）
-        res.headers["Cache-Control"] = "private, no-cache, no-store, must-revalidate, max-age=0"
-        res.headers["Pragma"] = "no-cache"
-        res.headers["Expires"] = "0"
-        res.headers["Vary"] = "Accept, Accept-Encoding"
+        # ブラウザキャッシュを有効化（30分）
+        res.headers["Cache-Control"] = "private, max-age=1800"  # 30分
+        res.headers["ETag"] = etag
         res.headers["X-Content-Type-Options"] = "nosniff"
 
     except Exception as e:
