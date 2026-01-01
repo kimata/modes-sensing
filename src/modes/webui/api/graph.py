@@ -1837,8 +1837,7 @@ def plot(config, graph_name, time_start, time_end, limit_altitude=False):
     )
 
     # キャッシュチェック
-    cache_dir_path = config.get("webapp", {}).get("cache_dir_path")
-    cache_dir = pathlib.Path(cache_dir_path)
+    cache_dir = config["webapp"]["cache_dir_path"]
 
     # キャッシュ判定ログ
     logging.info(
