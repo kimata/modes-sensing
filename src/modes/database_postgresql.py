@@ -986,6 +986,8 @@ def get_materialized_view_stats(conn: PgConnection) -> dict[str, dict[str, Any]]
     return stats
 
 
+SCHEMA_CONFIG = "config.schema"
+
 if __name__ == "__main__":
     import multiprocessing
 
@@ -994,6 +996,7 @@ if __name__ == "__main__":
     import my_lib.logger
 
     import modes.receiver
+    from modes.config import load_from_dict
 
     args = docopt.docopt(__doc__)
 
@@ -1002,33 +1005,29 @@ if __name__ == "__main__":
 
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
-    config = my_lib.config.load(config_file)
+    config_dict = my_lib.config.load(config_file, pathlib.Path(SCHEMA_CONFIG))
+    config = load_from_dict(config_dict, pathlib.Path.cwd())
 
     measurement_queue = multiprocessing.Queue()
 
-    modes.receiver.start(
-        config["modes"]["decoder"]["host"],
-        config["modes"]["decoder"]["port"],
-        measurement_queue,
-        config["filter"]["area"],
-    )
+    modes.receiver.start(config, measurement_queue)
 
     conn = open(
-        config["database"]["host"],
-        config["database"]["port"],
-        config["database"]["name"],
-        config["database"]["user"],
-        config["database"]["pass"],
+        config.database.host,
+        config.database.port,
+        config.database.name,
+        config.database.user,
+        config.database.password,
     )
 
     db_config = DBConfig(
-        host=config["database"]["host"],
-        port=config["database"]["port"],
-        name=config["database"]["name"],
-        user=config["database"]["user"],
-        password=config["database"]["pass"],
+        host=config.database.host,
+        port=config.database.port,
+        name=config.database.name,
+        user=config.database.user,
+        password=config.database.password,
     )
 
     store_queue(
-        conn, measurement_queue, pathlib.Path(config["liveness"]["file"]["collector"]), db_config
+        conn, measurement_queue, config.liveness.file.collector, db_config, config.slack
     )
