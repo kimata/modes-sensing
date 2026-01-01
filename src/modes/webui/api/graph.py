@@ -16,7 +16,6 @@ from __future__ import annotations
 import atexit
 import concurrent.futures
 import datetime
-import hashlib
 import io
 import json
 import logging
@@ -1414,6 +1413,7 @@ GRAPH_DEF_MAP: dict[str, GraphDef] = {
 # キャッシュ機能
 # =============================================================================
 CACHE_TTL_SECONDS = 30 * 60  # 30分
+CACHE_START_TIME_TOLERANCE_SECONDS = 30 * 60  # 開始日時の許容差: 30分
 
 # git commit ハッシュのキャッシュ（プロセス起動時に一度だけ取得）
 _git_commit_hash: str | None = None
@@ -1441,55 +1441,234 @@ def get_git_commit_hash() -> str:
     return _git_commit_hash
 
 
-def generate_cache_key(
+@dataclass
+class CacheFileInfo:
+    """キャッシュファイルの情報"""
+
+    path: pathlib.Path
+    graph_name: str
+    period_seconds: int
+    limit_altitude: bool
+    start_ts: int
+    git_commit: str
+    created_at: float  # ファイル作成時刻（Unix timestamp）
+
+
+def generate_cache_filename(
     graph_name: str,
     time_start: datetime.datetime,
     time_end: datetime.datetime,
     limit_altitude: bool,
 ) -> str:
-    """キャッシュキーを生成する"""
+    """キャッシュファイル名を生成する
+
+    形式: {graph_name}_{period_seconds}_{limit}_{start_ts}_{git}.png
+    """
     git_commit = get_git_commit_hash()
-    # タイムスタンプを秒単位で丸める（ミリ秒の違いでキャッシュミスを防ぐ）
+    period_seconds = int((time_end - time_start).total_seconds())
     start_ts = int(time_start.timestamp())
-    end_ts = int(time_end.timestamp())
-    key_string = f"{graph_name}:{start_ts}:{end_ts}:{limit_altitude}:{git_commit}"
-    # ファイル名として使いやすいようにハッシュ化
-    return hashlib.sha256(key_string.encode()).hexdigest()[:32]
+    limit_str = "1" if limit_altitude else "0"
+    return f"{graph_name}_{period_seconds}_{limit_str}_{start_ts}_{git_commit}.png"
 
 
-def get_cache_file_path(cache_dir: pathlib.Path, cache_key: str) -> pathlib.Path:
-    """キャッシュファイルのパスを取得する"""
-    return cache_dir / f"{cache_key}.png"
+ETAG_TIME_ROUND_SECONDS = 10 * 60  # 10分
 
 
-def get_cached_image(cache_dir: pathlib.Path, cache_key: str) -> bytes | None:
-    """キャッシュから画像を取得する（TTL チェック付き）"""
-    cache_file = get_cache_file_path(cache_dir, cache_key)
+def generate_etag_key(
+    graph_name: str,
+    time_start: datetime.datetime,
+    time_end: datetime.datetime,
+    limit_altitude: bool,
+) -> str:
+    """ETag用のキーを生成する
 
-    if not cache_file.exists():
-        return None
+    形式: {graph_name}_{period_seconds}_{limit}_{rounded_start_ts}_{git}
+    開始時刻は10分単位に丸められる
+    """
+    git_commit = get_git_commit_hash()
+    period_seconds = int((time_end - time_start).total_seconds())
+    # 10分（600秒）単位に丸める
+    rounded_start_ts = (int(time_start.timestamp()) // ETAG_TIME_ROUND_SECONDS) * ETAG_TIME_ROUND_SECONDS
+    limit_str = "1" if limit_altitude else "0"
+    return f"{graph_name}_{period_seconds}_{limit_str}_{rounded_start_ts}_{git_commit}"
 
-    # ファイルの更新時刻をチェック
-    mtime = cache_file.stat().st_mtime
-    if time.time() - mtime > CACHE_TTL_SECONDS:
-        # TTL 超過
+
+def parse_cache_filename(filepath: pathlib.Path) -> CacheFileInfo | None:
+    """キャッシュファイル名をパースして情報を取得する
+
+    形式: {graph_name}_{period_seconds}_{limit}_{start_ts}_{git}.png
+    """
+    filename = filepath.stem  # 拡張子を除いたファイル名
+    parts = filename.rsplit("_", 4)  # 後ろから4つ分割
+
+    if len(parts) != 5:
         return None
 
     try:
-        return cache_file.read_bytes()
-    except Exception:
-        logging.warning("Failed to read cache file: %s", cache_file)
+        graph_name = parts[0]
+        period_seconds = int(parts[1])
+        limit_altitude = parts[2] == "1"
+        start_ts = int(parts[3])
+        git_commit = parts[4]
+
+        return CacheFileInfo(
+            path=filepath,
+            graph_name=graph_name,
+            period_seconds=period_seconds,
+            limit_altitude=limit_altitude,
+            start_ts=start_ts,
+            git_commit=git_commit,
+            created_at=filepath.stat().st_mtime,
+        )
+    except (ValueError, OSError):
         return None
 
 
-def save_to_cache(cache_dir: pathlib.Path, cache_key: str, image_bytes: bytes) -> None:
-    """画像をキャッシュに保存する"""
+def cleanup_expired_cache(cache_dir: pathlib.Path) -> int:
+    """期限切れ（作成から30分以上経過）のキャッシュファイルを削除する
+
+    Returns
+    -------
+        削除したファイル数
+
+    """
+    if not cache_dir.exists():
+        return 0
+
+    deleted_count = 0
+    current_time = time.time()
+
+    for cache_file in cache_dir.glob("*.png"):
+        try:
+            mtime = cache_file.stat().st_mtime
+            if current_time - mtime > CACHE_TTL_SECONDS:
+                cache_file.unlink()
+                deleted_count += 1
+                logging.info(
+                    "[CACHE] Deleted expired: %s (age: %.0f sec)", cache_file.name, current_time - mtime
+                )
+        except OSError as e:
+            logging.warning("[CACHE] Failed to delete %s: %s", cache_file.name, e)
+
+    return deleted_count
+
+
+def find_matching_cache(
+    cache_dir: pathlib.Path,
+    graph_name: str,
+    time_start: datetime.datetime,
+    time_end: datetime.datetime,
+    limit_altitude: bool,
+) -> CacheFileInfo | None:
+    """条件に合うキャッシュファイルを検索する
+
+    ヒット条件:
+    - 同じ graph_name
+    - 同じ期間（period_seconds）
+    - 同じ limit_altitude
+    - 同じ git_commit
+    - 開始日時の差が30分以内
+    - ファイル作成から30分以内（TTL）
+    """
+    if not cache_dir.exists():
+        return None
+
+    git_commit = get_git_commit_hash()
+    request_period = int((time_end - time_start).total_seconds())
+    request_start_ts = int(time_start.timestamp())
+    current_time = time.time()
+
+    for cache_file in cache_dir.glob("*.png"):
+        info = parse_cache_filename(cache_file)
+        if info is None:
+            continue
+
+        # 基本条件チェック
+        if info.graph_name != graph_name:
+            continue
+        if info.period_seconds != request_period:
+            continue
+        if info.limit_altitude != limit_altitude:
+            continue
+        if info.git_commit != git_commit:
+            continue
+
+        # TTLチェック（作成から30分以内）
+        if current_time - info.created_at > CACHE_TTL_SECONDS:
+            continue
+
+        # 開始日時の差が30分以内かチェック
+        start_time_diff = abs(info.start_ts - request_start_ts)
+        if start_time_diff <= CACHE_START_TIME_TOLERANCE_SECONDS:
+            logging.info(
+                "[CACHE] HIT: %s (start_diff: %d sec, age: %.0f sec)",
+                cache_file.name,
+                start_time_diff,
+                current_time - info.created_at,
+            )
+            return info
+
+    return None
+
+
+def get_cached_image(
+    cache_dir: pathlib.Path,
+    graph_name: str,
+    time_start: datetime.datetime,
+    time_end: datetime.datetime,
+    limit_altitude: bool,
+) -> tuple[bytes | None, str | None]:
+    """キャッシュから画像を取得する
+
+    Returns
+    -------
+        (画像データ, キャッシュファイル名) または (None, None)
+
+    """
+    # まず期限切れキャッシュを削除
+    deleted = cleanup_expired_cache(cache_dir)
+    if deleted > 0:
+        logging.info("[CACHE] Cleaned up %d expired files", deleted)
+
+    # 条件に合うキャッシュを検索
+    cache_info = find_matching_cache(cache_dir, graph_name, time_start, time_end, limit_altitude)
+
+    if cache_info is None:
+        return None, None
+
+    try:
+        image_data = cache_info.path.read_bytes()
+        return image_data, cache_info.path.name
+    except OSError as e:
+        logging.warning("[CACHE] Failed to read %s: %s", cache_info.path.name, e)
+        return None, None
+
+
+def save_to_cache(  # noqa: PLR0913
+    cache_dir: pathlib.Path,
+    graph_name: str,
+    time_start: datetime.datetime,
+    time_end: datetime.datetime,
+    limit_altitude: bool,
+    image_bytes: bytes,
+) -> str | None:
+    """画像をキャッシュに保存する
+
+    Returns
+    -------
+        保存したファイル名、失敗時はNone
+
+    """
     try:
         cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_file = get_cache_file_path(cache_dir, cache_key)
+        filename = generate_cache_filename(graph_name, time_start, time_end, limit_altitude)
+        cache_file = cache_dir / filename
         cache_file.write_bytes(image_bytes)
-    except Exception:
-        logging.warning("Failed to save to cache: %s", cache_key)
+        logging.info("[CACHE] Saved: %s (%d bytes)", filename, len(image_bytes))
+        return filename
+    except OSError as e:
+        logging.warning("[CACHE] Failed to save: %s", e)
+        return None
 
 
 def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_altitude=False):  # noqa: PLR0913, PLR0915
@@ -1642,8 +1821,12 @@ def calculate_timeout(time_start, time_end):
 
 
 def plot(config, graph_name, time_start, time_end, limit_altitude=False):
+    """グラフを生成する（キャッシュ付き）"""
     # デバッグ: plot()に渡された時間範囲を記録
     period_days = (time_end - time_start).total_seconds() / 86400
+    period_seconds = int((time_end - time_start).total_seconds())
+    start_ts = int(time_start.timestamp())
+
     logging.info(
         "[DEBUG] plot() called for %s: start=%s, end=%s, period=%.2f days, limit_altitude=%s",
         graph_name,
@@ -1655,20 +1838,32 @@ def plot(config, graph_name, time_start, time_end, limit_altitude=False):
 
     # キャッシュチェック
     cache_dir_path = config.get("webapp", {}).get("cache_dir_path")
-    cache_key = generate_cache_key(graph_name, time_start, time_end, limit_altitude)
-    cached_image: bytes | None = None
+    cache_dir = pathlib.Path(cache_dir_path)
 
-    if cache_dir_path:
-        cache_dir = pathlib.Path(cache_dir_path)
-        cached_image = get_cached_image(cache_dir, cache_key)
-        if cached_image:
-            logging.info(
-                "Serving %s from cache (key: %s, size: %d bytes)",
-                graph_name,
-                cache_key[:8],
-                len(cached_image),
-            )
-            return cached_image
+    # キャッシュ判定ログ
+    logging.info(
+        "[CACHE] %s: checking (period=%d sec, start_ts=%d, limit=%s)",
+        graph_name,
+        period_seconds,
+        start_ts,
+        limit_altitude,
+    )
+
+    # キャッシュから取得を試みる
+    cached_image, cache_filename = get_cached_image(
+        cache_dir, graph_name, time_start, time_end, limit_altitude
+    )
+    if cached_image:
+        logging.info(
+            "[CACHE] Returning cached image for %s: %s (%d bytes)",
+            graph_name,
+            cache_filename,
+            len(cached_image),
+        )
+        return cached_image
+
+    # キャッシュミス
+    logging.info("[CACHE] MISS: %s (no matching cache found)", graph_name)
 
     # グラフサイズを計算
     figsize = tuple(x / IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name].size)
@@ -1700,8 +1895,8 @@ def plot(config, graph_name, time_start, time_end, limit_altitude=False):
         )
 
         # キャッシュに保存
-        if cache_dir_path and image_bytes:
-            save_to_cache(pathlib.Path(cache_dir_path), cache_key, image_bytes)
+        if image_bytes:
+            save_to_cache(cache_dir, graph_name, time_start, time_end, limit_altitude, image_bytes)
 
         return image_bytes
     except multiprocessing.TimeoutError:
@@ -1874,9 +2069,9 @@ def graph(graph_name):  # noqa: PLR0915
 
     config = flask.current_app.config["CONFIG"]
 
-    # キャッシュ用の ETag を生成（git commit を含む）
-    cache_key = generate_cache_key(graph_name, time_start, time_end, limit_altitude)
-    etag = f'"{cache_key}"'
+    # キャッシュ用の ETag を生成（開始時刻は10分単位に丸める）
+    etag_key = generate_etag_key(graph_name, time_start, time_end, limit_altitude)
+    etag = f'"{etag_key}"'
 
     # 条件付きリクエストのチェック
     if_none_match = flask.request.headers.get("If-None-Match")

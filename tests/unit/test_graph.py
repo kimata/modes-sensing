@@ -81,102 +81,276 @@ class TestGraphCache:
         # リセット
         modes.webui.api.graph._git_commit_hash = None
 
-    def test_generate_cache_key(self):
-        """キャッシュキーが生成されること"""
+    def test_generate_cache_filename(self):
+        """キャッシュファイル名が正しく生成されること"""
+        # Git ハッシュを固定値に設定
+        modes.webui.api.graph._git_commit_hash = "abc123hash"
+
         time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
         time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.timezone.utc)
 
-        key1 = modes.webui.api.graph.generate_cache_key(
+        filename1 = modes.webui.api.graph.generate_cache_filename(
             "scatter_2d", time_start, time_end, False
         )
 
-        # 32文字のハッシュ
-        assert len(key1) == 32
-        assert key1.isalnum()
+        # 形式: {graph_name}_{period_seconds}_{limit}_{start_ts}_{git}.png
+        # 6日間 = 518400秒
+        assert filename1.startswith("scatter_2d_518400_0_")
+        assert filename1.endswith("_abc123hash.png")
 
-        # 同じパラメータなら同じキー
-        key2 = modes.webui.api.graph.generate_cache_key(
+        # 同じパラメータなら同じファイル名
+        filename2 = modes.webui.api.graph.generate_cache_filename(
             "scatter_2d", time_start, time_end, False
         )
-        assert key1 == key2
+        assert filename1 == filename2
 
-        # 異なるパラメータなら異なるキー
-        key3 = modes.webui.api.graph.generate_cache_key(
+        # 異なるグラフ名なら異なるファイル名
+        filename3 = modes.webui.api.graph.generate_cache_filename(
             "contour_2d", time_start, time_end, False
         )
-        assert key1 != key3
+        assert filename1 != filename3
 
-        # limit_altitude が異なれば異なるキー
-        key4 = modes.webui.api.graph.generate_cache_key(
+        # limit_altitude が異なれば異なるファイル名
+        filename4 = modes.webui.api.graph.generate_cache_filename(
             "scatter_2d", time_start, time_end, True
         )
-        assert key1 != key4
+        assert filename1 != filename4
+        assert "_1_" in filename4  # limit_altitude=True なら "1"
 
-    def test_cache_file_path(self):
-        """キャッシュファイルパスが正しく生成されること"""
+        # リセット
+        modes.webui.api.graph._git_commit_hash = None
+
+    def test_parse_cache_filename(self):
+        """キャッシュファイル名が正しくパースされること"""
+        # 有効なファイル名
+        filepath = pathlib.Path("/tmp/cache/scatter_2d_518400_0_1735689600_abc123hash.png")
+
+        # ファイルが存在しないとパースできないので、一時ファイルを作成
         with tempfile.TemporaryDirectory() as tmpdir:
-            cache_dir = pathlib.Path(tmpdir) / "cache"
-            cache_key = "abc123"
+            test_file = pathlib.Path(tmpdir) / "scatter_2d_518400_0_1735689600_abc123hash.png"
+            test_file.write_bytes(b"test")
 
-            path = modes.webui.api.graph.get_cache_file_path(cache_dir, cache_key)
+            info = modes.webui.api.graph.parse_cache_filename(test_file)
 
-            assert path == cache_dir / "abc123.png"
+            assert info is not None
+            assert info.graph_name == "scatter_2d"
+            assert info.period_seconds == 518400
+            assert info.limit_altitude is False
+            assert info.start_ts == 1735689600
+            assert info.git_commit == "abc123hash"
 
     def test_get_cached_image_not_exists(self):
         """存在しないキャッシュファイルは None を返す"""
+        # Git ハッシュを固定
+        modes.webui.api.graph._git_commit_hash = "abc123hash"
+
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = pathlib.Path(tmpdir)
+            time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
+            time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.timezone.utc)
 
-            result = modes.webui.api.graph.get_cached_image(cache_dir, "nonexistent")
+            result, filename = modes.webui.api.graph.get_cached_image(
+                cache_dir, "nonexistent", time_start, time_end, False
+            )
             assert result is None
+            assert filename is None
+
+        modes.webui.api.graph._git_commit_hash = None
 
     def test_get_cached_image_valid(self):
         """有効なキャッシュファイルが返される"""
+        # Git ハッシュを固定
+        modes.webui.api.graph._git_commit_hash = "abc123hash"
+
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = pathlib.Path(tmpdir)
-            cache_key = "test_key"
-            cache_file = cache_dir / f"{cache_key}.png"
+            time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
+            time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.timezone.utc)
 
-            # テスト用のダミーデータ
+            # まずキャッシュを保存
             test_data = b"PNG_IMAGE_DATA"
-            cache_file.write_bytes(test_data)
+            modes.webui.api.graph.save_to_cache(
+                cache_dir, "scatter_2d", time_start, time_end, False, test_data
+            )
 
-            result = modes.webui.api.graph.get_cached_image(cache_dir, cache_key)
+            # 同じパラメータでキャッシュを取得
+            result, filename = modes.webui.api.graph.get_cached_image(
+                cache_dir, "scatter_2d", time_start, time_end, False
+            )
             assert result == test_data
+            assert filename is not None
+
+        modes.webui.api.graph._git_commit_hash = None
 
     def test_get_cached_image_expired(self):
-        """TTL を超えたキャッシュファイルは None を返す"""
+        """TTL を超えたキャッシュファイルは削除されて None を返す"""
+        # Git ハッシュを固定
+        modes.webui.api.graph._git_commit_hash = "abc123hash"
+
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = pathlib.Path(tmpdir)
-            cache_key = "expired_key"
-            cache_file = cache_dir / f"{cache_key}.png"
+            time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
+            time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.timezone.utc)
 
-            # テスト用のダミーデータ
+            # キャッシュを保存
             test_data = b"PNG_IMAGE_DATA"
-            cache_file.write_bytes(test_data)
+            filename = modes.webui.api.graph.save_to_cache(
+                cache_dir, "scatter_2d", time_start, time_end, False, test_data
+            )
+            cache_file = cache_dir / filename
 
             # ファイルの更新時刻を TTL + 1秒前に設定
             old_time = time.time() - modes.webui.api.graph.CACHE_TTL_SECONDS - 1
             os.utime(cache_file, (old_time, old_time))
 
-            result = modes.webui.api.graph.get_cached_image(cache_dir, cache_key)
+            # get_cached_image は期限切れファイルを削除して None を返す
+            result, _ = modes.webui.api.graph.get_cached_image(
+                cache_dir, "scatter_2d", time_start, time_end, False
+            )
             assert result is None
+            # 期限切れファイルは削除されている
+            assert not cache_file.exists()
+
+        modes.webui.api.graph._git_commit_hash = None
+
+    def test_get_cached_image_start_time_tolerance(self):
+        """開始日時の差が30分以内ならキャッシュがヒットすること"""
+        # Git ハッシュを固定
+        modes.webui.api.graph._git_commit_hash = "abc123hash"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = pathlib.Path(tmpdir)
+            time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
+            time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.timezone.utc)
+
+            # キャッシュを保存
+            test_data = b"PNG_IMAGE_DATA"
+            modes.webui.api.graph.save_to_cache(
+                cache_dir, "scatter_2d", time_start, time_end, False, test_data
+            )
+
+            # 開始日時が29分ずれていてもキャッシュがヒット
+            time_start_shifted = time_start + datetime.timedelta(minutes=29)
+            time_end_shifted = time_end + datetime.timedelta(minutes=29)
+
+            result, filename = modes.webui.api.graph.get_cached_image(
+                cache_dir, "scatter_2d", time_start_shifted, time_end_shifted, False
+            )
+            assert result == test_data
+
+            # 開始日時が31分ずれるとキャッシュがミス
+            time_start_too_far = time_start + datetime.timedelta(minutes=31)
+            time_end_too_far = time_end + datetime.timedelta(minutes=31)
+
+            result2, _ = modes.webui.api.graph.get_cached_image(
+                cache_dir, "scatter_2d", time_start_too_far, time_end_too_far, False
+            )
+            assert result2 is None
+
+        modes.webui.api.graph._git_commit_hash = None
 
     def test_save_to_cache(self):
         """キャッシュに画像を保存できること"""
+        # Git ハッシュを固定
+        modes.webui.api.graph._git_commit_hash = "abc123hash"
+
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = pathlib.Path(tmpdir) / "subdir"
-            cache_key = "save_test"
+            time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
+            time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.timezone.utc)
             test_data = b"PNG_IMAGE_DATA"
 
             # ディレクトリが存在しなくても保存できる
-            modes.webui.api.graph.save_to_cache(cache_dir, cache_key, test_data)
+            filename = modes.webui.api.graph.save_to_cache(
+                cache_dir, "scatter_2d", time_start, time_end, False, test_data
+            )
 
             # ファイルが作成されている
-            cache_file = cache_dir / f"{cache_key}.png"
+            assert filename is not None
+            cache_file = cache_dir / filename
             assert cache_file.exists()
             assert cache_file.read_bytes() == test_data
+
+        modes.webui.api.graph._git_commit_hash = None
+
+    def test_cleanup_expired_cache(self):
+        """期限切れキャッシュが削除されること"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = pathlib.Path(tmpdir)
+
+            # 期限内のファイル
+            valid_file = cache_dir / "valid.png"
+            valid_file.write_bytes(b"valid")
+
+            # 期限切れのファイル
+            expired_file = cache_dir / "expired.png"
+            expired_file.write_bytes(b"expired")
+            old_time = time.time() - modes.webui.api.graph.CACHE_TTL_SECONDS - 1
+            os.utime(expired_file, (old_time, old_time))
+
+            # クリーンアップ実行
+            deleted = modes.webui.api.graph.cleanup_expired_cache(cache_dir)
+
+            assert deleted == 1
+            assert valid_file.exists()
+            assert not expired_file.exists()
 
     def test_cache_ttl_value(self):
         """キャッシュ TTL が30分であること"""
         assert modes.webui.api.graph.CACHE_TTL_SECONDS == 30 * 60
+
+    def test_generate_etag_key(self):
+        """ETagキーが正しく生成されること（開始時刻は10分単位に丸められる）"""
+        # Git ハッシュを固定値に設定
+        modes.webui.api.graph._git_commit_hash = "abc123hash"
+
+        # 2025-01-01 00:05:00 UTC (timestamp: 1735689900)
+        # 10分単位に丸めると 00:00:00 (timestamp: 1735689600)
+        time_start = datetime.datetime(2025, 1, 1, 0, 5, 0, tzinfo=datetime.timezone.utc)
+        time_end = datetime.datetime(2025, 1, 7, 0, 5, 0, tzinfo=datetime.timezone.utc)
+
+        etag_key = modes.webui.api.graph.generate_etag_key("scatter_2d", time_start, time_end, False)
+
+        # 形式: {graph_name}_{period_seconds}_{limit}_{rounded_start_ts}_{git}
+        # 6日間 = 518400秒, 丸められた開始時刻 = 1735689600
+        assert etag_key == "scatter_2d_518400_0_1735689600_abc123hash"
+
+        # リセット
+        modes.webui.api.graph._git_commit_hash = None
+
+    def test_generate_etag_key_time_rounding(self):
+        """ETagキーの開始時刻が10分単位に丸められること"""
+        # Git ハッシュを固定値に設定
+        modes.webui.api.graph._git_commit_hash = "abc123hash"
+
+        # 基準時刻: 2025-01-01 00:00:00 UTC
+        base_time = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
+        time_end = base_time + datetime.timedelta(days=7)
+
+        # 00:00:00 -> 00:00:00 に丸められる
+        etag1 = modes.webui.api.graph.generate_etag_key("scatter_2d", base_time, time_end, False)
+
+        # 00:09:59 -> 00:00:00 に丸められる（同じ結果）
+        time_start_9min = base_time + datetime.timedelta(minutes=9, seconds=59)
+        time_end_9min = time_end + datetime.timedelta(minutes=9, seconds=59)
+        etag2 = modes.webui.api.graph.generate_etag_key("scatter_2d", time_start_9min, time_end_9min, False)
+        assert etag1 == etag2
+
+        # 00:10:00 -> 00:10:00 に丸められる（異なる結果）
+        time_start_10min = base_time + datetime.timedelta(minutes=10)
+        time_end_10min = time_end + datetime.timedelta(minutes=10)
+        etag3 = modes.webui.api.graph.generate_etag_key("scatter_2d", time_start_10min, time_end_10min, False)
+        assert etag1 != etag3
+
+        # 00:19:59 -> 00:10:00 に丸められる（etag3と同じ結果）
+        time_start_19min = base_time + datetime.timedelta(minutes=19, seconds=59)
+        time_end_19min = time_end + datetime.timedelta(minutes=19, seconds=59)
+        etag4 = modes.webui.api.graph.generate_etag_key("scatter_2d", time_start_19min, time_end_19min, False)
+        assert etag3 == etag4
+
+        # リセット
+        modes.webui.api.graph._git_commit_hash = None
+
+    def test_etag_time_round_value(self):
+        """ETag の時刻丸め間隔が10分であること"""
+        assert modes.webui.api.graph.ETAG_TIME_ROUND_SECONDS == 10 * 60
