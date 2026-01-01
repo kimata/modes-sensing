@@ -24,6 +24,8 @@ import multiprocessing.pool
 import pathlib
 import threading
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypedDict
 
 import flask
@@ -518,7 +520,7 @@ def conver_to_img(fig):
 def create_no_data_image(config, graph_name, text="データがありません"):
     """データがない場合の画像を生成する"""
     # グラフサイズを取得
-    size = GRAPH_DEF_MAP[graph_name]["size"]
+    size = GRAPH_DEF_MAP[graph_name].size
 
     # 新しい画像を作成（白背景）
     img = PIL.Image.new("RGB", size, color="white")
@@ -1282,23 +1284,24 @@ def plot_temperature(data, figsize, limit_altitude=False):
     return (img, time.perf_counter() - start)
 
 
-GRAPH_DEF_MAP = {
-    "scatter_2d": {"func": plot_scatter_2d, "size": (2400, 1600), "file": "scatter_2d.png"},
-    "scatter_3d": {"func": plot_scatter_3d, "size": (2800, 2800), "file": "scatter_3d.png"},
-    "contour_2d": {"func": plot_contour_2d, "size": (2400, 1600), "file": "contour_2d.png"},
-    "contour_3d": {"func": plot_contour_3d, "size": (2800, 2800), "file": "contour_3d.png"},
-    "density": {"func": plot_density, "size": (2400, 1600), "file": "density.png"},
-    "heatmap": {"func": plot_heatmap, "size": (2400, 1600), "file": "heatmap.png"},
-    "temperature": {
-        "func": plot_temperature,
-        "size": (2400, 1600),
-        "file": "temperature.png",
-    },
-    "wind_direction": {
-        "func": plot_wind_direction,
-        "size": (2400, 1600),
-        "file": "wind_direction.png",
-    },
+@dataclass
+class GraphDef:
+    """グラフ定義"""
+
+    func: Callable[..., tuple[PIL.Image.Image, float]]
+    size: tuple[int, int]
+    file: str
+
+
+GRAPH_DEF_MAP: dict[str, GraphDef] = {
+    "scatter_2d": GraphDef(func=plot_scatter_2d, size=(2400, 1600), file="scatter_2d.png"),
+    "scatter_3d": GraphDef(func=plot_scatter_3d, size=(2800, 2800), file="scatter_3d.png"),
+    "contour_2d": GraphDef(func=plot_contour_2d, size=(2400, 1600), file="contour_2d.png"),
+    "contour_3d": GraphDef(func=plot_contour_3d, size=(2800, 2800), file="contour_3d.png"),
+    "density": GraphDef(func=plot_density, size=(2400, 1600), file="density.png"),
+    "heatmap": GraphDef(func=plot_heatmap, size=(2400, 1600), file="heatmap.png"),
+    "temperature": GraphDef(func=plot_temperature, size=(2400, 1600), file="temperature.png"),
+    "wind_direction": GraphDef(func=plot_wind_direction, size=(2400, 1600), file="wind_direction.png"),
 }
 
 
@@ -1407,11 +1410,11 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
     try:
         # heatmapとcontourグラフの場合、元の時間範囲を渡してプロット範囲を制限
         if graph_name in ["heatmap", "contour_2d"]:
-            img, elapsed = GRAPH_DEF_MAP[graph_name]["func"](
+            img, elapsed = GRAPH_DEF_MAP[graph_name].func(
                 data, figsize, time_start, time_end, limit_altitude
             )
         else:
-            img, elapsed = GRAPH_DEF_MAP[graph_name]["func"](data, figsize, limit_altitude)
+            img, elapsed = GRAPH_DEF_MAP[graph_name].func(data, figsize, limit_altitude)
     except Exception as e:
         logging.warning("Failed to generate %s: %s", graph_name, str(e))
         # エラー時は「データなし」画像を生成
@@ -1474,7 +1477,7 @@ def plot(config, graph_name, time_start, time_end, limit_altitude=False):
         limit_altitude,
     )
     # グラフサイズを計算
-    figsize = tuple(x / IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name]["size"])
+    figsize = tuple(x / IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name].size)
 
     # 期間に応じたタイムアウト値を計算
     timeout_seconds = calculate_timeout(time_start, time_end)
@@ -1877,8 +1880,7 @@ def _start_job_async(  # noqa: PLR0913
     _job_manager.update_status(job_id, JobStatus.PROCESSING, progress=10, stage="開始中...")
 
     pool = _pool_manager.get_pool()
-    # NOTE: GRAPH_DEF_MAP の型推論が不完全なため type: ignore が必要
-    figsize = tuple(x / IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name]["size"])  # type: ignore[union-attr, attr-defined]
+    figsize = tuple(x / IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name].size)
 
     # ポーリングスレッドを起動（まだ起動していない場合）
     _start_result_checker_thread()
@@ -2091,13 +2093,14 @@ if __name__ == "__main__":
         set_font(config["font"])
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=5) as executor:
-            for graph_def in GRAPH_DEF_MAP.values():
-                figsize = tuple(x / IMAGE_DPI for x in graph_def["size"])
-                graph_def["future"] = executor.submit(graph_def["func"], data, figsize)
+            futures: dict[str, concurrent.futures.Future] = {}
+            for graph_name, graph_def in GRAPH_DEF_MAP.items():
+                figsize = tuple(x / IMAGE_DPI for x in graph_def.size)
+                futures[graph_name] = executor.submit(graph_def.func, data, figsize)
 
             for graph_name, graph_def in GRAPH_DEF_MAP.items():
-                img, elapsed = graph_def["future"].result()
-                img.save(graph_def["file"])
+                img, elapsed = futures[graph_name].result()
+                img.save(graph_def.file)
 
                 logging.info("elapsed time: %s = %.3f sec", graph_name, elapsed)
 
