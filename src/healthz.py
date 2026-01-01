@@ -55,7 +55,7 @@ if __name__ == "__main__":
     logging.info("Mode: %s", mode)
 
     if mode == "COL":
-        conf_list = ["collector"]
+        conf_list = ["collector", "receiver"]
         port = None
     else:
         conf_list = []
