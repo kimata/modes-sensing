@@ -14,17 +14,18 @@ from __future__ import annotations
 
 import datetime
 import logging
+import pathlib
 import queue
 import time
 from typing import TYPE_CHECKING, Any
 
 import my_lib.footprint
+import my_lib.notify.slack
 import my_lib.sqlite_util
 
 from modes.database_postgresql import DataRangeResult, MeasurementData
 
 if TYPE_CHECKING:
-    import pathlib
     import sqlite3
 
 
@@ -71,14 +72,25 @@ def insert(sqlite: sqlite3.Connection, data: MeasurementData) -> None:
 
 def store_queue(
     sqlite: sqlite3.Connection,
-    queue: queue.Queue[MeasurementData],
+    data_queue: queue.Queue[MeasurementData],
     liveness_file: pathlib.Path,
+    slack_config: my_lib.notify.slack.SlackConfigTypes,
     count: int = 0,
 ) -> None:
+    """データベースへのデータ格納を行うワーカー関数
+
+    Args:
+        sqlite: SQLite接続
+        data_queue: 測定データのキュー
+        liveness_file: ヘルスチェック用ファイルパス
+        slack_config: Slack通知設定
+        count: 処理するデータ数（0の場合は無制限）
+
+    """
     i = 0
     try:
         while True:
-            data = queue.get()
+            data = data_queue.get()
             insert(sqlite, data)
             my_lib.footprint.update(liveness_file)
 
@@ -88,6 +100,11 @@ def store_queue(
     except Exception:
         sqlite.close()
         logging.exception("Database error occurred")
+        my_lib.notify.slack.error(
+            slack_config,
+            "データベースエラー",
+            "SQLiteデータベースへの保存中にエラーが発生しました",
+        )
 
 
 def fetch_by_time(
@@ -332,12 +349,15 @@ def fetch_data_range(conn: sqlite3.Connection) -> DataRangeResult:
         return DataRangeResult(earliest=None, latest=None, count=0)
 
 
+SCHEMA_CONFIG = "config.schema"
+
 if __name__ == "__main__":
     import docopt
     import my_lib.config
     import my_lib.logger
 
     import modes.receiver
+    from modes.config import load_from_dict
 
     args = docopt.docopt(__doc__)
 
@@ -346,17 +366,15 @@ if __name__ == "__main__":
 
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
-    config = my_lib.config.load(config_file)
+    config_dict = my_lib.config.load(config_file, pathlib.Path(SCHEMA_CONFIG))
+    config = load_from_dict(config_dict, pathlib.Path.cwd())
 
     measurement_queue = queue.Queue()
 
-    modes.receiver.start(
-        config["modes"]["decoder"]["host"],
-        config["modes"]["decoder"]["port"],
-        measurement_queue,
-        config["filter"]["area"],
+    modes.receiver.start(config, measurement_queue)
+
+    sqlite = open(pathlib.Path(config_dict["database"]["path"]))
+
+    store_queue(
+        sqlite, measurement_queue, pathlib.Path(config_dict["liveness"]["file"]["collector"]), config.slack
     )
-
-    sqlite = open(config["database"]["path"])
-
-    store_queue(sqlite, measurement_queue, config["liveness"]["file"]["collector"])
