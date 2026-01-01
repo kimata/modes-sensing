@@ -118,6 +118,21 @@
                 "file"
             ]
         },
+        "webapp": {
+            "type": "object",
+            "properties": {
+                "static_dir_path": {
+                    "type": "string"
+                },
+                "cache_dir_path": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "static_dir_path",
+                "cache_dir_path"
+            ]
+        },
         "slack": {
             "type": "object",
             "properties": {
@@ -207,6 +222,7 @@
     "required": [
         "database",
         "filter",
-        "modes"
+        "modes",
+        "webapp"
     ]
 }
