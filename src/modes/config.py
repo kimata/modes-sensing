@@ -71,6 +71,7 @@ class WebappConfig:
     """Webアプリケーション設定"""
 
     static_dir_path: str
+    cache_dir_path: pathlib.Path
 
 
 @dataclass(frozen=True)
@@ -156,6 +157,7 @@ def load_from_dict(config_dict: dict[str, Any], base_dir: pathlib.Path) -> Confi
         ),
         webapp=WebappConfig(
             static_dir_path=config_dict["webapp"]["static_dir_path"],
+            cache_dir_path=pathlib.Path(config_dict["webapp"]["cache_dir_path"]),
         ),
         liveness=LivenessConfig(
             file=LivenessFileConfig(
