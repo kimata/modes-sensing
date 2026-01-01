@@ -197,6 +197,7 @@ class TestGraphCache:
             filename = modes.webui.api.graph.save_to_cache(
                 cache_dir, "scatter_2d", time_start, time_end, False, test_data
             )
+            assert filename is not None
             cache_file = cache_dir / filename
 
             # ファイルの更新時刻を TTL + 1秒前に設定
