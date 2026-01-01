@@ -593,6 +593,353 @@ def fetch_by_time(  # noqa: PLR0913
         return data
 
 
+def fetch_by_time_numpy(  # noqa: PLR0913
+    conn: PgConnection,
+    time_start: datetime.datetime,
+    time_end: datetime.datetime,
+    distance: float,
+    max_altitude: float | None = None,
+    include_wind: bool = False,
+) -> dict[str, Any]:
+    """
+    指定された時間範囲と距離でデータをNumPy配列として取得する（高速版）
+
+    RealDictCursor を使わず、タプル形式で取得してNumPy配列に直接変換することで
+    大量データの取得を高速化する。ORDER BY も省略してパフォーマンスを向上。
+
+    Args:
+        conn: データベース接続
+        time_start: 開始時刻
+        time_end: 終了時刻
+        distance: 距離フィルタ
+        max_altitude: 最大高度フィルタ（Noneの場合はフィルタなし）
+        include_wind: 風データを含めるか
+
+    Returns:
+        NumPy配列を含む辞書:
+        {
+            "time": numpy.ndarray,
+            "altitude": numpy.ndarray,
+            "temperature": numpy.ndarray,
+            "wind_x": numpy.ndarray (include_wind=True時のみ),
+            "wind_y": numpy.ndarray (include_wind=True時のみ),
+            "wind_speed": numpy.ndarray (include_wind=True時のみ),
+            "wind_angle": numpy.ndarray (include_wind=True時のみ),
+            "count": int,
+        }
+
+    """
+    import numpy  # noqa: ICN001
+
+    # カラム選択
+    if include_wind:
+        columns = "time, altitude, temperature, wind_x, wind_y, wind_speed, wind_angle"
+        col_count = 7
+    else:
+        columns = "time, altitude, temperature"
+        col_count = 3
+
+    start = time.perf_counter()
+    with conn.cursor() as cur:
+        # ORDER BY を省略（グラフ描画には時間順序が不要）
+        if max_altitude is not None:
+            query = (
+                f"SELECT {columns} FROM meteorological_data "  # noqa: S608
+                f"WHERE time >= %s AND time <= %s AND distance <= %s "
+                f"AND altitude IS NOT NULL AND altitude <= %s"
+            )
+            cur.execute(
+                query,
+                (
+                    time_start.replace(tzinfo=None),
+                    time_end.replace(tzinfo=None),
+                    distance,
+                    max_altitude,
+                ),
+            )
+        else:
+            query = (
+                f"SELECT {columns} FROM meteorological_data "  # noqa: S608
+                f"WHERE time >= %s AND time <= %s AND distance <= %s "
+                f"AND altitude IS NOT NULL"
+            )
+            cur.execute(
+                query,
+                (
+                    time_start.replace(tzinfo=None),
+                    time_end.replace(tzinfo=None),
+                    distance,
+                ),
+            )
+
+        # タプル形式で全データ取得
+        rows = cur.fetchall()
+        row_count = len(rows)
+
+        if row_count == 0:
+            result: dict[str, Any] = {
+                "time": numpy.array([], dtype="datetime64[us]"),
+                "altitude": numpy.array([], dtype=numpy.float64),
+                "temperature": numpy.array([], dtype=numpy.float64),
+                "count": 0,
+            }
+            if include_wind:
+                result["wind_x"] = numpy.array([], dtype=numpy.float64)
+                result["wind_y"] = numpy.array([], dtype=numpy.float64)
+                result["wind_speed"] = numpy.array([], dtype=numpy.float64)
+                result["wind_angle"] = numpy.array([], dtype=numpy.float64)
+            return result
+
+        # タプルのリストからNumPy配列に一括変換
+        # 時間、高度、温度を事前確保した配列に直接書き込み
+        times = numpy.empty(row_count, dtype="datetime64[us]")
+        altitudes = numpy.empty(row_count, dtype=numpy.float64)
+        temperatures = numpy.empty(row_count, dtype=numpy.float64)
+
+        if include_wind:
+            wind_x = numpy.empty(row_count, dtype=numpy.float64)
+            wind_y = numpy.empty(row_count, dtype=numpy.float64)
+            wind_speed = numpy.empty(row_count, dtype=numpy.float64)
+            wind_angle = numpy.empty(row_count, dtype=numpy.float64)
+
+            for i, row in enumerate(rows):
+                times[i] = row[0]
+                altitudes[i] = row[1] if row[1] is not None else numpy.nan
+                temperatures[i] = row[2] if row[2] is not None else numpy.nan
+                wind_x[i] = row[3] if row[3] is not None else numpy.nan
+                wind_y[i] = row[4] if row[4] is not None else numpy.nan
+                wind_speed[i] = row[5] if row[5] is not None else numpy.nan
+                wind_angle[i] = row[6] if row[6] is not None else numpy.nan
+
+            logging.info(
+                "Elapsed time: %.2f sec (numpy fetch, %d columns, %s rows)",
+                time.perf_counter() - start,
+                col_count,
+                f"{row_count:,}",
+            )
+            return {
+                "time": times,
+                "altitude": altitudes,
+                "temperature": temperatures,
+                "count": row_count,
+                "wind_x": wind_x,
+                "wind_y": wind_y,
+                "wind_speed": wind_speed,
+                "wind_angle": wind_angle,
+            }
+
+        for i, row in enumerate(rows):
+            times[i] = row[0]
+            altitudes[i] = row[1] if row[1] is not None else numpy.nan
+            temperatures[i] = row[2] if row[2] is not None else numpy.nan
+
+        logging.info(
+            "Elapsed time: %.2f sec (numpy fetch, %d columns, %s rows)",
+            time.perf_counter() - start,
+            col_count,
+            f"{row_count:,}",
+        )
+        return {
+            "time": times,
+            "altitude": altitudes,
+            "temperature": temperatures,
+            "count": row_count,
+        }
+
+
+def fetch_aggregated_numpy(
+    conn: PgConnection,
+    time_start: datetime.datetime,
+    time_end: datetime.datetime,
+    max_altitude: float | None = None,
+    include_wind: bool = False,
+) -> dict[str, Any]:
+    """
+    期間に応じて適切な集約レベルのデータをNumPy配列として取得する（高速版）
+
+    Args:
+        conn: データベース接続
+        time_start: 開始時刻
+        time_end: 終了時刻
+        max_altitude: 最大高度フィルタ（Noneの場合はフィルタなし）
+        include_wind: 風データを含めるか
+
+    Returns:
+        NumPy配列を含む辞書（fetch_by_time_numpy と同じ形式）
+
+    """
+    import numpy  # noqa: ICN001
+
+    days = (time_end - time_start).total_seconds() / 86400
+    level = get_aggregation_level(days)
+
+    logging.info(
+        "Using aggregation level: %s (period: %.1f days, interval: %s, altitude_bin: %dm)",
+        level.table,
+        days,
+        level.time_interval,
+        level.altitude_bin,
+    )
+
+    # 生データの場合は既存の関数を使用
+    if level.table == "meteorological_data":
+        return fetch_by_time_numpy(
+            conn,
+            time_start,
+            time_end,
+            distance=100,
+            max_altitude=max_altitude,
+            include_wind=include_wind,
+        )
+
+    # マテリアライズドビューが存在するか確認
+    view_exists = check_materialized_views_exist(conn)
+    if not view_exists.get(level.table, False):
+        logging.warning(
+            "Materialized view %s does not exist, falling back to raw data",
+            level.table,
+        )
+        return fetch_by_time_numpy(
+            conn,
+            time_start,
+            time_end,
+            distance=100,
+            max_altitude=max_altitude,
+            include_wind=include_wind,
+        )
+
+    # カラム選択
+    if include_wind:
+        columns = "time, altitude, temperature, wind_x, wind_y, wind_speed, wind_angle"
+        col_count = 7
+    else:
+        columns = "time, altitude, temperature"
+        col_count = 3
+
+    start = time.perf_counter()
+    try:
+        with conn.cursor() as cur:
+            if max_altitude is not None:
+                query = f"""
+                    SELECT {columns}
+                    FROM {level.table}
+                    WHERE time_bucket >= %s
+                      AND time_bucket <= %s
+                      AND altitude <= %s
+                """  # noqa: S608
+                cur.execute(
+                    query,
+                    (
+                        time_start.replace(tzinfo=None),
+                        time_end.replace(tzinfo=None),
+                        max_altitude,
+                    ),
+                )
+            else:
+                query = f"""
+                    SELECT {columns}
+                    FROM {level.table}
+                    WHERE time_bucket >= %s
+                      AND time_bucket <= %s
+                """  # noqa: S608
+                cur.execute(
+                    query,
+                    (
+                        time_start.replace(tzinfo=None),
+                        time_end.replace(tzinfo=None),
+                    ),
+                )
+
+            rows = cur.fetchall()
+            row_count = len(rows)
+
+            if row_count == 0:
+                logging.warning(
+                    "No data in materialized view %s, falling back to raw data",
+                    level.table,
+                )
+                return fetch_by_time_numpy(
+                    conn,
+                    time_start,
+                    time_end,
+                    distance=100,
+                    max_altitude=max_altitude,
+                    include_wind=include_wind,
+                )
+
+            # タプルからNumPy配列に変換
+            times = numpy.empty(row_count, dtype="datetime64[us]")
+            altitudes = numpy.empty(row_count, dtype=numpy.float64)
+            temperatures = numpy.empty(row_count, dtype=numpy.float64)
+
+            if include_wind:
+                wind_x = numpy.empty(row_count, dtype=numpy.float64)
+                wind_y = numpy.empty(row_count, dtype=numpy.float64)
+                wind_speed = numpy.empty(row_count, dtype=numpy.float64)
+                wind_angle = numpy.empty(row_count, dtype=numpy.float64)
+
+                for i, row in enumerate(rows):
+                    times[i] = row[0]
+                    altitudes[i] = row[1] if row[1] is not None else numpy.nan
+                    temperatures[i] = row[2] if row[2] is not None else numpy.nan
+                    wind_x[i] = row[3] if row[3] is not None else numpy.nan
+                    wind_y[i] = row[4] if row[4] is not None else numpy.nan
+                    wind_speed[i] = row[5] if row[5] is not None else numpy.nan
+                    wind_angle[i] = row[6] if row[6] is not None else numpy.nan
+
+                logging.info(
+                    "Elapsed time: %.2f sec (numpy sampled from %s, %d columns, %s rows)",
+                    time.perf_counter() - start,
+                    level.table,
+                    col_count,
+                    f"{row_count:,}",
+                )
+                return {
+                    "time": times,
+                    "altitude": altitudes,
+                    "temperature": temperatures,
+                    "count": row_count,
+                    "wind_x": wind_x,
+                    "wind_y": wind_y,
+                    "wind_speed": wind_speed,
+                    "wind_angle": wind_angle,
+                }
+
+            for i, row in enumerate(rows):
+                times[i] = row[0]
+                altitudes[i] = row[1] if row[1] is not None else numpy.nan
+                temperatures[i] = row[2] if row[2] is not None else numpy.nan
+
+            logging.info(
+                "Elapsed time: %.2f sec (numpy sampled from %s, %d columns, %s rows)",
+                time.perf_counter() - start,
+                level.table,
+                col_count,
+                f"{row_count:,}",
+            )
+            return {
+                "time": times,
+                "altitude": altitudes,
+                "temperature": temperatures,
+                "count": row_count,
+            }
+
+    except psycopg2.Error as e:
+        logging.warning(
+            "Error fetching from materialized view %s: %s, falling back to raw data",
+            level.table,
+            str(e),
+        )
+        return fetch_by_time_numpy(
+            conn,
+            time_start,
+            time_end,
+            distance=100,
+            max_altitude=max_altitude,
+            include_wind=include_wind,
+        )
+
+
 def fetch_latest(
     conn: PgConnection,
     limit: int,
