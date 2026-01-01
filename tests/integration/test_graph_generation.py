@@ -61,16 +61,17 @@ class TestGraphGeneration:
         modes.webui.api.graph.set_font(config_dict["font"])
 
         for graph_name, graph_def in modes.webui.api.graph.GRAPH_DEF_MAP.items():
-            graph_def["future"] = graph_def["func"](
-                data, tuple(x / modes.webui.api.graph.IMAGE_DPI for x in graph_def["size"])
+            # 直接関数を呼び出してテスト
+            _img, _elapsed = graph_def.func(
+                data, tuple(x / modes.webui.api.graph.IMAGE_DPI for x in graph_def.size)
             )
 
             png_data = modes.webui.api.graph.plot(config_dict, graph_name, time_start, time_end)
 
             with PIL.Image.open(io.BytesIO(png_data)) as img:
                 img.verify()
-                assert img.width == graph_def["size"][0]
-                assert img.height == graph_def["size"][1]
+                assert img.width == graph_def.size[0]
+                assert img.height == graph_def.size[1]
 
     def test_graph_generation_with_date_range(self, config_dict: dict):
         """特定の日付範囲でのグラフ生成をテスト"""
@@ -87,7 +88,7 @@ class TestGraphGeneration:
             with PIL.Image.open(io.BytesIO(png_data)) as img:
                 img.verify()
 
-                expected_size = modes.webui.api.graph.GRAPH_DEF_MAP["scatter_2d"]["size"]
+                expected_size = modes.webui.api.graph.GRAPH_DEF_MAP["scatter_2d"].size
                 assert img.width == expected_size[0]
                 assert img.height == expected_size[1]
 
@@ -126,13 +127,13 @@ class TestLimitAltitude:
         # PNG画像として正常に生成されていることを確認
         with PIL.Image.open(io.BytesIO(png_data_unlimited)) as img:
             img.verify()
-            expected_size = modes.webui.api.graph.GRAPH_DEF_MAP["scatter_2d"]["size"]
+            expected_size = modes.webui.api.graph.GRAPH_DEF_MAP["scatter_2d"].size
             assert img.width == expected_size[0]
             assert img.height == expected_size[1]
 
         with PIL.Image.open(io.BytesIO(png_data_limited)) as img:
             img.verify()
-            expected_size = modes.webui.api.graph.GRAPH_DEF_MAP["scatter_2d"]["size"]
+            expected_size = modes.webui.api.graph.GRAPH_DEF_MAP["scatter_2d"].size
             assert img.width == expected_size[0]
             assert img.height == expected_size[1]
 
