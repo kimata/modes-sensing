@@ -27,6 +27,7 @@ font:
 
 webapp:
     static_dir_path: react/dist
+    cache_dir_path: cache
 
 liveness:
     file:
