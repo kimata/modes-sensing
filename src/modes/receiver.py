@@ -16,6 +16,7 @@ from __future__ import annotations
 import collections
 import logging
 import math
+import pathlib
 import queue
 import socket
 import threading
@@ -29,9 +30,8 @@ import numpy as np
 
 if TYPE_CHECKING:
     import multiprocessing
-    import pathlib
 
-    from modes.config import Area
+    from modes.config import Area, Config
 
 import numpy.typing as npt
 import pyModeS
@@ -61,6 +61,7 @@ class MessageFragment(TypedDict, total=False):
     bsd50: tuple[float | None, float | None, float | None]
     bsd60: tuple[float | None, float | None, float | None]
 
+
 FRAGMENT_BUF_SIZE: int = 100
 
 # 再接続設定
@@ -73,8 +74,8 @@ fragment_list: list[MessageFragment] = []
 
 should_terminate = threading.Event()
 
-# receiver専用Livenessファイルパス
-_receiver_liveness_file: pathlib.Path | None = None
+# receiver専用Livenessファイルパス（start()で設定される）
+_receiver_liveness_file: pathlib.Path = pathlib.Path()
 
 # Slack通知設定
 _slack_config: my_lib.notify.slack.SlackConfigTypes = my_lib.notify.slack.SlackEmptyConfig()
@@ -168,6 +169,7 @@ def calc_meteorological_data(  # noqa: PLR0913
     heading: float,
     indicatedair: float,  # noqa: ARG001
     mach: float,
+    distance: float,
 ) -> MeteorologicalData:
     altitude *= 0.3048  # 単位換算: feet →  mete
     groundspeed *= 0.514  # 単位換算: knot → m/s
@@ -193,6 +195,7 @@ def calc_meteorological_data(  # noqa: PLR0913
         longitude=longitude,
         temperature=temperature,
         wind=wind,
+        distance=distance,
     )
 
 
@@ -251,7 +254,7 @@ def detect_outlier_by_altitude_neighbors(  # noqa: PLR0913
     temperature: float,
     altitudes: npt.NDArray[np.floating[Any]],
     temperatures: npt.NDArray[np.floating[Any]],
-    callsign: str | None = None,
+    callsign: str,
     n_neighbors: int = 200,
     deviation_threshold: float = 20,
     sigma_threshold: float = 4,
@@ -341,7 +344,7 @@ def detect_outlier_by_altitude_neighbors(  # noqa: PLR0913
 def is_outlier_data(
     temperature: float,
     altitude: float,
-    callsign: str | None = None,
+    callsign: str,
 ) -> bool:
     """
     高度-温度相関を考慮してaltitudeとtemperatureのペアが外れ値かどうかを判定
@@ -451,9 +454,8 @@ def _process_complete_fragment(
         *fragment["adsb_pos"],
         *fragment["bsd50"],
         *fragment["bsd60"],
+        distance,
     )
-    meteorological_data.distance = distance
-    meteorological_data.method = "mode-s"
 
     # 温度異常値は外れ値検出の対象外
     if meteorological_data.temperature < -100:
@@ -529,9 +531,7 @@ def _process_adsb_position(
     if altitude == 0:
         return
 
-    latitude, longitude = pyModeS.adsb.position_with_ref(
-        message, area_config.lat.ref, area_config.lon.ref
-    )
+    latitude, longitude = pyModeS.adsb.position_with_ref(message, area_config.lat.ref, area_config.lon.ref)
     message_pairing(icao, "adsb_pos", (altitude, latitude, longitude), data_queue, area_config)
 
 
@@ -632,8 +632,7 @@ def _process_socket_messages(
             process_message(line, data_queue, area_config)
 
             # データ受信成功時にLivenessファイル更新
-            if _receiver_liveness_file is not None:
-                my_lib.footprint.update(_receiver_liveness_file)
+            my_lib.footprint.update(_receiver_liveness_file)
 
         except Exception:
             logging.exception("メッセージ処理に失敗しました")
@@ -724,34 +723,33 @@ def init(data: list[HistoryData]) -> None:
     meteorological_history.extend(data)
 
 
-def start(  # noqa: PLR0913
-    host: str,
-    port: int,
+def start(
+    config: Config,
     data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
-    area: Area,
-    liveness_file: pathlib.Path | None = None,
-    slack_config: my_lib.notify.slack.SlackConfigTypes | None = None,
 ) -> threading.Thread:
     """receiverワーカースレッドを開始する
 
     Args:
-        host: 接続先ホスト
-        port: 接続先ポート
+        config: アプリケーション設定
         data_queue: データを送信するキュー
-        area: エリア設定
-        liveness_file: receiver専用Livenessファイルパス（オプション）
-        slack_config: Slack通知設定（オプション）
 
     Returns:
         開始されたスレッド
 
     """
     global _receiver_liveness_file, _slack_config  # noqa: PLW0603
-    _receiver_liveness_file = liveness_file
-    if slack_config is not None:
-        _slack_config = slack_config
+    _receiver_liveness_file = config.liveness.file.receiver
+    _slack_config = config.slack
 
-    thread = threading.Thread(target=worker, args=(host, port, data_queue, area))
+    thread = threading.Thread(
+        target=worker,
+        args=(
+            config.modes.decoder.host,
+            config.modes.decoder.port,
+            data_queue,
+            config.filter.area,
+        ),
+    )
     thread.start()
 
     return thread

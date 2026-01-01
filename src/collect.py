@@ -23,11 +23,10 @@ if TYPE_CHECKING:
     from types import FrameType
 
 import my_lib.footprint
-import my_lib.notify.slack
 
 import modes.database_postgresql
 import modes.receiver
-from modes.config import AppConfig
+from modes.config import Config
 from modes.database_postgresql import DBConfig
 
 SCHEMA_CONFIG = "config.schema"
@@ -42,9 +41,8 @@ def sig_handler(num: int, _: FrameType | None) -> None:
 
 
 def execute(
-    config: AppConfig,
+    config: Config,
     liveness_file: pathlib.Path,
-    slack_config: my_lib.notify.slack.SlackConfigTypes,
     count: int = 0,
 ) -> None:
     signal.signal(signal.SIGTERM, sig_handler)
@@ -91,14 +89,7 @@ def execute(
         logging.warning("履歴データの取得に失敗しました: %s", e)
         # エラーが発生しても処理を継続
 
-    modes.receiver.start(
-        config.modes.decoder.host,
-        config.modes.decoder.port,
-        measurement_queue,
-        config.filter.area,
-        liveness_file=config.liveness.file.receiver,
-        slack_config=slack_config,
-    )
+    modes.receiver.start(config, measurement_queue)
 
     db_config = DBConfig(
         host=config.database.host,
@@ -135,7 +126,6 @@ if __name__ == "__main__":
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
     config_dict = my_lib.config.load(config_file, pathlib.Path(SCHEMA_CONFIG))
-    config = load_from_dict(config_dict)
-    slack_config = my_lib.notify.slack.parse_config(config_dict.get("slack", {}))
+    config = load_from_dict(config_dict, pathlib.Path.cwd())
 
-    execute(config, config.liveness.file.collector, slack_config, count)
+    execute(config, config.liveness.file.collector, count)
