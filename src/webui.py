@@ -25,6 +25,8 @@ import my_lib.config
 import my_lib.logger
 import my_lib.proc_util
 
+import modes.config
+
 if TYPE_CHECKING:
     from types import FrameType
 
@@ -47,14 +49,14 @@ def sig_handler(num: int, frame: FrameType | None) -> None:  # noqa: ARG001
         term()
 
 
-def create_app(config: dict[str, Any]) -> flask.Flask:
+def create_app(config: modes.config.Config, config_dict: dict[str, Any]) -> flask.Flask:
     # NOTE: アクセスログは無効にする
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
     import my_lib.webapp.config
 
     my_lib.webapp.config.URL_PREFIX = "/modes-sensing"
-    my_lib.webapp.config.init(config)
+    my_lib.webapp.config.init(config_dict)
 
     import my_lib.webapp.base
     import my_lib.webapp.util
@@ -93,9 +95,10 @@ if __name__ == "__main__":
 
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
-    config = my_lib.config.load(config_file, pathlib.Path(SCHEMA_CONFIG))
+    config_dict = my_lib.config.load(config_file, pathlib.Path(SCHEMA_CONFIG))
+    config = modes.config.load_from_dict(config_dict, pathlib.Path.cwd())
 
-    app = create_app(config)
+    app = create_app(config, config_dict)
 
     # プロセスグループリーダーとして実行（リローダープロセスの適切な管理のため）
     with contextlib.suppress(PermissionError):
