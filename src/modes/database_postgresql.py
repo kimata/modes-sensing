@@ -13,7 +13,6 @@ Options:
 from __future__ import annotations
 
 import contextlib
-import datetime
 import logging
 import pathlib
 import queue
@@ -23,13 +22,23 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import my_lib.footprint
+import my_lib.time
 import psycopg2
 import psycopg2.extras
 
 if TYPE_CHECKING:
+    import datetime
     import multiprocessing
 
     from psycopg2.extensions import connection as PgConnection  # noqa: N812
+
+
+class ReconnectError(Exception):
+    """データベース再接続に失敗した場合の例外"""
+
+
+class TerminationRequestedError(Exception):
+    """終了が要求された場合の例外"""
 
 
 @dataclass(frozen=True)
@@ -63,8 +72,8 @@ class MeasurementData:
     longitude: float
     temperature: float
     wind: WindData
-    distance: float | None = None
-    method: str | None = None
+    distance: float
+    method: str = "mode-s"
 
 
 @dataclass(frozen=True)
@@ -279,14 +288,12 @@ def open(host: str, port: int, database: str, user: str, password: str) -> PgCon
 
 def insert(conn: PgConnection, data: MeasurementData) -> None:
     with conn.cursor() as cur:
-        # CURRENT_TIMESTAMPではなくPython側で時刻を生成することで、
-        # アプリケーションコンテナのタイムゾーン設定（TZ=Asia/Tokyo）が確実に適用される
         cur.execute(
             "INSERT INTO meteorological_data (time, callsign, distance, altitude, latitude, longitude, "
             "temperature, wind_x, wind_y, wind_angle, wind_speed, method) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
-                datetime.datetime.now(),
+                my_lib.time.now(),
                 data.callsign,
                 data.distance,
                 data.altitude,
@@ -302,19 +309,23 @@ def insert(conn: PgConnection, data: MeasurementData) -> None:
         )
 
 
-def _attempt_reconnect(db_config: DBConfig) -> PgConnection | None:
+def _attempt_reconnect(db_config: DBConfig) -> PgConnection:
     """データベースへの再接続を試行する
 
     Args:
         db_config: データベース接続設定
 
     Returns:
-        再接続成功時は新しい接続、失敗時はNone
+        再接続成功時は新しい接続
+
+    Raises:
+        TerminationRequestedError: 終了が要求された場合
+        ReconnectError: すべての再接続試行に失敗した場合
 
     """
     for attempt in range(1, MAX_RECONNECT_RETRIES + 1):
         if should_terminate.is_set():
-            return None
+            raise TerminationRequestedError("終了が要求されました")
 
         logging.warning(
             "再接続を試行します（%d/%d回目、%.1f秒待機）...",
@@ -337,8 +348,9 @@ def _attempt_reconnect(db_config: DBConfig) -> PgConnection | None:
         except Exception:
             logging.exception("再接続に失敗しました（%d回目）", attempt)
 
-    logging.error("すべての再接続試行（%d回）に失敗しました", MAX_RECONNECT_RETRIES)
-    return None
+    error_message = f"すべての再接続試行（{MAX_RECONNECT_RETRIES}回）に失敗しました"
+    logging.error(error_message)
+    raise ReconnectError(error_message)
 
 
 class _StoreState:
@@ -437,11 +449,10 @@ def _handle_db_error(
     with contextlib.suppress(Exception):
         state.conn.close()
 
-    new_conn = _attempt_reconnect(db_config)
-    if new_conn:
-        state.conn = new_conn
+    try:
+        state.conn = _attempt_reconnect(db_config)
         state.reset_errors()
-    else:
+    except (ReconnectError, TerminationRequestedError):
         state.should_stop = True
 
 
