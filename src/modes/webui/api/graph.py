@@ -687,10 +687,9 @@ def prepare_data_numpy(numpy_data: dict) -> dict:
     clean_temperatures = numpy.ascontiguousarray(temperatures[valid_mask])
 
     # datetime64[us] から matplotlib の date number に変換（ベクトル化）
-    # matplotlib の date number は 0001-01-01 からの日数
+    # matplotlib 3.3以降: date number のエポックは 1970-01-01 = 0.0
     # numpy の datetime64[us] は 1970-01-01 からのマイクロ秒
-    # 719163 は 1970-01-01 の matplotlib date number
-    time_numeric = clean_times.astype("float64") / (86400 * 1e6) + 719163.0
+    time_numeric = clean_times.astype("float64") / (86400 * 1e6)
     time_numeric = numpy.ascontiguousarray(time_numeric)
 
     # 風データの処理
