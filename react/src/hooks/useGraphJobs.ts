@@ -33,6 +33,8 @@ export interface GraphJob {
   elapsedSeconds: number | null
   stage: string | null
   startTime: number | null  // ジョブ開始時刻（Date.now()）
+  retryCount: number        // リトライ回数（0: 未リトライ、1: 1回リトライ済み）
+  isRetrying: boolean       // 自動リトライ中かどうか
 }
 
 interface UseGraphJobsOptions {
@@ -64,6 +66,7 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
   const pollingRef = useRef<number | null>(null)
   const jobIdsRef = useRef<string[]>([])
   const mountedRef = useRef(true)
+  const pendingRetriesRef = useRef<string[]>([])  // 自動リトライ待ちのグラフ名
 
   // ポーリングを停止
   const stopPolling = useCallback(() => {
@@ -97,6 +100,7 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
         const updated = { ...prev }
         let allCompleted = true
         const completedJobIds: string[] = []
+        const retryTargets: string[] = []
 
         Object.entries(data.jobs).forEach(([jobId, status]) => {
           const graphName = Object.keys(updated).find(
@@ -107,6 +111,13 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
             const isCompleted = status.status === 'completed' ||
                                status.status === 'failed' ||
                                status.status === 'timeout'
+            const isFailed = status.status === 'failed' || status.status === 'timeout'
+            const currentJob = updated[graphName]
+
+            // 失敗かつ未リトライの場合、自動リトライ対象に追加
+            if (isFailed && currentJob.retryCount === 0) {
+              retryTargets.push(graphName)
+            }
 
             updated[graphName] = {
               ...updated[graphName],
@@ -128,6 +139,11 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
           }
         })
 
+        // 自動リトライ対象があれば登録
+        if (retryTargets.length > 0) {
+          pendingRetriesRef.current = [...pendingRetriesRef.current, ...retryTargets]
+        }
+
         // 完了したジョブをポーリング対象から除外
         if (completedJobIds.length > 0) {
           jobIdsRef.current = jobIdsRef.current.filter(
@@ -135,8 +151,8 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
           )
         }
 
-        // 全て完了したらポーリング停止
-        if (allCompleted) {
+        // 全て完了したらポーリング停止（リトライ対象がない場合のみ）
+        if (allCompleted && retryTargets.length === 0) {
           stopPolling()
           setIsLoading(false)
         }
@@ -203,7 +219,9 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
           resultUrl: null,
           elapsedSeconds: null,
           stage: null,
-          startTime: now
+          startTime: now,
+          retryCount: 0,
+          isRetrying: false
         }
         newJobIds.push(job.job_id)
       })
@@ -220,8 +238,22 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
     }
   }, [dateRange, limitAltitude, graphs, enabled, stopPolling, startPolling])
 
-  // 単一ジョブをリロード
-  const reloadJob = useCallback(async (graphName: string) => {
+  // 単一ジョブをリロード（isAutoRetry: 自動リトライかどうか）
+  const reloadJob = useCallback(async (graphName: string, isAutoRetry: boolean = false) => {
+    // 自動リトライの場合、先にisRetryingフラグを設定
+    if (isAutoRetry) {
+      setJobs(prev => ({
+        ...prev,
+        [graphName]: {
+          ...prev[graphName],
+          isRetrying: true,
+          status: 'pending',
+          progress: 0,
+          error: null
+        }
+      }))
+    }
+
     try {
       const response = await fetch('/modes-sensing/api/graph/job', {
         method: 'POST',
@@ -243,20 +275,25 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
       if (data.jobs.length > 0) {
         const newJob = data.jobs[0]
 
-        setJobs(prev => ({
-          ...prev,
-          [graphName]: {
-            jobId: newJob.job_id,
-            graphName,
-            status: 'pending',
-            progress: 0,
-            error: null,
-            resultUrl: null,
-            elapsedSeconds: null,
-            stage: null,
-            startTime: Date.now()
+        setJobs(prev => {
+          const prevJob = prev[graphName]
+          return {
+            ...prev,
+            [graphName]: {
+              jobId: newJob.job_id,
+              graphName,
+              status: 'pending',
+              progress: 0,
+              error: null,
+              resultUrl: null,
+              elapsedSeconds: null,
+              stage: null,
+              startTime: Date.now(),
+              retryCount: isAutoRetry ? (prevJob?.retryCount ?? 0) + 1 : 0,
+              isRetrying: isAutoRetry
+            }
           }
-        }))
+        })
 
         // ポーリング対象に追加
         jobIdsRef.current = [...jobIdsRef.current, newJob.job_id]
@@ -269,6 +306,18 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
       }
     } catch (error) {
       console.error('Failed to reload job:', error)
+      // リトライ自体が失敗した場合もエラー状態にする
+      if (isAutoRetry) {
+        setJobs(prev => ({
+          ...prev,
+          [graphName]: {
+            ...prev[graphName],
+            status: 'failed',
+            error: '接続エラー',
+            isRetrying: false
+          }
+        }))
+      }
     }
   }, [dateRange, limitAltitude, startPolling])
 
@@ -276,6 +325,19 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
   const reloadAll = useCallback(async () => {
     await createJobs()
   }, [createJobs])
+
+  // 自動リトライを処理
+  useEffect(() => {
+    if (pendingRetriesRef.current.length === 0) return
+
+    const retryTargets = [...pendingRetriesRef.current]
+    pendingRetriesRef.current = []
+
+    // 各リトライ対象を自動リトライ
+    retryTargets.forEach(graphName => {
+      reloadJob(graphName, true)
+    })
+  }, [jobs, reloadJob])
 
   // graphs配列の変更を検出（参照ではなく内容で比較）
   const graphsKey = graphs.join(',')
