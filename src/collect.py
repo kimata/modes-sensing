@@ -101,7 +101,7 @@ def execute(
 
     try:
         modes.database_postgresql.store_queue(
-            conn, measurement_queue, liveness_file, db_config, count
+            conn, measurement_queue, liveness_file, db_config, config.slack, count
         )
     except Exception:
         logging.exception("Failed to store data")

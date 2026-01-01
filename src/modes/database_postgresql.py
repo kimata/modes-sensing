@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import my_lib.footprint
+import my_lib.notify.slack
 import my_lib.time
 import psycopg2
 import psycopg2.extras
@@ -372,11 +373,12 @@ class _StoreState:
         return self.consecutive_errors >= self.max_consecutive_errors
 
 
-def store_queue(
+def store_queue(  # noqa: PLR0913
     conn: PgConnection,
     measurement_queue: multiprocessing.Queue[MeasurementData],
     liveness_file: pathlib.Path,
     db_config: DBConfig,
+    slack_config: my_lib.notify.slack.SlackConfigTypes,
     count: int = 0,
 ) -> None:
     """データベースへのデータ格納を行うワーカー関数
@@ -386,6 +388,7 @@ def store_queue(
         measurement_queue: 測定データのキュー
         liveness_file: ヘルスチェック用ファイルパス
         db_config: 再接続用のデータベース設定
+        slack_config: Slack通知設定
         count: 処理するデータ数（0の場合は無制限）
 
     """
@@ -403,10 +406,10 @@ def store_queue(
             continue
 
         except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-            _handle_db_error(state, e, db_config)
+            _handle_db_error(state, e, db_config, slack_config)
 
         except Exception:
-            _handle_unexpected_error(state)
+            _handle_unexpected_error(state, slack_config)
 
     with contextlib.suppress(Exception):
         state.conn.close()
@@ -431,6 +434,7 @@ def _handle_db_error(
     state: _StoreState,
     error: Exception,
     db_config: DBConfig,
+    slack_config: my_lib.notify.slack.SlackConfigTypes,
 ) -> None:
     """データベース接続エラーを処理する"""
     logging.error(
@@ -452,11 +456,19 @@ def _handle_db_error(
     try:
         state.conn = _attempt_reconnect(db_config)
         state.reset_errors()
-    except (ReconnectError, TerminationRequestedError):
+    except (ReconnectError, TerminationRequestedError) as e:
         state.should_stop = True
+        my_lib.notify.slack.error(
+            slack_config,
+            "データベース接続エラー",
+            f"データベースへの再接続に失敗しました。処理を終了します。\nエラー: {e}",
+        )
 
 
-def _handle_unexpected_error(state: _StoreState) -> None:
+def _handle_unexpected_error(
+    state: _StoreState,
+    slack_config: my_lib.notify.slack.SlackConfigTypes,
+) -> None:
     """予期しないエラーを処理する"""
     logging.exception(
         "データ保存ワーカーで予期しないエラーが発生しました（連続%d/%d回目）",
@@ -465,8 +477,14 @@ def _handle_unexpected_error(state: _StoreState) -> None:
     )
 
     if state.increment_errors():
-        logging.error("最大連続エラー数に達しました。処理を終了します")
+        error_message = "最大連続エラー数に達しました。処理を終了します"
+        logging.error(error_message)
         state.should_stop = True
+        my_lib.notify.slack.error(
+            slack_config,
+            "データ保存エラー",
+            f"{error_message}\n連続エラー回数: {state.consecutive_errors}",
+        )
 
 
 def store_term() -> None:
