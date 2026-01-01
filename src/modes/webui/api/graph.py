@@ -49,6 +49,8 @@ import PIL.ImageDraw
 import PIL.ImageFont
 import scipy.interpolate
 
+import modes.config
+
 import modes.database_postgresql
 from modes.webui.api.job_manager import JobManager, JobStatus
 
@@ -74,11 +76,11 @@ class PreparedData(TypedDict):
     dataframe: pandas.DataFrame | None
     count: int
 
-def get_font_config(config_dict: dict[str, Any]) -> my_lib.panel_config.FontConfig:
-    """辞書形式のフォント設定をFontConfigオブジェクトに変換する"""
+def get_font_config(font_config: modes.config.FontConfig) -> my_lib.panel_config.FontConfig:
+    """FontConfigをmy_lib.panel_config.FontConfigに変換する"""
     return my_lib.panel_config.FontConfig(
-        path=pathlib.Path(config_dict["path"]),
-        map=config_dict["map"],
+        path=font_config.path,
+        map=font_config.map,
     )
 
 
@@ -280,13 +282,13 @@ def _check_single_job(job_id: str, async_result: multiprocessing.pool.AsyncResul
         return True
 
 
-def connect_database(config: dict[str, Any]) -> PgConnection:
+def connect_database(config: modes.config.Config) -> PgConnection:
     return modes.database_postgresql.open(
-        config["database"]["host"],
-        config["database"]["port"],
-        config["database"]["name"],
-        config["database"]["user"],
-        config["database"]["pass"],
+        config.database.host,
+        config.database.port,
+        config.database.name,
+        config.database.user,
+        config.database.password,
     )
 
 
@@ -530,7 +532,7 @@ def create_no_data_image(config, graph_name, text="データがありません")
     font_size = int(ERROR_SIZE * IMAGE_DPI / 72)
 
     # my_lib.pil_utilを使用してフォントを取得
-    font_config = get_font_config(config["font"])
+    font_config = get_font_config(config.font)
     font = my_lib.pil_util.get_font(font_config, "jp_bold", font_size)
 
     pos = (size[0] // 2, size[1] // 2)
@@ -716,10 +718,9 @@ def prepare_data_numpy(numpy_data: dict) -> dict:
     return result
 
 
-def set_font(font_config_dict):
+def set_font(font_config_src: modes.config.FontConfig) -> None:
     try:
-        # 辞書形式のフォント設定をFontConfigオブジェクトに変換
-        font_config = get_font_config(font_config_dict)
+        font_config = get_font_config(font_config_src)
 
         for font_file in font_config.map.values():
             matplotlib.font_manager.fontManager.addfont(font_config.path.resolve() / font_file)
@@ -1722,7 +1723,7 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
             conn,
             extended_time_start,
             extended_time_end,
-            config["filter"]["area"]["distance"],
+            config.filter.area.distance,
             max_altitude=ALTITUDE_LIMIT if limit_altitude else None,
             include_wind=include_wind,
         )
@@ -1760,7 +1761,7 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
             bytes_io.seek(0)
             return bytes_io.getvalue(), 0
 
-    set_font(config["font"])
+    set_font(config.font)
 
     try:
         # heatmapとcontourグラフの場合、元の時間範囲を渡してプロット範囲を制限
@@ -1837,7 +1838,7 @@ def plot(config, graph_name, time_start, time_end, limit_altitude=False):
     )
 
     # キャッシュチェック
-    cache_dir = config["webapp"]["cache_dir_path"]
+    cache_dir = config.webapp.cache_dir_path
 
     # キャッシュ判定ログ
     logging.info(
@@ -2492,7 +2493,7 @@ if __name__ == "__main__":
             logging.warning("プロット用のデータがありません")
             return
 
-        set_font(config["font"])
+        set_font(config.font)
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=5) as executor:
             futures: dict[str, concurrent.futures.Future] = {}
@@ -2522,15 +2523,10 @@ if __name__ == "__main__":
 
     my_lib.logger.init("modes sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
-    config = my_lib.config.load(config_file)
+    config_dict = my_lib.config.load(config_file)
+    config = modes.config.load_from_dict(config_dict, pathlib.Path.cwd())
 
-    conn = modes.database_postgresql.open(
-        config["database"]["host"],
-        config["database"]["port"],
-        config["database"]["name"],
-        config["database"]["user"],
-        config["database"]["pass"],
-    )
+    conn = connect_database(config)
     time_end = my_lib.time.now()
     time_start = time_end - datetime.timedelta(days=period_days)
 
@@ -2539,7 +2535,7 @@ if __name__ == "__main__":
             conn,
             time_start,
             time_end,
-            config["filter"]["area"]["distance"],
+            config.filter.area.distance,
             columns=[
                 "time",
                 "altitude",
