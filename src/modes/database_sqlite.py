@@ -25,6 +25,9 @@ import my_lib.sqlite_util
 
 from modes.database_postgresql import DataRangeResult, MeasurementData
 
+# スキーマファイルのパス
+SCHEMA_FILE = pathlib.Path(__file__).parent.parent.parent / "schema" / "sqlite.schema"
+
 if TYPE_CHECKING:
     import sqlite3
     from collections.abc import Sequence
@@ -32,22 +35,23 @@ if TYPE_CHECKING:
 
 def open(log_db_path: pathlib.Path) -> sqlite3.Connection:  # noqa: A001
     with my_lib.sqlite_util.connect(log_db_path) as sqlite:
-        sqlite.execute(
-            "CREATE TABLE IF NOT EXISTS meteorological_data ("
-            "id INTEGER primary key autoincrement, time INTEGER NOT NULL, "
-            "callsign TEXT NOT NULL, distance REAL, altitude REAL, latitude REAL, longitude REAL, "
-            "temperature REAL, wind_x REAL, wind_y REAL, "
-            "wind_angle REAL, wind_speed REAL, method TEXT);"
-        )
-        sqlite.execute("CREATE INDEX IF NOT EXISTS idx_time ON meteorological_data (time);")
-        sqlite.execute("CREATE INDEX IF NOT EXISTS idx_distance ON meteorological_data (distance);")
-        sqlite.execute(
-            "CREATE INDEX IF NOT EXISTS idx_time_distance ON meteorological_data (time, distance);"
-        )
+        # 外部スキーマファイルからスキーマを読み込んで実行
+        _execute_schema(sqlite)
         sqlite.commit()
         sqlite.row_factory = lambda c, r: dict(zip([col[0] for col in c.description], r, strict=False))
 
         return sqlite
+
+
+def _execute_schema(sqlite: sqlite3.Connection) -> None:
+    """外部スキーマファイルを読み込んで実行"""
+    schema_sql = SCHEMA_FILE.read_text(encoding="utf-8")
+
+    # スキーマファイル内の各ステートメントを実行
+    for raw_statement in schema_sql.split(";"):
+        statement = raw_statement.strip()
+        if statement and not statement.startswith("--"):
+            sqlite.execute(statement)
 
 
 def insert(sqlite: sqlite3.Connection, data: MeasurementData) -> None:
@@ -176,9 +180,7 @@ def fetch_by_time(
         {
             **data,
             "time": (
-                datetime.datetime.strptime(data["time"], "%Y-%m-%d %H:%M:%S").replace(
-                    tzinfo=datetime.UTC
-                )
+                datetime.datetime.strptime(data["time"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.UTC)
                 + datetime.timedelta(hours=9)
             )
             if "time" in data
@@ -323,18 +325,16 @@ def fetch_data_range(conn: sqlite3.Connection) -> DataRangeResult:
         latest = result["latest"]
 
         if isinstance(earliest, int):
-            earliest = datetime.datetime.fromtimestamp(
-                earliest, tz=datetime.UTC
-            ) + datetime.timedelta(hours=9)
+            earliest = datetime.datetime.fromtimestamp(earliest, tz=datetime.UTC) + datetime.timedelta(
+                hours=9
+            )
         elif isinstance(earliest, str):
             earliest = datetime.datetime.strptime(earliest, "%Y-%m-%d %H:%M:%S").replace(
                 tzinfo=datetime.UTC
             ) + datetime.timedelta(hours=9)
 
         if isinstance(latest, int):
-            latest = datetime.datetime.fromtimestamp(latest, tz=datetime.UTC) + datetime.timedelta(
-                hours=9
-            )
+            latest = datetime.datetime.fromtimestamp(latest, tz=datetime.UTC) + datetime.timedelta(hours=9)
         elif isinstance(latest, str):
             latest = datetime.datetime.strptime(latest, "%Y-%m-%d %H:%M:%S").replace(
                 tzinfo=datetime.UTC

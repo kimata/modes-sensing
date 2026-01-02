@@ -27,6 +27,9 @@ import my_lib.time
 import psycopg2
 import psycopg2.extras
 
+# スキーマファイルのパス
+SCHEMA_FILE = pathlib.Path(__file__).parent.parent.parent / "schema" / "postgres.schema"
+
 if TYPE_CHECKING:
     import datetime
     import multiprocessing
@@ -149,143 +152,23 @@ def open(host: str, port: int, database: str, user: str, password: str) -> PgCon
 
     conn.autocommit = True
 
-    with conn.cursor() as cur:
-        # テーブルを再作成する場合は削除
-        # cur.execute("DROP TABLE IF EXISTS meteorological_data CASCADE;")
-
-        cur.execute(
-            "CREATE TABLE IF NOT EXISTS meteorological_data ("
-            "id SERIAL PRIMARY KEY, "
-            "time TIMESTAMP NOT NULL, "
-            "callsign TEXT NOT NULL, "
-            "distance REAL, "
-            "altitude REAL, "
-            "latitude REAL, "
-            "longitude REAL, "
-            "temperature REAL, "
-            "wind_x REAL, "
-            "wind_y REAL, "
-            "wind_angle REAL, "
-            "wind_speed REAL, "
-            "method TEXT"
-            ");"
-        )
-
-        # インデックス設計方針:
-        # - グラフ描画クエリの最適化を重視（distance <= 100, temperature > -100の条件が多い）
-        # - 部分インデックス（WHERE句付き）により、メンテナンスオーバーヘッドを削減
-        # - 使用頻度の低い位置情報系インデックス（latitude, longitude）は削除
-
-        # 基本インデックス（単一カラムでの範囲検索用）
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_time ON meteorological_data (time);")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_distance ON meteorological_data (distance);")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_altitude ON meteorological_data (altitude);")
-
-        # 複合インデックス（よく使われる組み合わせ）
-        # 時刻と距離の組み合わせ（メインクエリ用）
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_time_distance ON meteorological_data (time, distance);")
-        # 時刻と高度の組み合わせ（グラフ表示用）
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_time_alt ON meteorological_data (time, altitude);")
-
-        # 高効率部分インデックス（グラフ描画用 - 条件付きインデックスで効率化）
-        # fetch_by_time関数で最も頻繁に使用される条件に特化
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_optimized_fetch
-            ON meteorological_data (time, distance)
-            WHERE distance <= 100 AND temperature > -100 AND altitude IS NOT NULL;
-        """)
-
-        # 風向データ専用インデックス（風向グラフ用）
-        # 風向グラフ生成時の高速化（wind_speed > 0.1で無風データを除外）
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_wind_data
-            ON meteorological_data (time, altitude, wind_x, wind_y, wind_speed, wind_angle)
-            WHERE distance <= 100 AND wind_speed > 0.1;
-        """)
-
-        # 温度・高度データ用複合インデックス（グラフ生成の高速化）
-        # 等高線、ヒートマップ、散布図の生成で使用
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_time_distance_temp_alt
-            ON meteorological_data (time, distance, temperature, altitude)
-            WHERE distance <= 100 AND temperature > -100;
-        """)
-
-        # BRIN インデックス（時系列データに効果的、メモリ効率良い）
-        # 大量の時系列データでの範囲検索で効果的、メモリ使用量が少ない
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_time_brin ON meteorological_data USING BRIN (time);")
-
-        # マテリアライズドビュー: 1時間×500m高度帯からの代表点サンプリング
-        # 7日〜30日の期間表示に使用
-        # 平均ではなく実際のデータ点を保持することで描画品質を維持
-        cur.execute("""
-            CREATE MATERIALIZED VIEW IF NOT EXISTS hourly_altitude_grid AS
-            SELECT DISTINCT ON (time_bucket, altitude_bin)
-                date_trunc('hour', time) AS time_bucket,
-                (floor(altitude / 500) * 500)::int AS altitude_bin,
-                time,
-                altitude,
-                temperature,
-                wind_x,
-                wind_y,
-                wind_speed,
-                wind_angle
-            FROM meteorological_data
-            WHERE distance <= 100
-              AND temperature > -100
-              AND altitude IS NOT NULL
-              AND altitude >= 0
-              AND altitude <= 13000
-            ORDER BY time_bucket, altitude_bin, time DESC;
-        """)
-
-        # 1時間集約ビューのインデックス
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_hourly_grid_time
-            ON hourly_altitude_grid (time_bucket);
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_hourly_grid_time_alt
-            ON hourly_altitude_grid (time_bucket, altitude_bin);
-        """)
-
-        # マテリアライズドビュー: 6時間×500m高度帯からの代表点サンプリング
-        # 30日以上の長期間表示に使用
-        # 平均ではなく実際のデータ点を保持することで描画品質を維持
-        cur.execute("""
-            CREATE MATERIALIZED VIEW IF NOT EXISTS sixhour_altitude_grid AS
-            SELECT DISTINCT ON (time_bucket, altitude_bin)
-                date_trunc('hour', time)
-                    - (EXTRACT(hour FROM time)::int % 6) * interval '1 hour' AS time_bucket,
-                (floor(altitude / 500) * 500)::int AS altitude_bin,
-                time,
-                altitude,
-                temperature,
-                wind_x,
-                wind_y,
-                wind_speed,
-                wind_angle
-            FROM meteorological_data
-            WHERE distance <= 100
-              AND temperature > -100
-              AND altitude IS NOT NULL
-              AND altitude >= 0
-              AND altitude <= 13000
-            ORDER BY
-                time_bucket, altitude_bin, time DESC;
-        """)
-
-        # 6時間集約ビューのインデックス
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sixhour_grid_time
-            ON sixhour_altitude_grid (time_bucket);
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sixhour_grid_time_alt
-            ON sixhour_altitude_grid (time_bucket, altitude_bin);
-        """)
+    # 外部スキーマファイルからスキーマを読み込んで実行
+    _execute_schema(conn)
 
     return conn
+
+
+def _execute_schema(conn: PgConnection) -> None:
+    """外部スキーマファイルを読み込んで実行"""
+    schema_sql = SCHEMA_FILE.read_text(encoding="utf-8")
+
+    with conn.cursor() as cur:
+        # スキーマファイル内の各ステートメントを実行
+        # コメント行を除いてセミコロンで分割
+        for raw_statement in schema_sql.split(";"):
+            statement = raw_statement.strip()
+            if statement and not statement.startswith("--"):
+                cur.execute(statement)
 
 
 def insert(conn: PgConnection, data: MeasurementData) -> None:
@@ -1106,8 +989,13 @@ def fetch_aggregated_by_time(
 
     # フォールバック時に使用するカラムリスト
     fallback_columns = [
-        "time", "altitude", "temperature",
-        "wind_x", "wind_y", "wind_speed", "wind_angle",
+        "time",
+        "altitude",
+        "temperature",
+        "wind_x",
+        "wind_y",
+        "wind_speed",
+        "wind_angle",
     ]
 
     # 生データの場合は既存の関数を使用
@@ -1378,6 +1266,4 @@ if __name__ == "__main__":
         password=config.database.password,
     )
 
-    store_queue(
-        conn, measurement_queue, config.liveness.file.collector, db_config, config.slack
-    )
+    store_queue(conn, measurement_queue, config.liveness.file.collector, db_config, config.slack)
