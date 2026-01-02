@@ -56,7 +56,7 @@ def create_app(config: modes.config.Config, config_dict: dict[str, Any]) -> flas
     import my_lib.webapp.config
 
     my_lib.webapp.config.URL_PREFIX = "/modes-sensing"
-    my_lib.webapp.config.init(config_dict)
+    my_lib.webapp.config.init(config_dict)  # type: ignore[arg-type]
 
     import my_lib.webapp.base
     import my_lib.webapp.util
