@@ -64,18 +64,46 @@ if TYPE_CHECKING:
 
 @dataclass
 class PreparedData:
-    """準備済みデータ"""
+    """準備済みデータ
+
+    DataFrameは風向グラフでのみ使用するため、遅延作成する。
+    """
 
     count: int
     times: numpy.ndarray
     time_numeric: numpy.ndarray
     altitudes: numpy.ndarray
     temperatures: numpy.ndarray
-    dataframe: pandas.DataFrame
-    wind_x: numpy.ndarray = field(default_factory=lambda: numpy.array([], dtype=numpy.float64))
-    wind_y: numpy.ndarray = field(default_factory=lambda: numpy.array([], dtype=numpy.float64))
-    wind_speed: numpy.ndarray = field(default_factory=lambda: numpy.array([], dtype=numpy.float64))
-    wind_angle: numpy.ndarray = field(default_factory=lambda: numpy.array([], dtype=numpy.float64))
+    wind_x: numpy.ndarray = field(default_factory=lambda: numpy.array([], dtype=numpy.float32))
+    wind_y: numpy.ndarray = field(default_factory=lambda: numpy.array([], dtype=numpy.float32))
+    wind_speed: numpy.ndarray = field(default_factory=lambda: numpy.array([], dtype=numpy.float32))
+    wind_angle: numpy.ndarray = field(default_factory=lambda: numpy.array([], dtype=numpy.float32))
+    _dataframe: pandas.DataFrame | None = field(default=None, repr=False)
+
+    @property
+    def dataframe(self) -> pandas.DataFrame:
+        """風向グラフ用DataFrameを遅延作成"""
+        if self._dataframe is not None:
+            return self._dataframe
+
+        if self.count == 0:
+            self._dataframe = pandas.DataFrame()
+            return self._dataframe
+
+        df_data: dict[str, numpy.ndarray] = {
+            "time": self.times,
+            "time_numeric": self.time_numeric,
+            "altitude": self.altitudes,
+            "temperature": self.temperatures,
+        }
+        if len(self.wind_x) > 0:
+            df_data["wind_x"] = self.wind_x
+            df_data["wind_y"] = self.wind_y
+            df_data["wind_speed"] = self.wind_speed
+            df_data["wind_angle"] = self.wind_angle
+
+        self._dataframe = pandas.DataFrame(df_data)
+        return self._dataframe
 
 
 class WindFilteredData(TypedDict):
@@ -620,17 +648,19 @@ def create_no_data_image(config, graph_name, text="データがありません")
 
 
 def prepare_data(raw_data) -> PreparedData:
-    """データ前処理を最適化（無効データ除去、メモリ効率向上）"""
-    empty_array = numpy.array([])
+    """データ前処理を最適化（無効データ除去、メモリ効率向上）
+
+    注意: この関数はローカルテスト用。本番では prepare_data_numpy を使用。
+    """
+    empty_array = numpy.array([], dtype=numpy.float32)
 
     if not raw_data:
         return PreparedData(
             count=0,
-            times=empty_array,
+            times=numpy.array([], dtype="datetime64[us]"),
             time_numeric=empty_array,
             altitudes=empty_array,
             temperatures=empty_array,
-            dataframe=pandas.DataFrame(),
         )
 
     # 全データを一括でnumpy配列に変換（メモリ効率向上）
@@ -655,20 +685,19 @@ def prepare_data(raw_data) -> PreparedData:
     if not valid_mask.any():
         return PreparedData(
             count=0,
-            times=empty_array,
+            times=numpy.array([], dtype="datetime64[us]"),
             time_numeric=empty_array,
             altitudes=empty_array,
             temperatures=empty_array,
-            dataframe=pandas.DataFrame(),
         )
 
     # 有効データのみを連続メモリ配置で抽出
     valid_indices = numpy.where(valid_mask)[0]
     valid_count = len(valid_indices)
 
-    # 連続メモリ配列として確保（キャッシュ効率向上）
-    clean_temperatures = numpy.ascontiguousarray(temperatures[valid_mask])
-    clean_altitudes = numpy.ascontiguousarray(altitudes[valid_mask])
+    # 連続メモリ配列として確保（float32でメモリ効率向上）
+    clean_temperatures = numpy.ascontiguousarray(temperatures[valid_mask], dtype=numpy.float32)
+    clean_altitudes = numpy.ascontiguousarray(altitudes[valid_mask], dtype=numpy.float32)
 
     # 時間データの効率的処理
     times_list = [raw_data[i]["time"] for i in valid_indices]
@@ -679,19 +708,20 @@ def prepare_data(raw_data) -> PreparedData:
     # matplotlib.dates.date2numをベクトル化
     time_numeric = numpy.ascontiguousarray(matplotlib.dates.date2num(times))
 
-    # DataFrame作成は風向グラフでのみ必要（遅延作成）
-    # 必要な場合のみフィルタリングされたデータでDataFrame作成
+    # DataFrame はローカルテスト用に直接設定
     filtered_records = [raw_data[i] for i in valid_indices] if valid_count < data_length else raw_data
     clean_df = pandas.DataFrame(filtered_records) if filtered_records else pandas.DataFrame()
 
-    return PreparedData(
+    result = PreparedData(
         count=valid_count,
         times=times,
         time_numeric=time_numeric,
         altitudes=clean_altitudes,
         temperatures=clean_temperatures,
-        dataframe=clean_df,
     )
+    # ローカルテスト用にDataFrameを直接設定
+    result._dataframe = clean_df  # noqa: SLF001
+    return result
 
 
 def prepare_data_numpy(numpy_data: dict) -> PreparedData:
@@ -699,6 +729,10 @@ def prepare_data_numpy(numpy_data: dict) -> PreparedData:
 
     fetch_by_time_numpy / fetch_aggregated_numpy から返されたデータを
     グラフ描画用の形式に変換する。Pythonループを使わずベクトル化処理のみ。
+
+    最適化:
+    - float32 でメモリ効率化（グラフ描画には十分な精度）
+    - DataFrame は風向グラフでのみ使用するため遅延作成
 
     Args:
         numpy_data: fetch_by_time_numpy から返された辞書
@@ -717,7 +751,7 @@ def prepare_data_numpy(numpy_data: dict) -> PreparedData:
         グラフ描画用のPreparedData
 
     """
-    empty_float_array = numpy.array([], dtype=numpy.float64)
+    empty_float_array = numpy.array([], dtype=numpy.float32)
 
     if numpy_data["count"] == 0:
         return PreparedData(
@@ -726,11 +760,6 @@ def prepare_data_numpy(numpy_data: dict) -> PreparedData:
             time_numeric=empty_float_array,
             altitudes=empty_float_array,
             temperatures=empty_float_array,
-            dataframe=pandas.DataFrame(),
-            wind_x=empty_float_array,
-            wind_y=empty_float_array,
-            wind_speed=empty_float_array,
-            wind_angle=empty_float_array,
         )
 
     times = numpy_data["time"]
@@ -755,56 +784,39 @@ def prepare_data_numpy(numpy_data: dict) -> PreparedData:
             time_numeric=empty_float_array,
             altitudes=empty_float_array,
             temperatures=empty_float_array,
-            dataframe=pandas.DataFrame(),
-            wind_x=empty_float_array,
-            wind_y=empty_float_array,
-            wind_speed=empty_float_array,
-            wind_angle=empty_float_array,
         )
 
-    # 有効データのみを連続メモリ配置で抽出（ベクトル化）
+    # 有効データのみを連続メモリ配置で抽出（ベクトル化、float32でメモリ効率化）
     clean_times = times[valid_mask]
-    clean_altitudes = numpy.ascontiguousarray(altitudes[valid_mask])
-    clean_temperatures = numpy.ascontiguousarray(temperatures[valid_mask])
+    clean_altitudes = numpy.ascontiguousarray(altitudes[valid_mask], dtype=numpy.float32)
+    clean_temperatures = numpy.ascontiguousarray(temperatures[valid_mask], dtype=numpy.float32)
 
     # datetime64[us] から matplotlib の date number に変換（ベクトル化）
     # matplotlib 3.3以降: date number のエポックは 1970-01-01 = 0.0
     # numpy の datetime64[us] は 1970-01-01 からのマイクロ秒
+    # 注意: time_numeric は日付計算の精度が必要なため float64 を維持
     time_numeric = clean_times.astype("float64") / (86400 * 1e6)
     time_numeric = numpy.ascontiguousarray(time_numeric)
 
-    # 風データの処理
+    # 風データの処理（float32でメモリ効率化）
     if "wind_x" in numpy_data:
-        wind_x = numpy.ascontiguousarray(numpy_data["wind_x"][valid_mask])
-        wind_y = numpy.ascontiguousarray(numpy_data["wind_y"][valid_mask])
-        wind_speed = numpy.ascontiguousarray(numpy_data["wind_speed"][valid_mask])
-        wind_angle = numpy.ascontiguousarray(numpy_data["wind_angle"][valid_mask])
+        wind_x = numpy.ascontiguousarray(numpy_data["wind_x"][valid_mask], dtype=numpy.float32)
+        wind_y = numpy.ascontiguousarray(numpy_data["wind_y"][valid_mask], dtype=numpy.float32)
+        wind_speed = numpy.ascontiguousarray(numpy_data["wind_speed"][valid_mask], dtype=numpy.float32)
+        wind_angle = numpy.ascontiguousarray(numpy_data["wind_angle"][valid_mask], dtype=numpy.float32)
     else:
         wind_x = empty_float_array
         wind_y = empty_float_array
         wind_speed = empty_float_array
         wind_angle = empty_float_array
 
-    # 風向グラフ用に DataFrame を作成
-    df_data = {
-        "time": clean_times,
-        "time_numeric": time_numeric,
-        "altitude": clean_altitudes,
-        "temperature": clean_temperatures,
-    }
-    if len(wind_x) > 0:
-        df_data["wind_x"] = wind_x
-        df_data["wind_y"] = wind_y
-        df_data["wind_speed"] = wind_speed
-        df_data["wind_angle"] = wind_angle
-
+    # DataFrame は PreparedData.dataframe プロパティで遅延作成
     return PreparedData(
         count=valid_count,
         times=clean_times,
         time_numeric=time_numeric,
         altitudes=clean_altitudes,
         temperatures=clean_temperatures,
-        dataframe=pandas.DataFrame(df_data),
         wind_x=wind_x,
         wind_y=wind_y,
         wind_speed=wind_speed,
@@ -1235,11 +1247,14 @@ def _extract_and_filter_wind_data(df: pandas.DataFrame, limit_altitude: bool = F
     }
 
 
-def _create_wind_bins(
-    valid_data: WindFilteredData, limit_altitude: bool = False
-) -> tuple[dict[tuple[int, int], dict[str, list[float]]], numpy.ndarray]:
-    """風データのビニング処理"""
-    from collections import defaultdict
+def _prepare_wind_data(data, limit_altitude=False):
+    """風データの前処理とビニング処理（ベクトル化版）
+
+    pandas groupby を使用して高速化。
+    従来のPythonループを完全にベクトル化処理に置き換え。
+    """
+    df = _validate_wind_dataframe(data)
+    valid_data = _extract_and_filter_wind_data(df, limit_altitude)
 
     valid_altitudes = valid_data["altitudes"]
     valid_time_numeric = valid_data["time_numeric"]
@@ -1248,10 +1263,8 @@ def _create_wind_bins(
 
     # 高度ビニング（limit_altitudeに応じて範囲と間隔を調整）
     if limit_altitude:
-        # 2000mまでの範囲で、より細かい間隔
         altitude_bins = numpy.arange(0, ALTITUDE_LIMIT + 100, 100)
     else:
-        # 従来通り13000mまで、200m間隔
         altitude_bins = numpy.arange(0, 13000, 200)
 
     altitude_bin_indices = numpy.searchsorted(altitude_bins, valid_altitudes, side="right") - 1
@@ -1270,51 +1283,41 @@ def _create_wind_bins(
     time_bin_indices = numpy.searchsorted(time_bin_edges, valid_time_numeric, side="right") - 1
     time_bin_indices = numpy.clip(time_bin_indices, 0, time_bins - 1)
 
-    # ビニング集計
-    bin_data: defaultdict[tuple[int, int], dict[str, list[float]]] = defaultdict(
-        lambda: {"wind_x": [], "wind_y": [], "time_numeric": []}
+    # pandas groupby でベクトル化集計
+    bin_df = pandas.DataFrame(
+        {
+            "time_bin": time_bin_indices,
+            "alt_bin_idx": altitude_bin_indices,
+            "wind_x": valid_wind_x,
+            "wind_y": valid_wind_y,
+            "time_numeric": valid_time_numeric,
+        }
     )
 
-    for i in range(len(valid_altitudes)):
-        bin_key = (time_bin_indices[i], altitude_bin_indices[i])
-        bin_data[bin_key]["wind_x"].append(valid_wind_x[i])
-        bin_data[bin_key]["wind_y"].append(valid_wind_y[i])
-        bin_data[bin_key]["time_numeric"].append(valid_time_numeric[i])
+    # グループごとに平均を計算（ベクトル化）
+    grouped: Any = bin_df.groupby(["time_bin", "alt_bin_idx"], as_index=False).agg(
+        {
+            "wind_x": "mean",
+            "wind_y": "mean",
+            "time_numeric": "mean",
+        }
+    )
 
-    return bin_data, altitude_bins
-
-
-def _prepare_wind_data(data, limit_altitude=False):
-    """風データの前処理とビニング処理（最適化版）"""
-    df = _validate_wind_dataframe(data)
-    valid_data = _extract_and_filter_wind_data(df, limit_altitude)
-    bin_data, altitude_bins = _create_wind_bins(valid_data, limit_altitude)
-
-    # 集計結果をDataFrameに変換
-    grouped_data = []
-    for (time_idx, alt_idx), values in bin_data.items():
-        if len(values["wind_x"]) > 0:  # 空のビンをスキップ
-            grouped_data.append(
-                {
-                    "time_bin": time_idx,
-                    "altitude_bin": altitude_bins[alt_idx],
-                    "wind_x": numpy.mean(values["wind_x"]),
-                    "wind_y": numpy.mean(values["wind_y"]),
-                    "time_numeric": numpy.mean(values["time_numeric"]),
-                }
-            )
-
-    if not grouped_data:
+    if len(grouped) == 0:
         logging.warning("No valid wind data after binning")
         raise ValueError("No valid wind data after binning")
 
-    grouped = pandas.DataFrame(grouped_data)
+    # 高度ビンインデックスから実際の高度値に変換
+    alt_indices: Any = grouped["alt_bin_idx"].values  # noqa: PD011
+    grouped["altitude_bin"] = altitude_bins[alt_indices]
 
     # 風速と風向を再計算（ベクトル化）
-    grouped["wind_speed"] = numpy.sqrt(grouped["wind_x"] ** 2 + grouped["wind_y"] ** 2)
-    grouped["wind_angle"] = (90 - numpy.degrees(numpy.arctan2(grouped["wind_y"], grouped["wind_x"]))) % 360
+    wind_x: Any = grouped["wind_x"]
+    wind_y: Any = grouped["wind_y"]
+    grouped["wind_speed"] = numpy.sqrt(wind_x**2 + wind_y**2)
+    grouped["wind_angle"] = (90 - numpy.degrees(numpy.arctan2(wind_y, wind_x))) % 360
 
-    return grouped
+    return grouped.dropna()
 
 
 def plot_wind_direction(data, figsize, limit_altitude=False):
@@ -1327,10 +1330,9 @@ def plot_wind_direction(data, figsize, limit_altitude=False):
         logging.info("Available columns in dataframe: %s", list(df.columns))
         logging.info("Dataframe shape: %s", df.shape)
 
-    # データ前処理
+    # データ前処理（dropna済み）
     grouped = _prepare_wind_data(data, limit_altitude)
 
-    grouped = grouped.dropna()
     if len(grouped) == 0:
         logging.warning("No valid wind vectors after angle conversion")
         raise ValueError("No valid wind vectors after angle conversion")
@@ -1367,12 +1369,14 @@ def plot_wind_direction(data, figsize, limit_altitude=False):
     time_range = time_max - time_min
     arrow_scale = time_range / 30
 
-    wind_magnitude = numpy.sqrt(grouped["wind_x"] ** 2 + grouped["wind_y"] ** 2)
+    gwind_x: Any = grouped["wind_x"]
+    gwind_y: Any = grouped["wind_y"]
+    wind_magnitude = numpy.sqrt(gwind_x**2 + gwind_y**2)
     # wind_x, wind_yは風が吹いていく方向のベクトル、矢印もその方向を指す
     # u（時間軸方向）= 東西成分、v（高度軸方向）= 南北成分
-    grouped["u_normalized"] = (grouped["wind_x"] / wind_magnitude) * arrow_scale
-    grouped["v_normalized"] = (grouped["wind_y"] / wind_magnitude) * arrow_scale * aspect_correction
-    wind_speeds = grouped["wind_speed"].to_numpy()
+    grouped["u_normalized"] = (gwind_x / wind_magnitude) * arrow_scale
+    grouped["v_normalized"] = (gwind_y / wind_magnitude) * arrow_scale * aspect_correction
+    wind_speeds: Any = grouped["wind_speed"].values  # noqa: PD011
     wind_speeds_clipped = numpy.clip(wind_speeds, 0, 100)
 
     quiver = ax.quiver(
