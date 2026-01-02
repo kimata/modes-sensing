@@ -4,6 +4,7 @@ E2E テスト用 conftest
 
 Playwright テスト用のフィクスチャを定義します。
 """
+
 import contextlib
 import logging
 import os
@@ -114,14 +115,10 @@ def page(page):
 
 
 @pytest.fixture
-def browser_context_args(browser_context_args, request, worker_id):
-    """Configure browser context for video recording and parallel execution."""
+def browser_context_args(browser_context_args, worker_id):
+    """Configure browser context for parallel execution."""
     # 並列実行時は各ワーカーに独立したコンテキストを設定
-    args = {
-        **browser_context_args,
-        "record_video_dir": f"reports/videos/e2e/{request.node.name}",
-        "record_video_size": {"width": 2400, "height": 1600},
-    }
+    args = {**browser_context_args}
 
     # 並列実行時はキャッシュを無効化
     if worker_id != "master":
