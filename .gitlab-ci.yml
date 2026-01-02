@@ -146,7 +146,7 @@ test-walk-through:
         - test-prepare
 
     script:
-        - uv run pytest --numprocesses=auto --junit-xml=tests/evidence/junit-report.xml tests/unit
+        - uv run pytest --numprocesses=auto --junit-xml=reports/junit-report.xml tests/unit
 
     cache:
         - key:
@@ -157,10 +157,8 @@ test-walk-through:
 
     artifacts:
         when: always
-        paths:
-            - tests/evidence/**
         reports:
-            junit: tests/evidence/junit-report.xml
+            junit: reports/junit-report.xml
 
 test-playwright:
     stage: test
@@ -197,7 +195,7 @@ test-playwright:
 
         - >
             uv run pytest tests/e2e/test_webui.py --no-cov
-            --junit-xml=tests/evidence/playwright-junit.xml
+            --junit-xml=reports/playwright-junit.xml
 
     cache:
         - key:
@@ -210,9 +208,8 @@ test-playwright:
         when: always
         paths:
             - flask_log.txt
-            - tests/evidence/**
         reports:
-            junit: tests/evidence/playwright-junit.xml
+            junit: reports/playwright-junit.xml
 
 test-docker:
     stage: test
@@ -310,8 +307,7 @@ test-playwright-docker:
         # Playwrightテストを実行（ホストからポート経由で接続）
         - >
             uv run pytest tests/e2e/test_webui.py --no-cov
-            --output tests/evidence/e2e
-            --junit-xml=tests/evidence/playwright-docker-junit.xml
+            --junit-xml=reports/playwright-docker-junit.xml
             --host ${APP_HOST} --port ${APP_PORT}
 
         # ログ取得とクリーンアップ
@@ -332,10 +328,9 @@ test-playwright-docker:
     artifacts:
         when: always
         paths:
-            - flask_log_*.txt
-            - tests/evidence/**
+            - flask_log.txt
         reports:
-            junit: tests/evidence/playwright-docker-junit.xml
+            junit: reports/playwright-docker-junit.xml
 
 tag-latest:
     stage: tag-latest
