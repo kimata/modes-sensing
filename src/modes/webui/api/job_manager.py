@@ -100,6 +100,7 @@ class JobManager:
         time_start: datetime.datetime,
         time_end: datetime.datetime,
         limit_altitude: bool,
+        job_id: str | None = None,
     ) -> str:
         """
         新しいジョブを作成してIDを返す
@@ -109,26 +110,35 @@ class JobManager:
             time_start: データ取得開始時刻
             time_end: データ取得終了時刻
             limit_altitude: 高度制限フラグ
+            job_id: 任意のジョブID（指定しない場合はUUIDを生成）
 
         Returns:
-            作成されたジョブのID（UUID）
+            作成されたジョブのID
 
         """
         self._ensure_cleanup_thread()
 
-        job_id = str(uuid.uuid4())
+        # 指定されたIDが既に存在し、完了済みならそのまま返す
+        if job_id is not None:
+            with self._jobs_lock:
+                existing = self._jobs.get(job_id)
+                if existing and existing.status == JobStatus.COMPLETED:
+                    logging.info("Reusing existing completed job %s for graph %s", job_id, graph_name)
+                    return job_id
+
+        final_job_id = job_id if job_id is not None else str(uuid.uuid4())
         job = Job(
-            job_id=job_id,
+            job_id=final_job_id,
             graph_name=graph_name,
             time_start=time_start,
             time_end=time_end,
             limit_altitude=limit_altitude,
         )
         with self._jobs_lock:
-            self._jobs[job_id] = job
+            self._jobs[final_job_id] = job
 
-        logging.info("Created job %s for graph %s", job_id, graph_name)
-        return job_id
+        logging.info("Created job %s for graph %s", final_job_id, graph_name)
+        return final_job_id
 
     def get_job(self, job_id: str) -> Job | None:
         """

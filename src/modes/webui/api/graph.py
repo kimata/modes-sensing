@@ -1529,6 +1529,25 @@ def generate_etag_key(
     return f"{graph_name}_{period_seconds}_{limit_str}_{rounded_start_ts}_{git_commit}"
 
 
+def generate_stable_job_id(
+    graph_name: str,
+    time_start: datetime.datetime,
+    time_end: datetime.datetime,
+    limit_altitude: bool,
+) -> str:
+    """キャッシュヒット時用の安定したジョブIDを生成する
+
+    同じパラメータからは常に同じIDが生成されるため、
+    ブラウザキャッシュが効くようになる。
+    """
+    import hashlib
+
+    key = generate_etag_key(graph_name, time_start, time_end, limit_altitude)
+    # UUIDv5風のフォーマットにする（8-4-4-4-12）
+    hash_hex = hashlib.sha256(key.encode()).hexdigest()
+    return f"{hash_hex[:8]}-{hash_hex[8:12]}-{hash_hex[12:16]}-{hash_hex[16:20]}-{hash_hex[20:32]}"
+
+
 def parse_cache_filename(filepath: pathlib.Path) -> CacheFileInfo | None:
     """キャッシュファイル名をパースして情報を取得する
 
@@ -2386,25 +2405,34 @@ def create_graph_job():
                 logging.warning("Unknown graph name: %s", graph_name)
                 continue
 
-            job_id = _job_manager.create_job(graph_name, time_start, time_end, limit_altitude)
-            jobs.append({"job_id": job_id, "graph_name": graph_name})
-
-            # キャッシュチェック
+            # キャッシュチェック（先にチェックしてジョブIDを決定）
             cached_image, cache_filename = get_cached_image(
                 cache_dir, graph_name, time_start, time_end, limit_altitude
             )
+
             if cached_image:
-                # キャッシュヒット: ジョブを即座に完了
+                # キャッシュヒット: 安定したジョブIDを使用（ブラウザキャッシュが効く）
+                stable_job_id = generate_stable_job_id(graph_name, time_start, time_end, limit_altitude)
+                job_id = _job_manager.create_job(
+                    graph_name, time_start, time_end, limit_altitude, job_id=stable_job_id
+                )
                 logging.info(
-                    "[CACHE] HIT for %s: %s (%d bytes)", graph_name, cache_filename, len(cached_image)
+                    "[CACHE] HIT for %s: %s (%d bytes, stable_id=%s)",
+                    graph_name,
+                    cache_filename,
+                    len(cached_image),
+                    job_id,
                 )
                 _job_manager.update_status(
                     job_id, JobStatus.COMPLETED, result=cached_image, progress=100
                 )
             else:
-                # キャッシュミス: プロセスプールでジョブを開始
-                logging.info("[CACHE] MISS for %s, starting job", graph_name)
+                # キャッシュミス: 新規ジョブIDで作成
+                job_id = _job_manager.create_job(graph_name, time_start, time_end, limit_altitude)
+                logging.info("[CACHE] MISS for %s, starting job %s", graph_name, job_id)
                 _start_job_async(config, job_id, graph_name, time_start, time_end, limit_altitude, cache_dir)
+
+            jobs.append({"job_id": job_id, "graph_name": graph_name})
 
         return flask.jsonify({"jobs": jobs})
 
