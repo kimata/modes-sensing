@@ -375,6 +375,71 @@ def apply_time_axis_format(ax: Axes, time_range_days: float) -> None:
         ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%-m月%-d日"))
 
 
+def apply_time_axis_format_3d(ax: Any, time_numeric: numpy.ndarray) -> None:
+    """3Dグラフ用の時間軸フォーマット（目盛り間引き対応）
+
+    3Dグラフでは matplotlib.dates の Locator が正しく動作しないため、
+    手動で目盛り位置とラベルを設定する。
+    """
+    import matplotlib.dates
+
+    if len(time_numeric) == 0:
+        return
+
+    time_min = time_numeric.min()
+    time_max = time_numeric.max()
+    time_range_days = time_max - time_min
+
+    # 期間に応じて目盛り数を決定（2Dグラフと同様のロジック）
+    if time_range_days <= 1:
+        # 1日以内: 3時間間隔
+        interval_days = 3 / 24
+        date_format = "%-H時"
+    elif time_range_days <= 3:
+        # 3日以内: 1日間隔
+        interval_days = 1
+        date_format = "%-d日"
+    elif time_range_days <= 7:
+        # 7日以内: 2日間隔
+        interval_days = 2
+        date_format = "%-m/%-d"
+    elif time_range_days <= 30:
+        # 1ヶ月以内: 約5-6個の目盛り
+        interval_days = max(1, int(time_range_days / 5))
+        date_format = "%-m/%-d"
+    elif time_range_days <= 90:
+        # 3ヶ月以内: 約5-6個の目盛り
+        interval_days = max(7, int(time_range_days / 6))
+        date_format = "%-m/%-d"
+    else:
+        # それ以上: 約5-6個の目盛り
+        interval_days = max(14, int(time_range_days / 5))
+        date_format = "%-m/%-d"
+
+    # 目盛り位置を計算
+    tick_positions = []
+    tick_labels = []
+    current = time_min
+    while current <= time_max:
+        tick_positions.append(current)
+        # matplotlib の日付数値から datetime に変換
+        dt = matplotlib.dates.num2date(current)
+        tick_labels.append(dt.strftime(date_format))
+        current += interval_days
+
+    # 最後の目盛りが time_max に近い場合は追加しない（重複防止）
+    if tick_positions and (time_max - tick_positions[-1]) < interval_days * 0.3:
+        pass  # 最後の目盛りをそのまま使用
+    elif time_max - tick_positions[-1] > interval_days * 0.5:
+        # 最後の目盛りと time_max の間隔が大きい場合は追加
+        tick_positions.append(time_max)
+        dt = matplotlib.dates.num2date(time_max)
+        tick_labels.append(dt.strftime(date_format))
+
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels(tick_labels)
+
+
 def append_colorbar(scatter, shrink=0.8, pad=0.01, aspect=35, fraction=0.046, limit_altitude=False):  # noqa: PLR0913
     """
     カラーバーを追加（サイズを縮小してプロットエリアを拡大）
@@ -778,8 +843,8 @@ def set_font(font_config_src: modes.config.FontConfig) -> None:
 def set_axis_3d(ax, time_numeric, limit_altitude=False):
     set_axis_labels(ax, TIME_AXIS_LABEL, ALT_AXIS_LABEL, TEMP_AXIS_LABEL)
 
-    time_range = time_numeric[-1] - time_numeric[0]
-    apply_time_axis_format(ax, time_range)
+    # 3D用の時間軸フォーマット（期間に応じた目盛り間引き）
+    apply_time_axis_format_3d(ax, time_numeric)
 
     # 高度軸の最大値を設定
     alt_max = ALTITUDE_LIMIT if limit_altitude else ALT_MAX
