@@ -808,12 +808,12 @@ def fetch_aggregated_numpy(
             include_wind=include_wind,
         )
 
-    # カラム選択
+    # カラム選択（time_bucket を time として取得）
     if include_wind:
-        columns = "time, altitude, temperature, wind_x, wind_y, wind_speed, wind_angle"
+        columns = "time_bucket AS time, altitude, temperature, wind_x, wind_y, wind_speed, wind_angle"
         col_count = 7
     else:
-        columns = "time, altitude, temperature"
+        columns = "time_bucket AS time, altitude, temperature"
         col_count = 3
 
     start = time.perf_counter()
