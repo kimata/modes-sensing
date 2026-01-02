@@ -119,7 +119,7 @@ def browser_context_args(browser_context_args, request, worker_id):
     # 並列実行時は各ワーカーに独立したコンテキストを設定
     args = {
         **browser_context_args,
-        "record_video_dir": f"tests/evidence/e2e/{request.node.name}",
+        "record_video_dir": f"reports/videos/e2e/{request.node.name}",
         "record_video_size": {"width": 2400, "height": 1600},
     }
 
