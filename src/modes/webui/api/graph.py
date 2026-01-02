@@ -1191,7 +1191,9 @@ def _create_wind_bins(
     time_bin_indices = numpy.clip(time_bin_indices, 0, time_bins - 1)
 
     # ビニング集計
-    bin_data = defaultdict(lambda: {"wind_x": [], "wind_y": [], "time_numeric": []})
+    bin_data: defaultdict[tuple[int, int], dict[str, list[float]]] = defaultdict(
+        lambda: {"wind_x": [], "wind_y": [], "time_numeric": []}
+    )
 
     for i in range(len(valid_altitudes)):
         bin_key = (time_bin_indices[i], altitude_bin_indices[i])
