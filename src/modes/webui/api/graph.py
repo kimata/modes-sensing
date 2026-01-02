@@ -2364,6 +2364,7 @@ def create_graph_job():
             return flask.jsonify({"error": "graphs list is required"}), 400
 
         config = flask.current_app.config["CONFIG"]
+        cache_dir = config.webapp.cache_dir_path
         jobs = []
 
         for graph_name in graphs:
@@ -2374,8 +2375,22 @@ def create_graph_job():
             job_id = _job_manager.create_job(graph_name, time_start, time_end, limit_altitude)
             jobs.append({"job_id": job_id, "graph_name": graph_name})
 
-            # プロセスプールでジョブを開始
-            _start_job_async(config, job_id, graph_name, time_start, time_end, limit_altitude)
+            # キャッシュチェック
+            cached_image, cache_filename = get_cached_image(
+                cache_dir, graph_name, time_start, time_end, limit_altitude
+            )
+            if cached_image:
+                # キャッシュヒット: ジョブを即座に完了
+                logging.info(
+                    "[CACHE] HIT for %s: %s (%d bytes)", graph_name, cache_filename, len(cached_image)
+                )
+                _job_manager.update_status(
+                    job_id, JobStatus.COMPLETED, result=cached_image, progress=100
+                )
+            else:
+                # キャッシュミス: プロセスプールでジョブを開始
+                logging.info("[CACHE] MISS for %s, starting job", graph_name)
+                _start_job_async(config, job_id, graph_name, time_start, time_end, limit_altitude)
 
         return flask.jsonify({"jobs": jobs})
 
