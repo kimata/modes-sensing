@@ -28,7 +28,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import flask
 import matplotlib  # noqa: ICN001
@@ -51,7 +51,6 @@ import PIL.ImageFont
 import scipy.interpolate
 
 import modes.config
-
 import modes.database_postgresql
 from modes.webui.api.job_manager import JobManager, JobStatus
 
@@ -77,6 +76,15 @@ class PreparedData:
     wind_y: numpy.ndarray = field(default_factory=lambda: numpy.array([], dtype=numpy.float64))
     wind_speed: numpy.ndarray = field(default_factory=lambda: numpy.array([], dtype=numpy.float64))
     wind_angle: numpy.ndarray = field(default_factory=lambda: numpy.array([], dtype=numpy.float64))
+
+
+class WindFilteredData(TypedDict):
+    """風データフィルタリング結果"""
+
+    altitudes: numpy.ndarray
+    wind_x: numpy.ndarray
+    wind_y: numpy.ndarray
+    time_numeric: numpy.ndarray
 
 
 def get_font_config(font_config: modes.config.FontConfig) -> my_lib.panel_config.FontConfig:
@@ -1110,7 +1118,7 @@ def _validate_wind_dataframe(data):
     return df
 
 
-def _extract_and_filter_wind_data(df, limit_altitude=False):
+def _extract_and_filter_wind_data(df: pandas.DataFrame, limit_altitude: bool = False) -> WindFilteredData:
     """風データの抽出とフィルタリング"""
     # NumPyベースの高速前処理
     altitudes = df["altitude"].to_numpy()
@@ -1148,7 +1156,9 @@ def _extract_and_filter_wind_data(df, limit_altitude=False):
     }
 
 
-def _create_wind_bins(valid_data, limit_altitude=False):
+def _create_wind_bins(
+    valid_data: WindFilteredData, limit_altitude: bool = False
+) -> tuple[dict[tuple[int, int], dict[str, list[float]]], numpy.ndarray]:
     """風データのビニング処理"""
     from collections import defaultdict
 
