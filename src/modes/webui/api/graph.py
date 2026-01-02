@@ -402,19 +402,19 @@ def apply_time_axis_format_3d(ax: Any, time_numeric: numpy.ndarray) -> None:
     elif time_range_days <= 7:
         # 7日以内: 2日間隔
         interval_days = 2
-        date_format = "%-m/%-d"
+        date_format = "%-m月%-d日"
     elif time_range_days <= 30:
         # 1ヶ月以内: 約5-6個の目盛り
         interval_days = max(1, int(time_range_days / 5))
-        date_format = "%-m/%-d"
+        date_format = "%-m月%-d日"
     elif time_range_days <= 90:
         # 3ヶ月以内: 約5-6個の目盛り
         interval_days = max(7, int(time_range_days / 6))
-        date_format = "%-m/%-d"
+        date_format = "%-m月%-d日"
     else:
         # それ以上: 約5-6個の目盛り
         interval_days = max(14, int(time_range_days / 5))
-        date_format = "%-m/%-d"
+        date_format = "%-m月%-d日"
 
     # 目盛り位置を計算
     tick_positions = []
