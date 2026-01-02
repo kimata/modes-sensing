@@ -1152,10 +1152,10 @@ def _create_wind_bins(valid_data, limit_altitude=False):
     """風データのビニング処理"""
     from collections import defaultdict
 
-    valid_altitudes = valid_data.altitudes
-    valid_time_numeric = valid_data.time_numeric
-    valid_wind_x = valid_data.wind_x
-    valid_wind_y = valid_data.wind_y
+    valid_altitudes = valid_data["altitudes"]
+    valid_time_numeric = valid_data["time_numeric"]
+    valid_wind_x = valid_data["wind_x"]
+    valid_wind_y = valid_data["wind_y"]
 
     # 高度ビニング（limit_altitudeに応じて範囲と間隔を調整）
     if limit_altitude:
