@@ -11,6 +11,7 @@ import os
 import pathlib
 import tempfile
 import time
+from unittest.mock import patch
 
 import modes.webui.api.graph
 
@@ -57,8 +58,8 @@ class TestGraphCache:
 
     def test_get_git_commit_hash(self):
         """Git commit ハッシュを取得できること"""
-        # グローバル変数をリセット
-        modes.webui.api.graph._git_commit_hash = None
+        # キャッシュをクリア
+        modes.webui.api.graph.get_git_commit_hash.cache_clear()
 
         git_hash = modes.webui.api.graph.get_git_commit_hash()
 
@@ -67,25 +68,13 @@ class TestGraphCache:
         assert isinstance(git_hash, str)
         assert len(git_hash) > 0
 
-        # キャッシュされていること
+        # キャッシュされていること（functools.cacheによる）
         git_hash2 = modes.webui.api.graph.get_git_commit_hash()
         assert git_hash == git_hash2
 
-    def test_get_git_commit_hash_cached(self):
-        """Git commit ハッシュがキャッシュされること"""
-        modes.webui.api.graph._git_commit_hash = "test123hash"
-
-        git_hash = modes.webui.api.graph.get_git_commit_hash()
-        assert git_hash == "test123hash"
-
-        # リセット
-        modes.webui.api.graph._git_commit_hash = None
-
-    def test_generate_cache_filename(self):
+    @patch("modes.webui.api.graph.get_git_commit_hash", return_value="abc123hash")
+    def test_generate_cache_filename(self, _mock_hash):
         """キャッシュファイル名が正しく生成されること"""
-        # Git ハッシュを固定値に設定
-        modes.webui.api.graph._git_commit_hash = "abc123hash"
-
         time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
         time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.timezone.utc)
 
@@ -117,9 +106,6 @@ class TestGraphCache:
         assert filename1 != filename4
         assert "_1_" in filename4  # limit_altitude=True なら "1"
 
-        # リセット
-        modes.webui.api.graph._git_commit_hash = None
-
     def test_parse_cache_filename(self):
         """キャッシュファイル名が正しくパースされること"""
         # 有効なファイル名
@@ -139,11 +125,9 @@ class TestGraphCache:
             assert info.start_ts == 1735689600
             assert info.git_commit == "abc123hash"
 
-    def test_get_cached_image_not_exists(self):
+    @patch("modes.webui.api.graph.get_git_commit_hash", return_value="abc123hash")
+    def test_get_cached_image_not_exists(self, _mock_hash):
         """存在しないキャッシュファイルは None を返す"""
-        # Git ハッシュを固定
-        modes.webui.api.graph._git_commit_hash = "abc123hash"
-
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = pathlib.Path(tmpdir)
             time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
@@ -155,13 +139,9 @@ class TestGraphCache:
             assert result is None
             assert filename is None
 
-        modes.webui.api.graph._git_commit_hash = None
-
-    def test_get_cached_image_valid(self):
+    @patch("modes.webui.api.graph.get_git_commit_hash", return_value="abc123hash")
+    def test_get_cached_image_valid(self, _mock_hash):
         """有効なキャッシュファイルが返される"""
-        # Git ハッシュを固定
-        modes.webui.api.graph._git_commit_hash = "abc123hash"
-
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = pathlib.Path(tmpdir)
             time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
@@ -180,13 +160,9 @@ class TestGraphCache:
             assert result == test_data
             assert filename is not None
 
-        modes.webui.api.graph._git_commit_hash = None
-
-    def test_get_cached_image_expired(self):
+    @patch("modes.webui.api.graph.get_git_commit_hash", return_value="abc123hash")
+    def test_get_cached_image_expired(self, _mock_hash):
         """TTL を超えたキャッシュファイルは削除されて None を返す"""
-        # Git ハッシュを固定
-        modes.webui.api.graph._git_commit_hash = "abc123hash"
-
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = pathlib.Path(tmpdir)
             time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
@@ -212,13 +188,9 @@ class TestGraphCache:
             # 期限切れファイルは削除されている
             assert not cache_file.exists()
 
-        modes.webui.api.graph._git_commit_hash = None
-
-    def test_get_cached_image_start_time_tolerance(self):
+    @patch("modes.webui.api.graph.get_git_commit_hash", return_value="abc123hash")
+    def test_get_cached_image_start_time_tolerance(self, _mock_hash):
         """開始日時の差が30分以内ならキャッシュがヒットすること"""
-        # Git ハッシュを固定
-        modes.webui.api.graph._git_commit_hash = "abc123hash"
-
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = pathlib.Path(tmpdir)
             time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
@@ -248,13 +220,9 @@ class TestGraphCache:
             )
             assert result2 is None
 
-        modes.webui.api.graph._git_commit_hash = None
-
-    def test_save_to_cache(self):
+    @patch("modes.webui.api.graph.get_git_commit_hash", return_value="abc123hash")
+    def test_save_to_cache(self, _mock_hash):
         """キャッシュに画像を保存できること"""
-        # Git ハッシュを固定
-        modes.webui.api.graph._git_commit_hash = "abc123hash"
-
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = pathlib.Path(tmpdir) / "subdir"
             time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
@@ -271,8 +239,6 @@ class TestGraphCache:
             cache_file = cache_dir / filename
             assert cache_file.exists()
             assert cache_file.read_bytes() == test_data
-
-        modes.webui.api.graph._git_commit_hash = None
 
     def test_cleanup_expired_cache(self):
         """期限切れキャッシュが削除されること"""
@@ -300,11 +266,9 @@ class TestGraphCache:
         """キャッシュ TTL が30分であること"""
         assert modes.webui.api.graph.CACHE_TTL_SECONDS == 30 * 60
 
-    def test_generate_etag_key(self):
+    @patch("modes.webui.api.graph.get_git_commit_hash", return_value="abc123hash")
+    def test_generate_etag_key(self, _mock_hash):
         """ETagキーが正しく生成されること（開始時刻は10分単位に丸められる）"""
-        # Git ハッシュを固定値に設定
-        modes.webui.api.graph._git_commit_hash = "abc123hash"
-
         # 2025-01-01 00:05:00 UTC (timestamp: 1735689900)
         # 10分単位に丸めると 00:00:00 (timestamp: 1735689600)
         time_start = datetime.datetime(2025, 1, 1, 0, 5, 0, tzinfo=datetime.timezone.utc)
@@ -316,14 +280,9 @@ class TestGraphCache:
         # 6日間 = 518400秒, 丸められた開始時刻 = 1735689600
         assert etag_key == "scatter_2d_518400_0_1735689600_abc123hash"
 
-        # リセット
-        modes.webui.api.graph._git_commit_hash = None
-
-    def test_generate_etag_key_time_rounding(self):
+    @patch("modes.webui.api.graph.get_git_commit_hash", return_value="abc123hash")
+    def test_generate_etag_key_time_rounding(self, _mock_hash):
         """ETagキーの開始時刻が10分単位に丸められること"""
-        # Git ハッシュを固定値に設定
-        modes.webui.api.graph._git_commit_hash = "abc123hash"
-
         # 基準時刻: 2025-01-01 00:00:00 UTC
         base_time = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
         time_end = base_time + datetime.timedelta(days=7)
@@ -348,9 +307,6 @@ class TestGraphCache:
         time_end_19min = time_end + datetime.timedelta(minutes=19, seconds=59)
         etag4 = modes.webui.api.graph.generate_etag_key("scatter_2d", time_start_19min, time_end_19min, False)
         assert etag3 == etag4
-
-        # リセット
-        modes.webui.api.graph._git_commit_hash = None
 
     def test_etag_time_round_value(self):
         """ETag の時刻丸め間隔が10分であること"""

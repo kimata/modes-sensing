@@ -16,6 +16,7 @@ from __future__ import annotations
 import atexit
 import concurrent.futures
 import datetime
+import functools
 import io
 import json
 import logging
@@ -1422,16 +1423,9 @@ GRAPH_DEF_MAP: dict[str, GraphDefinition] = {
 CACHE_TTL_SECONDS = 30 * 60  # 30分
 CACHE_START_TIME_TOLERANCE_SECONDS = 30 * 60  # 開始日時の許容差: 30分
 
-# git commit ハッシュのキャッシュ（プロセス起動時に一度だけ取得）
-_git_commit_hash: str | None = None
-
-
+@functools.cache
 def get_git_commit_hash() -> str:
-    """現在の git commit ハッシュを取得する（キャッシュ付き）"""
-    global _git_commit_hash  # noqa: PLW0603
-    if _git_commit_hash is not None:
-        return _git_commit_hash
-
+    """現在の git commit ハッシュを取得する（functools.cacheでキャッシュ）"""
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],  # noqa: S607
@@ -1440,12 +1434,10 @@ def get_git_commit_hash() -> str:
             timeout=5,
             check=False,
         )
-        _git_commit_hash = result.stdout.strip()[:12] if result.returncode == 0 else "unknown"
+        return result.stdout.strip()[:12] if result.returncode == 0 else "unknown"
     except Exception:
         logging.warning("Failed to get git commit hash")
-        _git_commit_hash = "unknown"
-
-    return _git_commit_hash
+        return "unknown"
 
 
 @dataclass
