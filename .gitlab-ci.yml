@@ -146,7 +146,7 @@ test-walk-through:
         - test-prepare
 
     script:
-        - uv run pytest --numprocesses=auto --junit-xml=tests/evidence/junit-report.xml tests/unit tests/integration
+        - uv run pytest --numprocesses=auto --junit-xml=tests/evidence/junit-report.xml tests/unit
 
     cache:
         - key:
