@@ -17,7 +17,7 @@ import logging
 import pathlib
 import signal
 import sys
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, NoReturn
 
 import flask
 import flask_cors
@@ -61,7 +61,9 @@ def create_app(config: modes.config.Config) -> flask.Flask:
     import my_lib.webapp.base
     import my_lib.webapp.util
 
+    import modes.webui.api.cache_pregeneration
     import modes.webui.api.graph
+    import modes.webui.api.progress_estimation
 
     app = flask.Flask("modes-sensing")
 
@@ -75,6 +77,11 @@ def create_app(config: modes.config.Config) -> flask.Flask:
     app.register_blueprint(modes.webui.api.graph.blueprint, url_prefix=my_lib.webapp.config.URL_PREFIX)
 
     my_lib.webapp.config.show_handler_list(app)
+
+    # 履歴管理とキャッシュ事前生成を初期化
+    cache_dir = config.webapp.cache_dir_path
+    modes.webui.api.progress_estimation.generation_time_history.initialize(cache_dir)
+    modes.webui.api.cache_pregeneration.cache_pregenerator.initialize(config, cache_dir)
 
     return app
 
