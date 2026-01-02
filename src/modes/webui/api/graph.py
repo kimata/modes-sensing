@@ -52,6 +52,7 @@ import scipy.interpolate
 
 import modes.config
 import modes.database_postgresql
+import modes.webui.api.progress_estimation
 from modes.webui.api.job_manager import JobManager, JobStatus
 
 if TYPE_CHECKING:
@@ -215,13 +216,8 @@ def _check_pending_results() -> None:
 def _estimate_progress_and_stage(job_id: str) -> tuple[int, str]:
     """ジョブの進捗を推定して返す
 
-    実測に基づく推定時間:
-    - 1週間: 約16秒
-    - 1ヶ月: 約21秒
-    - 3ヶ月: 約133秒 (2分13秒)
-    - 4ヶ月: 約212秒 (3分32秒)
-
-    バッファを含めて少し長めに設定している。
+    履歴ベースの推定時間を使用し、履歴がない場合はデフォルト値を使用。
+    推定時間には3秒のバッファを追加。
 
     """
     job = _job_manager.get_job(job_id)
@@ -229,19 +225,13 @@ def _estimate_progress_and_stage(job_id: str) -> tuple[int, str]:
         return 10, "開始中..."
 
     elapsed = time.time() - job.started_at
-    # 期間に応じた推定処理時間を計算（実測+バッファ）
-    period_days = (job.time_end - job.time_start).total_seconds() / 86400
 
-    if period_days <= 7:
-        estimated_total = 30  # 1週間以内: 約30秒（実測16秒+バッファ）
-    elif period_days <= 30:
-        estimated_total = 60  # 1ヶ月以内: 約1分（実測21秒+バッファ）
-    elif period_days <= 90:
-        estimated_total = 180  # 3ヶ月以内: 約3分（実測2分13秒+バッファ）
-    elif period_days <= 180:
-        estimated_total = 600  # 6ヶ月以内: 約10分（外挿+バッファ）
-    else:
-        estimated_total = 900  # それ以上: 約15分
+    # 期間を時間単位で計算
+    duration_hours = (job.time_end - job.time_start).total_seconds() / 3600
+
+    # 履歴から推定時間を取得（+3秒のバッファ）
+    history = modes.webui.api.progress_estimation.generation_time_history
+    estimated_total = history.get_estimated_time(job.graph_name, duration_hours, job.limit_altitude) + 3.0
 
     # 進捗を推定（10-95%の範囲）
     progress = min(95, 10 + int((elapsed / estimated_total) * 85))
@@ -272,9 +262,7 @@ def _check_single_job(
         if not async_result.ready():
             # 未完了の場合は進捗を更新
             progress, stage = _estimate_progress_and_stage(job_id)
-            _job_manager.update_status(
-                job_id, JobStatus.PROCESSING, progress=progress, stage=stage
-            )
+            _job_manager.update_status(job_id, JobStatus.PROCESSING, progress=progress, stage=stage)
             return False
 
         try:
@@ -283,22 +271,23 @@ def _check_single_job(
             _job_manager.update_status(
                 job_id, JobStatus.COMPLETED, result=image_bytes, progress=100, stage="完了"
             )
-            logging.info(
-                "Job %s completed for %s (%.2f sec) via polling", job_id, graph_name, elapsed
-            )
+            logging.info("Job %s completed for %s (%.2f sec) via polling", job_id, graph_name, elapsed)
 
-            # キャッシュに保存
-            if image_bytes:
-                job = _job_manager.get_job(job_id)
-                if job:
+            # キャッシュに保存・生成時間を記録
+            job = _job_manager.get_job(job_id)
+            if job:
+                if image_bytes:
                     save_to_cache(
                         cache_dir, graph_name, job.time_start, job.time_end, job.limit_altitude, image_bytes
                     )
+                # 生成時間を履歴に記録
+                duration_hours = (job.time_end - job.time_start).total_seconds() / 3600
+                modes.webui.api.progress_estimation.generation_time_history.record(
+                    graph_name, duration_hours, job.limit_altitude, elapsed
+                )
         except Exception:
             logging.exception("Job %s failed for %s", job_id, graph_name)
-            _job_manager.update_status(
-                job_id, JobStatus.FAILED, error="Job execution failed", stage="エラー"
-            )
+            _job_manager.update_status(job_id, JobStatus.FAILED, error="Job execution failed", stage="エラー")
         return True
     except Exception:
         logging.exception("Error checking job %s", job_id)
@@ -1549,6 +1538,7 @@ GRAPH_DEF_MAP: dict[str, GraphDefinition] = {
 CACHE_TTL_SECONDS = 30 * 60  # 30分
 CACHE_START_TIME_TOLERANCE_SECONDS = 30 * 60  # 開始日時の許容差: 30分
 
+
 @functools.cache
 def get_git_commit_hash() -> str:
     """現在の git commit ハッシュを取得する（functools.cacheでキャッシュ）"""
@@ -1909,9 +1899,7 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
     try:
         # heatmapとcontourグラフの場合、元の時間範囲を渡してプロット範囲を制限
         if graph_name in ["heatmap", "contour_2d"]:
-            img, elapsed = GRAPH_DEF_MAP[graph_name].func(
-                data, figsize, time_start, time_end, limit_altitude
-            )
+            img, elapsed = GRAPH_DEF_MAP[graph_name].func(data, figsize, time_start, time_end, limit_altitude)
         else:
             img, elapsed = GRAPH_DEF_MAP[graph_name].func(data, figsize, limit_altitude)
     except Exception as e:
@@ -2075,11 +2063,13 @@ def refresh_aggregates():
         stats = modes.database_postgresql.get_materialized_view_stats(conn)
         conn.close()
 
-        return flask.jsonify({
-            "status": "success",
-            "refresh_times": timings,
-            "stats": stats,
-        })
+        return flask.jsonify(
+            {
+                "status": "success",
+                "refresh_times": timings,
+                "stats": stats,
+            }
+        )
 
     except Exception as e:
         logging.exception("Error refreshing materialized views")
@@ -2100,10 +2090,12 @@ def aggregate_stats():
         stats = modes.database_postgresql.get_materialized_view_stats(conn)
         conn.close()
 
-        return flask.jsonify({
-            "exists": exists,
-            "stats": stats,
-        })
+        return flask.jsonify(
+            {
+                "exists": exists,
+                "stats": stats,
+            }
+        )
 
     except Exception as e:
         logging.exception("Error getting aggregate stats")
@@ -2366,9 +2358,7 @@ def debug_date_parse():  # noqa: PLR0915
                 conn, time_start, time_end, max_altitude=None
             )
         else:
-            raw_data = modes.database_postgresql.fetch_by_time(
-                conn, time_start, time_end, distance=100
-            )
+            raw_data = modes.database_postgresql.fetch_by_time(conn, time_start, time_end, distance=100)
 
         conn.close()
 
@@ -2487,6 +2477,10 @@ def create_graph_job():
 
         config = flask.current_app.config["CONFIG"]
         cache_dir = config.webapp.cache_dir_path
+
+        # 履歴管理を初期化（初回のみ）
+        modes.webui.api.progress_estimation.generation_time_history.initialize(cache_dir)
+
         jobs = []
 
         for graph_name in graphs:
@@ -2512,9 +2506,7 @@ def create_graph_job():
                     len(cached_image),
                     job_id,
                 )
-                _job_manager.update_status(
-                    job_id, JobStatus.COMPLETED, result=cached_image, progress=100
-                )
+                _job_manager.update_status(job_id, JobStatus.COMPLETED, result=cached_image, progress=100)
             else:
                 # キャッシュミス: 新規ジョブIDで作成
                 job_id = _job_manager.create_job(graph_name, time_start, time_end, limit_altitude)
