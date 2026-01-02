@@ -115,10 +115,16 @@ def page(page):
 
 
 @pytest.fixture
-def browser_context_args(browser_context_args, worker_id):
-    """Configure browser context for parallel execution."""
-    # 並列実行時は各ワーカーに独立したコンテキストを設定
+def browser_context_args(browser_context_args, request, worker_id):
+    """Configure browser context for parallel execution and optional video recording."""
     args = {**browser_context_args}
+
+    # 環境変数 RECORD_VIDEO=true でビデオ録画を有効化
+    if os.environ.get("RECORD_VIDEO", "").lower() == "true":
+        video_dir = pathlib.Path("reports/videos/e2e") / request.node.name
+        video_dir.mkdir(parents=True, exist_ok=True)
+        args["record_video_dir"] = str(video_dir)
+        args["record_video_size"] = {"width": 2400, "height": 1600}
 
     # 並列実行時はキャッシュを無効化
     if worker_id != "master":
