@@ -1350,8 +1350,8 @@ def plot_wind_direction(data, figsize, limit_altitude=False):
     fig, ax = create_figure(figsize)
 
     # 軸の範囲を設定してレイアウトを確定
-    time_min = grouped["time_numeric"].min()
-    time_max = grouped["time_numeric"].max()
+    time_min: float = float(grouped["time_numeric"].min())
+    time_max: float = float(grouped["time_numeric"].max())
     alt_max = ALTITUDE_LIMIT if limit_altitude else ALT_MAX
     ax.set_xlim(time_min, time_max)
     ax.set_ylim(ALT_MIN, alt_max)
