@@ -12,7 +12,6 @@ default:
 stages:
     - generate-tag
     - build
-    - pre-test
     - test
     - tag-latest
     - deploy
