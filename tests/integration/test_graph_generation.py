@@ -20,7 +20,7 @@ from modes.config import Config
 class TestGraphGeneration:
     """グラフ生成テスト"""
 
-    def test_graph_generation_all_types(self, config: Config, config_dict: dict):
+    def test_graph_generation_all_types(self, config: Config):
         """全種類のグラフ生成をテスト"""
         time_end = my_lib.time.now()
         time_start = time_end - datetime.timedelta(days=7)
@@ -58,7 +58,7 @@ class TestGraphGeneration:
             )
             return
 
-        modes.webui.api.graph.set_font(config_dict["font"])
+        modes.webui.api.graph.set_font(config.font)
 
         for graph_name, graph_def in modes.webui.api.graph.GRAPH_DEF_MAP.items():
             # 直接関数を呼び出してテスト
