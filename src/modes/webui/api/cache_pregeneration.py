@@ -13,6 +13,8 @@ import threading
 import time
 from typing import TYPE_CHECKING, Self
 
+import my_lib.time
+
 if TYPE_CHECKING:
     import pathlib
 
@@ -117,7 +119,8 @@ class CachePregenerator:
             start_time = time.perf_counter()
 
             # 時間範囲を計算（現在時刻から7日前まで）
-            now = datetime.datetime.now(tz=datetime.UTC)
+            # JSTで統一し、分単位で正規化（ユーザーリクエストと一致させる）
+            now = my_lib.time.now()
             time_end = now.replace(second=0, microsecond=0)
             time_start = time_end - datetime.timedelta(days=DEFAULT_PERIOD_DAYS)
 
@@ -170,8 +173,8 @@ class CachePregenerator:
 
         for graph_name in PREGENERATION_GRAPHS:
             try:
-                # キャッシュが既にあるかチェック
-                cached_image, cache_filename = graph_module.get_cached_image(
+                # キャッシュの有効性をチェック（TTL残り時間も考慮）
+                cache_info = graph_module.find_matching_cache(
                     self._cache_dir,
                     graph_name,
                     time_start,
@@ -179,10 +182,28 @@ class CachePregenerator:
                     limit_altitude,
                 )
 
-                if cached_image:
-                    logging.debug("[PREGEN] Cache exists for %s: %s", graph_name, cache_filename)
-                    generated += 1
-                    continue
+                if cache_info:
+                    # TTL残り時間を計算
+                    current_time = time.time()
+                    cache_age = current_time - cache_info.created_at
+                    ttl_remaining = graph_module.CACHE_TTL_SECONDS - cache_age
+
+                    # 次回の事前生成までTTLが持つ場合はスキップ
+                    if ttl_remaining > PREGENERATION_INTERVAL_SECONDS:
+                        logging.debug(
+                            "[PREGEN] Cache valid for %s: %s (TTL remaining: %.0f sec)",
+                            graph_name,
+                            cache_info.path.name,
+                            ttl_remaining,
+                        )
+                        generated += 1
+                        continue
+
+                    logging.info(
+                        "[PREGEN] Cache expiring soon for %s (TTL remaining: %.0f sec), regenerating",
+                        graph_name,
+                        ttl_remaining,
+                    )
 
                 # グラフを生成
                 logging.info("[PREGEN] Generating %s...", graph_name)
