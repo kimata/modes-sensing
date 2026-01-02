@@ -51,10 +51,10 @@ class TestGraphGeneration:
         )
 
         # データが少ない場合はテストをスキップ
-        if data["count"] < 10:
+        if data.count < 10:
             logging.warning(
                 "データが不足しているため、グラフ生成テストをスキップします (データ数: %d)",
-                data["count"],
+                data.count,
             )
             return
 
