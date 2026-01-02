@@ -1341,26 +1341,41 @@ def plot_wind_direction(data, figsize, limit_altitude=False):
     # データ前処理
     grouped = _prepare_wind_data(data, limit_altitude)
 
-    # ベクトル計算
-    # x軸（時間、日数）とy軸（高度、メートル）のスケールが大きく異なるため、
-    # 見た目の矢印角度が正しくなるようにアスペクト比を補正する
-    time_range = grouped["time_numeric"].max() - grouped["time_numeric"].min()
-    altitude_range = ALTITUDE_LIMIT if limit_altitude else ALT_MAX
+    grouped = grouped.dropna()
+    if len(grouped) == 0:
+        logging.warning("No valid wind vectors after angle conversion")
+        raise ValueError("No valid wind vectors after angle conversion")
 
-    # グラフの物理的なサイズ（インチ）から補正係数を計算
-    # figsize = (2400, 1600) → (24, 16) インチ、グラフ領域は約85%
-    fig_width_inches = figsize[0] / 100 * 0.85
-    fig_height_inches = figsize[1] / 100 * 0.85
+    # プロット作成（先に figure/axes を作成してアスペクト比を取得）
+    fig, ax = create_figure(figsize)
 
-    # インチあたりのデータ単位
-    days_per_inch = time_range / fig_width_inches if fig_width_inches > 0 else 1
-    meters_per_inch = altitude_range / fig_height_inches if fig_height_inches > 0 else 1
+    # 軸の範囲を設定してレイアウトを確定
+    time_min = grouped["time_numeric"].min()
+    time_max = grouped["time_numeric"].max()
+    alt_max = ALTITUDE_LIMIT if limit_altitude else ALT_MAX
+    ax.set_xlim(time_min, time_max)
+    ax.set_ylim(ALT_MIN, alt_max)
+
+    # レイアウトを確定させてから transform でアスペクト比を計算
+    fig.canvas.draw()
+
+    # データ座標系からピクセル座標系への変換を使って正確なアスペクト比を取得
+    # (1, 0) と (0, 1) のデータ単位ベクトルがピクセル空間でどう見えるかを計算
+    transform = ax.transData
+    origin = transform.transform((time_min, ALT_MIN))
+    x_unit = transform.transform((time_min + 1, ALT_MIN))
+    y_unit = transform.transform((time_min, ALT_MIN + 1))
+
+    # ピクセル/データ単位
+    pixels_per_day = numpy.linalg.norm(x_unit - origin)
+    pixels_per_meter = numpy.linalg.norm(y_unit - origin)
 
     # 見た目の角度を正しくするための補正係数
     # 北風（wind_x=0, wind_y<0）が正しく下向きに見えるようにする
-    aspect_correction = meters_per_inch / days_per_inch if days_per_inch > 0 else 1
+    aspect_correction = pixels_per_day / pixels_per_meter if pixels_per_meter > 0 else 1
 
     # 矢印の基本スケール（時間軸方向の長さ）
+    time_range = time_max - time_min
     arrow_scale = time_range / 30
 
     wind_magnitude = numpy.sqrt(grouped["wind_x"] ** 2 + grouped["wind_y"] ** 2)
@@ -1368,14 +1383,6 @@ def plot_wind_direction(data, figsize, limit_altitude=False):
     # u（時間軸方向）= 東西成分、v（高度軸方向）= 南北成分
     grouped["u_normalized"] = (grouped["wind_x"] / wind_magnitude) * arrow_scale
     grouped["v_normalized"] = (grouped["wind_y"] / wind_magnitude) * arrow_scale * aspect_correction
-
-    grouped = grouped.dropna()
-    if len(grouped) == 0:
-        logging.warning("No valid wind vectors after angle conversion")
-        raise ValueError("No valid wind vectors after angle conversion")
-
-    # プロット作成
-    fig, ax = create_figure(figsize)
     wind_speeds = grouped["wind_speed"].to_numpy()
     wind_speeds_clipped = numpy.clip(wind_speeds, 0, 100)
 
