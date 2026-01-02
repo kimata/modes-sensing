@@ -52,7 +52,6 @@ import scipy.interpolate
 
 import modes.config
 import modes.database_postgresql
-import modes.webui.api.cache_pregeneration
 import modes.webui.api.progress_estimation
 from modes.webui.api.job_manager import JobManager, JobStatus
 
@@ -2482,12 +2481,6 @@ def create_graph_job():
 
         config = flask.current_app.config["CONFIG"]
         cache_dir = config.webapp.cache_dir_path
-
-        # 履歴管理を初期化（初回のみ）
-        modes.webui.api.progress_estimation.generation_time_history.initialize(cache_dir)
-
-        # キャッシュ事前生成を開始（初回のみ）
-        modes.webui.api.cache_pregeneration.cache_pregenerator.initialize(config, cache_dir)
 
         jobs = []
 
