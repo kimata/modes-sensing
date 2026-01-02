@@ -58,7 +58,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from matplotlib.axes import Axes
-    from matplotlib.figure import Figure
     from psycopg2.extensions import connection as PgConnection  # noqa: N812
 
 
@@ -2039,7 +2038,7 @@ def graph(graph_name):  # noqa: PLR0915
         try:
             parsed_end = json.loads(time_end_str)
             logging.info("[DEBUG] Parsed end JSON: %r", parsed_end)
-            time_end = datetime.datetime.fromisoformat(parsed_end.replace("Z", "+00:00"))
+            time_end = datetime.datetime.fromisoformat(parsed_end)
             time_end = time_end.astimezone(my_lib.time.get_zoneinfo())
         except Exception:
             logging.exception("[DEBUG] Failed to parse end time")
@@ -2052,7 +2051,7 @@ def graph(graph_name):  # noqa: PLR0915
         try:
             parsed_start = json.loads(time_start_str)
             logging.info("[DEBUG] Parsed start JSON: %r", parsed_start)
-            time_start = datetime.datetime.fromisoformat(parsed_start.replace("Z", "+00:00"))
+            time_start = datetime.datetime.fromisoformat(parsed_start)
             time_start = time_start.astimezone(my_lib.time.get_zoneinfo())
         except Exception:
             logging.exception("[DEBUG] Failed to parse start time")
@@ -2173,12 +2172,12 @@ def debug_date_parse():  # noqa: PLR0915
     if time_end_str:
         try:
             parsed_end = json.loads(time_end_str)
-            time_end = datetime.datetime.fromisoformat(parsed_end.replace("Z", "+00:00"))
+            time_end = datetime.datetime.fromisoformat(parsed_end)
             time_end = time_end.astimezone(my_lib.time.get_zoneinfo())
             result["parsed"]["end"] = {
                 "json_parsed": parsed_end,
                 "datetime": str(time_end),
-                "utc": str(time_end.astimezone(datetime.timezone.utc)),
+                "utc": str(time_end.astimezone(datetime.UTC)),
             }
         except Exception as e:
             result["parsed"]["end_error"] = str(e)
@@ -2190,12 +2189,12 @@ def debug_date_parse():  # noqa: PLR0915
     if time_start_str:
         try:
             parsed_start = json.loads(time_start_str)
-            time_start = datetime.datetime.fromisoformat(parsed_start.replace("Z", "+00:00"))
+            time_start = datetime.datetime.fromisoformat(parsed_start)
             time_start = time_start.astimezone(my_lib.time.get_zoneinfo())
             result["parsed"]["start"] = {
                 "json_parsed": parsed_start,
                 "datetime": str(time_start),
-                "utc": str(time_start.astimezone(datetime.timezone.utc)),
+                "utc": str(time_start.astimezone(datetime.UTC)),
             }
         except Exception as e:
             result["parsed"]["start_error"] = str(e)
@@ -2271,7 +2270,7 @@ def _parse_datetime_from_request(date_str: str | None) -> datetime.datetime | No
         return None
     try:
         # ISO形式の文字列をパース
-        dt = datetime.datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        dt = datetime.datetime.fromisoformat(date_str)
         # JSTに変換
         return dt.astimezone(my_lib.time.get_zoneinfo())
     except Exception:

@@ -166,8 +166,8 @@ def fetch_by_time(
     cur.execute(
         query,
         (
-            time_start.astimezone(datetime.timezone.utc),
-            time_end.astimezone(datetime.timezone.utc),
+            time_start.astimezone(datetime.UTC),
+            time_end.astimezone(datetime.UTC),
             distance,
         ),
     )
@@ -177,7 +177,7 @@ def fetch_by_time(
             **data,
             "time": (
                 datetime.datetime.strptime(data["time"], "%Y-%m-%d %H:%M:%S").replace(
-                    tzinfo=datetime.timezone.utc
+                    tzinfo=datetime.UTC
                 )
                 + datetime.timedelta(hours=9)
             )
@@ -270,11 +270,11 @@ def fetch_latest(
             # SQLiteのtimeカラムはUNIX timestampとして格納されている
             if isinstance(row_data["time"], int):
                 row_data["time"] = datetime.datetime.fromtimestamp(
-                    row_data["time"], tz=datetime.timezone.utc
+                    row_data["time"], tz=datetime.UTC
                 ) + datetime.timedelta(hours=9)
             elif isinstance(row_data["time"], str):
                 row_data["time"] = datetime.datetime.strptime(row_data["time"], "%Y-%m-%d %H:%M:%S").replace(
-                    tzinfo=datetime.timezone.utc
+                    tzinfo=datetime.UTC
                 ) + datetime.timedelta(hours=9)
         data.append(row_data)
 
@@ -324,20 +324,20 @@ def fetch_data_range(conn: sqlite3.Connection) -> DataRangeResult:
 
         if isinstance(earliest, int):
             earliest = datetime.datetime.fromtimestamp(
-                earliest, tz=datetime.timezone.utc
+                earliest, tz=datetime.UTC
             ) + datetime.timedelta(hours=9)
         elif isinstance(earliest, str):
             earliest = datetime.datetime.strptime(earliest, "%Y-%m-%d %H:%M:%S").replace(
-                tzinfo=datetime.timezone.utc
+                tzinfo=datetime.UTC
             ) + datetime.timedelta(hours=9)
 
         if isinstance(latest, int):
-            latest = datetime.datetime.fromtimestamp(latest, tz=datetime.timezone.utc) + datetime.timedelta(
+            latest = datetime.datetime.fromtimestamp(latest, tz=datetime.UTC) + datetime.timedelta(
                 hours=9
             )
         elif isinstance(latest, str):
             latest = datetime.datetime.strptime(latest, "%Y-%m-%d %H:%M:%S").replace(
-                tzinfo=datetime.timezone.utc
+                tzinfo=datetime.UTC
             ) + datetime.timedelta(hours=9)
 
         return DataRangeResult(
