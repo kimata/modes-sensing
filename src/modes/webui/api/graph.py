@@ -26,8 +26,8 @@ import subprocess
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypedDict
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 import flask
 import matplotlib  # noqa: ICN001
@@ -62,19 +62,21 @@ if TYPE_CHECKING:
     from psycopg2.extensions import connection as PgConnection  # noqa: N812
 
 
-class GraphDefinition(TypedDict):
-    """グラフ定義"""
-
-    func: Callable[..., Figure]
-    size: tuple[int, int]
-    future: concurrent.futures.Future[Figure] | None
-
-
-class PreparedData(TypedDict):
+@dataclass
+class PreparedData:
     """準備済みデータ"""
 
-    dataframe: pandas.DataFrame | None
     count: int
+    times: numpy.ndarray
+    time_numeric: numpy.ndarray
+    altitudes: numpy.ndarray
+    temperatures: numpy.ndarray
+    dataframe: pandas.DataFrame
+    wind_x: numpy.ndarray = field(default_factory=lambda: numpy.array([], dtype=numpy.float64))
+    wind_y: numpy.ndarray = field(default_factory=lambda: numpy.array([], dtype=numpy.float64))
+    wind_speed: numpy.ndarray = field(default_factory=lambda: numpy.array([], dtype=numpy.float64))
+    wind_angle: numpy.ndarray = field(default_factory=lambda: numpy.array([], dtype=numpy.float64))
+
 
 def get_font_config(font_config: modes.config.FontConfig) -> my_lib.panel_config.FontConfig:
     """FontConfigをmy_lib.panel_config.FontConfigに変換する"""
@@ -542,17 +544,19 @@ def create_no_data_image(config, graph_name, text="データがありません")
     return img
 
 
-def prepare_data(raw_data):
+def prepare_data(raw_data) -> PreparedData:
     """データ前処理を最適化（無効データ除去、メモリ効率向上）"""
+    empty_array = numpy.array([])
+
     if not raw_data:
-        return {
-            "count": 0,
-            "times": numpy.array([]),
-            "time_numeric": numpy.array([]),
-            "altitudes": numpy.array([]),
-            "temperatures": numpy.array([]),
-            "dataframe": pandas.DataFrame(),
-        }
+        return PreparedData(
+            count=0,
+            times=empty_array,
+            time_numeric=empty_array,
+            altitudes=empty_array,
+            temperatures=empty_array,
+            dataframe=pandas.DataFrame(),
+        )
 
     # 全データを一括でnumpy配列に変換（メモリ効率向上）
     data_length = len(raw_data)
@@ -574,14 +578,14 @@ def prepare_data(raw_data):
     )
 
     if not valid_mask.any():
-        return {
-            "count": 0,
-            "times": numpy.array([]),
-            "time_numeric": numpy.array([]),
-            "altitudes": numpy.array([]),
-            "temperatures": numpy.array([]),
-            "dataframe": pandas.DataFrame(),
-        }
+        return PreparedData(
+            count=0,
+            times=empty_array,
+            time_numeric=empty_array,
+            altitudes=empty_array,
+            temperatures=empty_array,
+            dataframe=pandas.DataFrame(),
+        )
 
     # 有効データのみを連続メモリ配置で抽出
     valid_indices = numpy.where(valid_mask)[0]
@@ -605,17 +609,17 @@ def prepare_data(raw_data):
     filtered_records = [raw_data[i] for i in valid_indices] if valid_count < data_length else raw_data
     clean_df = pandas.DataFrame(filtered_records) if filtered_records else pandas.DataFrame()
 
-    return {
-        "count": valid_count,
-        "times": times,
-        "time_numeric": time_numeric,
-        "altitudes": clean_altitudes,
-        "temperatures": clean_temperatures,
-        "dataframe": clean_df,
-    }
+    return PreparedData(
+        count=valid_count,
+        times=times,
+        time_numeric=time_numeric,
+        altitudes=clean_altitudes,
+        temperatures=clean_temperatures,
+        dataframe=clean_df,
+    )
 
 
-def prepare_data_numpy(numpy_data: dict) -> dict:
+def prepare_data_numpy(numpy_data: dict) -> PreparedData:
     """NumPy配列形式のデータから描画用データを準備する（高速版）
 
     fetch_by_time_numpy / fetch_aggregated_numpy から返されたデータを
@@ -635,23 +639,24 @@ def prepare_data_numpy(numpy_data: dict) -> dict:
             }
 
     Returns:
-        グラフ描画用のデータ辞書
+        グラフ描画用のPreparedData
 
     """
-    if numpy_data["count"] == 0:
-        return {
-            "count": 0,
-            "times": numpy.array([], dtype="datetime64[us]"),
-            "time_numeric": numpy.array([], dtype=numpy.float64),
-            "altitudes": numpy.array([], dtype=numpy.float64),
-            "temperatures": numpy.array([], dtype=numpy.float64),
-            "dataframe": pandas.DataFrame(),
-            # 風データ
-            "wind_x": numpy.array([], dtype=numpy.float64),
-            "wind_y": numpy.array([], dtype=numpy.float64),
-            "wind_speed": numpy.array([], dtype=numpy.float64),
-            "wind_angle": numpy.array([], dtype=numpy.float64),
-        }
+    empty_float_array = numpy.array([], dtype=numpy.float64)
+
+    if numpy_data.count == 0:
+        return PreparedData(
+            count=0,
+            times=numpy.array([], dtype="datetime64[us]"),
+            time_numeric=empty_float_array,
+            altitudes=empty_float_array,
+            temperatures=empty_float_array,
+            dataframe=pandas.DataFrame(),
+            wind_x=empty_float_array,
+            wind_y=empty_float_array,
+            wind_speed=empty_float_array,
+            wind_angle=empty_float_array,
+        )
 
     times = numpy_data["time"]
     altitudes = numpy_data["altitude"]
@@ -669,18 +674,18 @@ def prepare_data_numpy(numpy_data: dict) -> dict:
     valid_count = numpy.count_nonzero(valid_mask)
 
     if valid_count == 0:
-        return {
-            "count": 0,
-            "times": numpy.array([], dtype="datetime64[us]"),
-            "time_numeric": numpy.array([], dtype=numpy.float64),
-            "altitudes": numpy.array([], dtype=numpy.float64),
-            "temperatures": numpy.array([], dtype=numpy.float64),
-            "dataframe": pandas.DataFrame(),
-            "wind_x": numpy.array([], dtype=numpy.float64),
-            "wind_y": numpy.array([], dtype=numpy.float64),
-            "wind_speed": numpy.array([], dtype=numpy.float64),
-            "wind_angle": numpy.array([], dtype=numpy.float64),
-        }
+        return PreparedData(
+            count=0,
+            times=numpy.array([], dtype="datetime64[us]"),
+            time_numeric=empty_float_array,
+            altitudes=empty_float_array,
+            temperatures=empty_float_array,
+            dataframe=pandas.DataFrame(),
+            wind_x=empty_float_array,
+            wind_y=empty_float_array,
+            wind_speed=empty_float_array,
+            wind_angle=empty_float_array,
+        )
 
     # 有効データのみを連続メモリ配置で抽出（ベクトル化）
     clean_times = times[valid_mask]
@@ -694,28 +699,29 @@ def prepare_data_numpy(numpy_data: dict) -> dict:
     time_numeric = numpy.ascontiguousarray(time_numeric)
 
     # 風データの処理
-    result: dict = {
-        "count": valid_count,
-        "times": clean_times,
-        "time_numeric": time_numeric,
-        "altitudes": clean_altitudes,
-        "temperatures": clean_temperatures,
-        "dataframe": pandas.DataFrame(),  # 必要時に後で作成
-    }
-
-    # 風データがあれば追加
     if "wind_x" in numpy_data:
-        result["wind_x"] = numpy.ascontiguousarray(numpy_data["wind_x"][valid_mask])
-        result["wind_y"] = numpy.ascontiguousarray(numpy_data["wind_y"][valid_mask])
-        result["wind_speed"] = numpy.ascontiguousarray(numpy_data["wind_speed"][valid_mask])
-        result["wind_angle"] = numpy.ascontiguousarray(numpy_data["wind_angle"][valid_mask])
+        wind_x = numpy.ascontiguousarray(numpy_data.wind_x[valid_mask])
+        wind_y = numpy.ascontiguousarray(numpy_data.wind_y[valid_mask])
+        wind_speed = numpy.ascontiguousarray(numpy_data.wind_speed[valid_mask])
+        wind_angle = numpy.ascontiguousarray(numpy_data.wind_angle[valid_mask])
     else:
-        result["wind_x"] = numpy.array([], dtype=numpy.float64)
-        result["wind_y"] = numpy.array([], dtype=numpy.float64)
-        result["wind_speed"] = numpy.array([], dtype=numpy.float64)
-        result["wind_angle"] = numpy.array([], dtype=numpy.float64)
+        wind_x = empty_float_array
+        wind_y = empty_float_array
+        wind_speed = empty_float_array
+        wind_angle = empty_float_array
 
-    return result
+    return PreparedData(
+        count=valid_count,
+        times=clean_times,
+        time_numeric=time_numeric,
+        altitudes=clean_altitudes,
+        temperatures=clean_temperatures,
+        dataframe=pandas.DataFrame(),  # 必要時に後で作成
+        wind_x=wind_x,
+        wind_y=wind_y,
+        wind_speed=wind_speed,
+        wind_angle=wind_angle,
+    )
 
 
 def set_font(font_config_src: modes.config.FontConfig) -> None:
@@ -791,10 +797,10 @@ def plot_scatter_3d(data, figsize, limit_altitude=False):
 
     fig, ax = create_3d_figure(figsize)
     scatter = ax.scatter(
-        data["time_numeric"],
-        data["altitudes"],
-        data["temperatures"],
-        c=data["temperatures"],
+        data.time_numeric,
+        data.altitudes,
+        data.temperatures,
+        c=data.temperatures,
         cmap="plasma",
         marker="o",
         s=15,
@@ -803,7 +809,7 @@ def plot_scatter_3d(data, figsize, limit_altitude=False):
         edgecolors="none",
     )
 
-    set_axis_3d(ax, data["time_numeric"], limit_altitude)
+    set_axis_3d(ax, data.time_numeric, limit_altitude)
     append_colorbar(scatter, shrink=0.6, pad=0.01, aspect=35, limit_altitude=limit_altitude)
     setup_3d_colorbar_and_layout(ax)
 
@@ -822,9 +828,9 @@ def plot_density(data, figsize, limit_altitude=False):
     fig, ax = create_figure(figsize)
 
     scatter = ax.scatter(
-        data["altitudes"],
-        data["temperatures"],
-        c=data["temperatures"],
+        data.altitudes,
+        data.temperatures,
+        c=data.temperatures,
         cmap="plasma",
         s=15,
         alpha=0.9,
@@ -859,24 +865,24 @@ def plot_contour_2d(data, figsize, plot_time_start=None, plot_time_end=None, lim
         plot_time_min = matplotlib.dates.date2num(plot_time_start)
         plot_time_max = matplotlib.dates.date2num(plot_time_end)
         # 実際のデータ範囲内に制限
-        if len(data["time_numeric"]) > 0:
-            actual_min = data["time_numeric"].min()
-            actual_max = data["time_numeric"].max()
+        if len(data.time_numeric) > 0:
+            actual_min = data.time_numeric.min()
+            actual_max = data.time_numeric.max()
             plot_time_min = max(plot_time_min, actual_min)
             plot_time_max = min(plot_time_max, actual_max)
         grid = create_grid(
-            data["time_numeric"],
-            data["altitudes"],
-            data["temperatures"],
+            data.time_numeric,
+            data.altitudes,
+            data.temperatures,
             grid_points=80,
             time_range=(plot_time_min, plot_time_max),
             limit_altitude=limit_altitude,
         )
     else:
         grid = create_grid(
-            data["time_numeric"],
-            data["altitudes"],
-            data["temperatures"],
+            data.time_numeric,
+            data.altitudes,
+            data.temperatures,
             grid_points=80,
             limit_altitude=limit_altitude,
         )
@@ -934,24 +940,24 @@ def plot_heatmap(data, figsize, plot_time_start=None, plot_time_end=None, limit_
         plot_time_min = matplotlib.dates.date2num(plot_time_start)
         plot_time_max = matplotlib.dates.date2num(plot_time_end)
         # 実際のデータ範囲内に制限
-        if len(data["time_numeric"]) > 0:
-            actual_min = data["time_numeric"].min()
-            actual_max = data["time_numeric"].max()
+        if len(data.time_numeric) > 0:
+            actual_min = data.time_numeric.min()
+            actual_max = data.time_numeric.max()
             plot_time_min = max(plot_time_min, actual_min)
             plot_time_max = min(plot_time_max, actual_max)
         grid = create_grid(
-            data["time_numeric"],
-            data["altitudes"],
-            data["temperatures"],
+            data.time_numeric,
+            data.altitudes,
+            data.temperatures,
             grid_points=80,
             time_range=(plot_time_min, plot_time_max),
             limit_altitude=limit_altitude,
         )
     else:
         grid = create_grid(
-            data["time_numeric"],
-            data["altitudes"],
-            data["temperatures"],
+            data.time_numeric,
+            data.altitudes,
+            data.temperatures,
             grid_points=80,
             limit_altitude=limit_altitude,
         )
@@ -997,9 +1003,9 @@ def plot_scatter_2d(data, figsize, limit_altitude=False):
     fig, ax = create_figure(figsize)
 
     sc = ax.scatter(
-        data["times"],
-        data["altitudes"],
-        c=data["temperatures"],
+        data.times,
+        data.altitudes,
+        c=data.temperatures,
         cmap="plasma",
         s=15,
         alpha=0.9,
@@ -1010,8 +1016,8 @@ def plot_scatter_2d(data, figsize, limit_altitude=False):
     set_axis_2d_default(
         ax,
         [
-            matplotlib.dates.num2date(data["time_numeric"].min()),
-            matplotlib.dates.num2date(data["time_numeric"].max()),
+            matplotlib.dates.num2date(data.time_numeric.min()),
+            matplotlib.dates.num2date(data.time_numeric.max()),
         ],
         limit_altitude,
     )
@@ -1034,9 +1040,9 @@ def plot_contour_3d(data, figsize, limit_altitude=False):
 
     # グリッドデータを作成
     grid = create_grid(
-        data["time_numeric"],
-        data["altitudes"],
-        data["temperatures"],
+        data.time_numeric,
+        data.altitudes,
+        data.temperatures,
         grid_points=60,
         limit_altitude=limit_altitude,
     )
@@ -1073,7 +1079,7 @@ def plot_contour_3d(data, figsize, limit_altitude=False):
         offset=temp_min,  # 底面に等高線を投影
     )
 
-    set_axis_3d(ax, data["time_numeric"], limit_altitude)
+    set_axis_3d(ax, data.time_numeric, limit_altitude)
     append_colorbar(surf, shrink=0.6, pad=0.01, aspect=35, limit_altitude=limit_altitude)
     setup_3d_colorbar_and_layout(ax)
 
@@ -1086,11 +1092,11 @@ def plot_contour_3d(data, figsize, limit_altitude=False):
 
 def _validate_wind_dataframe(data):
     """風データのDataFrame検証とカラムチェック"""
-    if "dataframe" not in data or len(data["dataframe"]) == 0:
+    if len(data.dataframe) == 0:
         logging.warning("Wind data not available for wind direction plot")
         raise ValueError("Wind data not available")
 
-    df = data["dataframe"]
+    df = data.dataframe
     required_columns = ["time", "altitude", "wind_x", "wind_y", "wind_speed", "wind_angle"]
     missing_columns = [col for col in required_columns if col not in df.columns]
 
@@ -1145,10 +1151,10 @@ def _create_wind_bins(valid_data, limit_altitude=False):
     """風データのビニング処理"""
     from collections import defaultdict
 
-    valid_altitudes = valid_data["altitudes"]
-    valid_time_numeric = valid_data["time_numeric"]
-    valid_wind_x = valid_data["wind_x"]
-    valid_wind_y = valid_data["wind_y"]
+    valid_altitudes = valid_data.altitudes
+    valid_time_numeric = valid_data.time_numeric
+    valid_wind_x = valid_data.wind_x
+    valid_wind_y = valid_data.wind_y
 
     # 高度ビニング（limit_altitudeに応じて範囲と間隔を調整）
     if limit_altitude:
@@ -1224,8 +1230,8 @@ def plot_wind_direction(data, figsize, limit_altitude=False):
     start = time.perf_counter()
 
     # デバッグ情報
-    if "dataframe" in data and len(data["dataframe"]) > 0:
-        df = data["dataframe"]
+    if len(data.dataframe) > 0:
+        df = data.dataframe
         logging.info("Available columns in dataframe: %s", list(df.columns))
         logging.info("Dataframe shape: %s", df.shape)
 
@@ -1317,12 +1323,12 @@ def plot_temperature(data, figsize, limit_altitude=False):
     # 各高度範囲のデータをプロット
     for alt_range in altitude_ranges:
         # 高度範囲でフィルタリング
-        mask = (data["altitudes"] >= alt_range["min"]) & (data["altitudes"] <= alt_range["max"])
+        mask = (data.altitudes >= alt_range["min"]) & (data.altitudes <= alt_range["max"])
         if not numpy.any(mask):
             continue
 
-        filtered_temps = data["temperatures"][mask]
-        filtered_time_numeric = data["time_numeric"][mask]
+        filtered_temps = data.temperatures[mask]
+        filtered_time_numeric = data.time_numeric[mask]
 
         # 時系列でソート
         sort_indices = numpy.argsort(filtered_time_numeric)
@@ -1372,7 +1378,7 @@ def plot_temperature(data, figsize, limit_altitude=False):
     ax.set_ylabel("温度 (℃)")
     ax.grid(True, alpha=0.7)
 
-    time_range = data["time_numeric"].max() - data["time_numeric"].min()
+    time_range = data.time_numeric.max() - data.time_numeric.min()
     apply_time_axis_format(ax, time_range)
 
     # Y軸の範囲設定（limit_altitudeによって変更）
@@ -1390,7 +1396,7 @@ def plot_temperature(data, figsize, limit_altitude=False):
 
 
 @dataclass
-class GraphDef:
+class GraphDefinition:
     """グラフ定義"""
 
     func: Callable[..., tuple[PIL.Image.Image, float]]
@@ -1398,15 +1404,15 @@ class GraphDef:
     file: str
 
 
-GRAPH_DEF_MAP: dict[str, GraphDef] = {
-    "scatter_2d": GraphDef(func=plot_scatter_2d, size=(2400, 1600), file="scatter_2d.png"),
-    "scatter_3d": GraphDef(func=plot_scatter_3d, size=(2800, 2800), file="scatter_3d.png"),
-    "contour_2d": GraphDef(func=plot_contour_2d, size=(2400, 1600), file="contour_2d.png"),
-    "contour_3d": GraphDef(func=plot_contour_3d, size=(2800, 2800), file="contour_3d.png"),
-    "density": GraphDef(func=plot_density, size=(2400, 1600), file="density.png"),
-    "heatmap": GraphDef(func=plot_heatmap, size=(2400, 1600), file="heatmap.png"),
-    "temperature": GraphDef(func=plot_temperature, size=(2400, 1600), file="temperature.png"),
-    "wind_direction": GraphDef(func=plot_wind_direction, size=(2400, 1600), file="wind_direction.png"),
+GRAPH_DEF_MAP: dict[str, GraphDefinition] = {
+    "scatter_2d": GraphDefinition(func=plot_scatter_2d, size=(2400, 1600), file="scatter_2d.png"),
+    "scatter_3d": GraphDefinition(func=plot_scatter_3d, size=(2800, 2800), file="scatter_3d.png"),
+    "contour_2d": GraphDefinition(func=plot_contour_2d, size=(2400, 1600), file="contour_2d.png"),
+    "contour_3d": GraphDefinition(func=plot_contour_3d, size=(2800, 2800), file="contour_3d.png"),
+    "density": GraphDefinition(func=plot_density, size=(2400, 1600), file="density.png"),
+    "heatmap": GraphDefinition(func=plot_heatmap, size=(2400, 1600), file="heatmap.png"),
+    "temperature": GraphDefinition(func=plot_temperature, size=(2400, 1600), file="temperature.png"),
+    "wind_direction": GraphDefinition(func=plot_wind_direction, size=(2400, 1600), file="wind_direction.png"),
 }
 
 
@@ -1730,14 +1736,14 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
     conn.close()
 
     # デバッグ: 取得したデータの時間範囲を確認
-    if numpy_data["count"] > 0:
+    if numpy_data.count > 0:
         times = numpy_data["time"]
         logging.info(
             "Data range for %s: %s to %s (%d rows)",
             graph_name,
             times.min(),
             times.max(),
-            numpy_data["count"],
+            numpy_data.count,
         )
     else:
         logging.warning("No data fetched for %s", graph_name)
@@ -1745,7 +1751,7 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
     # データ準備（高速版NumPy処理）
     data = prepare_data_numpy(numpy_data)
 
-    if data["count"] < 10:
+    if data.count < 10:
         # データがない場合の画像を生成
         try:
             img = create_no_data_image(config, graph_name)
