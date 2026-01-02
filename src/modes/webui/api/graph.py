@@ -718,13 +718,26 @@ def prepare_data_numpy(numpy_data: dict) -> PreparedData:
         wind_speed = empty_float_array
         wind_angle = empty_float_array
 
+    # 風向グラフ用に DataFrame を作成
+    df_data = {
+        "time": clean_times,
+        "time_numeric": time_numeric,
+        "altitude": clean_altitudes,
+        "temperature": clean_temperatures,
+    }
+    if len(wind_x) > 0:
+        df_data["wind_x"] = wind_x
+        df_data["wind_y"] = wind_y
+        df_data["wind_speed"] = wind_speed
+        df_data["wind_angle"] = wind_angle
+
     return PreparedData(
         count=valid_count,
         times=clean_times,
         time_numeric=time_numeric,
         altitudes=clean_altitudes,
         temperatures=clean_temperatures,
-        dataframe=pandas.DataFrame(),  # 必要時に後で作成
+        dataframe=pandas.DataFrame(df_data),
         wind_x=wind_x,
         wind_y=wind_y,
         wind_speed=wind_speed,
