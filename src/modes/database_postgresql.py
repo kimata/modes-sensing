@@ -1328,7 +1328,7 @@ def get_materialized_view_stats(conn: PgConnection) -> dict[str, dict[str, Any]]
                 )
                 result = cur.fetchone()
                 stats[view] = dict(result) if result else {"row_count": 0, "earliest": None, "latest": None}
-        except Exception:  # noqa: PERF203
+        except Exception:
             logging.exception("Failed to get stats for %s", view)
             stats[view] = {"error": True}
 
