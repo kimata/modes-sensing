@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import my_lib.notify.slack
+import my_lib.webapp.config
 
 
 @dataclass(frozen=True)
@@ -66,12 +67,11 @@ class FontConfig:
     map: dict[str, str] = field(default_factory=dict)
 
 
-@dataclass(frozen=True)
-class WebappConfig:
-    """Webアプリケーション設定"""
+@dataclass
+class WebappConfig(my_lib.webapp.config.WebappConfig):
+    """Webアプリケーション設定（my_lib.webapp.config.WebappConfig を拡張）"""
 
-    static_dir_path: pathlib.Path
-    cache_dir_path: pathlib.Path
+    cache_dir_path: pathlib.Path = field(default_factory=lambda: pathlib.Path("cache"))
 
 
 @dataclass(frozen=True)
