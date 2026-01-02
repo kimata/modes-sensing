@@ -1,0 +1,24 @@
+-- SQLite Schema for modes-sensing
+-- meteorological_data テーブルとインデックス
+
+-- メインテーブル
+CREATE TABLE IF NOT EXISTS meteorological_data (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    time INTEGER NOT NULL,
+    callsign TEXT NOT NULL,
+    distance REAL,
+    altitude REAL,
+    latitude REAL,
+    longitude REAL,
+    temperature REAL,
+    wind_x REAL,
+    wind_y REAL,
+    wind_angle REAL,
+    wind_speed REAL,
+    method TEXT
+);
+
+-- インデックス
+CREATE INDEX IF NOT EXISTS idx_time ON meteorological_data (time);
+CREATE INDEX IF NOT EXISTS idx_distance ON meteorological_data (distance);
+CREATE INDEX IF NOT EXISTS idx_time_distance ON meteorological_data (time, distance);
