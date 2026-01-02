@@ -2,7 +2,9 @@
 
 航空機から送信される DDR Mode S メッセージを受信し、気象データを可視化するシステム
 
-[![Regression](https://github.com/kimata/modes-sensing/actions/workflows/regression.yaml/badge.svg)](https://github.com/kimata/modes-sensing/actions/workflows/regression.yaml)
+[![Test Status](https://github.com/kimata/modes-sensing/actions/workflows/test.yaml/badge.svg)](https://github.com/kimata/modes-sensing/actions/workflows/test.yaml)
+[![Test Report](https://img.shields.io/badge/Test_Report-pytest.html-blue)](https://kimata.github.io/modes-sensing/pytest.html)
+[![Coverage Status](https://coveralls.io/repos/github/kimata/modes-sensing/badge.svg?branch=main)](https://coveralls.io/github/kimata/modes-sensing?branch=main)
 
 ## 📑 目次
 
