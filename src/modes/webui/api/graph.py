@@ -1341,16 +1341,33 @@ def plot_wind_direction(data, figsize, limit_altitude=False):
     # データ前処理
     grouped = _prepare_wind_data(data, limit_altitude)
 
-    # ベクトル計算（limit_altitudeに応じて高度範囲を調整）
+    # ベクトル計算
+    # x軸（時間、日数）とy軸（高度、メートル）のスケールが大きく異なるため、
+    # 見た目の矢印角度が正しくなるようにアスペクト比を補正する
     time_range = grouped["time_numeric"].max() - grouped["time_numeric"].min()
     altitude_range = ALTITUDE_LIMIT if limit_altitude else ALT_MAX
-    u_scale = time_range / 30
-    v_scale = altitude_range / 30
+
+    # グラフの物理的なサイズ（インチ）から補正係数を計算
+    # figsize = (2400, 1600) → (24, 16) インチ、グラフ領域は約85%
+    fig_width_inches = figsize[0] / 100 * 0.85
+    fig_height_inches = figsize[1] / 100 * 0.85
+
+    # インチあたりのデータ単位
+    days_per_inch = time_range / fig_width_inches if fig_width_inches > 0 else 1
+    meters_per_inch = altitude_range / fig_height_inches if fig_height_inches > 0 else 1
+
+    # 見た目の角度を正しくするための補正係数
+    # 北風（wind_x=0, wind_y<0）が正しく下向きに見えるようにする
+    aspect_correction = meters_per_inch / days_per_inch if days_per_inch > 0 else 1
+
+    # 矢印の基本スケール（時間軸方向の長さ）
+    arrow_scale = time_range / 30
 
     wind_magnitude = numpy.sqrt(grouped["wind_x"] ** 2 + grouped["wind_y"] ** 2)
     # wind_x, wind_yは風が吹いていく方向のベクトル、矢印もその方向を指す
-    grouped["u_normalized"] = (grouped["wind_x"] / wind_magnitude) * u_scale
-    grouped["v_normalized"] = (grouped["wind_y"] / wind_magnitude) * v_scale
+    # u（時間軸方向）= 東西成分、v（高度軸方向）= 南北成分
+    grouped["u_normalized"] = (grouped["wind_x"] / wind_magnitude) * arrow_scale
+    grouped["v_normalized"] = (grouped["wind_y"] / wind_magnitude) * arrow_scale * aspect_correction
 
     grouped = grouped.dropna()
     if len(grouped) == 0:
