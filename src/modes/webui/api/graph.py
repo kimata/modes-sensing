@@ -645,7 +645,7 @@ def prepare_data_numpy(numpy_data: dict) -> PreparedData:
     """
     empty_float_array = numpy.array([], dtype=numpy.float64)
 
-    if numpy_data.count == 0:
+    if numpy_data["count"] == 0:
         return PreparedData(
             count=0,
             times=numpy.array([], dtype="datetime64[us]"),
@@ -701,10 +701,10 @@ def prepare_data_numpy(numpy_data: dict) -> PreparedData:
 
     # 風データの処理
     if "wind_x" in numpy_data:
-        wind_x = numpy.ascontiguousarray(numpy_data.wind_x[valid_mask])
-        wind_y = numpy.ascontiguousarray(numpy_data.wind_y[valid_mask])
-        wind_speed = numpy.ascontiguousarray(numpy_data.wind_speed[valid_mask])
-        wind_angle = numpy.ascontiguousarray(numpy_data.wind_angle[valid_mask])
+        wind_x = numpy.ascontiguousarray(numpy_data["wind_x"][valid_mask])
+        wind_y = numpy.ascontiguousarray(numpy_data["wind_y"][valid_mask])
+        wind_speed = numpy.ascontiguousarray(numpy_data["wind_speed"][valid_mask])
+        wind_angle = numpy.ascontiguousarray(numpy_data["wind_angle"][valid_mask])
     else:
         wind_x = empty_float_array
         wind_y = empty_float_array
@@ -1728,14 +1728,14 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
     conn.close()
 
     # デバッグ: 取得したデータの時間範囲を確認
-    if numpy_data.count > 0:
+    if numpy_data["count"] > 0:
         times = numpy_data["time"]
         logging.info(
             "Data range for %s: %s to %s (%d rows)",
             graph_name,
             times.min(),
             times.max(),
-            numpy_data.count,
+            numpy_data["count"],
         )
     else:
         logging.warning("No data fetched for %s", graph_name)
