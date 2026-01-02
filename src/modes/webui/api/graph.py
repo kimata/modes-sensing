@@ -173,8 +173,8 @@ class ProcessPoolManager:
 _pool_manager = ProcessPoolManager()
 
 # 非同期ジョブの完了を追跡するためのデータ構造
-# job_id -> (async_result, graph_name)
-_pending_async_results: dict[str, tuple[multiprocessing.pool.AsyncResult, str]] = {}
+# job_id -> (async_result, graph_name, cache_dir)
+_pending_async_results: dict[str, tuple[multiprocessing.pool.AsyncResult, str, pathlib.Path]] = {}
 _async_results_lock = threading.Lock()
 _result_checker_started = False
 
@@ -203,8 +203,8 @@ def _check_pending_results() -> None:
     """保留中の非同期結果をチェックし、完了したものを処理"""
     with _async_results_lock:
         completed_jobs = []
-        for job_id, (async_result, graph_name) in list(_pending_async_results.items()):
-            if not _check_single_job(job_id, async_result, graph_name):
+        for job_id, (async_result, graph_name, cache_dir) in list(_pending_async_results.items()):
+            if not _check_single_job(job_id, async_result, graph_name, cache_dir):
                 continue
             completed_jobs.append(job_id)
 
@@ -261,7 +261,12 @@ def _estimate_progress_and_stage(job_id: str) -> tuple[int, str]:
     return progress, stage
 
 
-def _check_single_job(job_id: str, async_result: multiprocessing.pool.AsyncResult, graph_name: str) -> bool:
+def _check_single_job(
+    job_id: str,
+    async_result: multiprocessing.pool.AsyncResult,
+    graph_name: str,
+    cache_dir: pathlib.Path,
+) -> bool:
     """単一のジョブをチェックし、完了していればTrueを返す"""
     try:
         if not async_result.ready():
@@ -281,6 +286,14 @@ def _check_single_job(job_id: str, async_result: multiprocessing.pool.AsyncResul
             logging.info(
                 "Job %s completed for %s (%.2f sec) via polling", job_id, graph_name, elapsed
             )
+
+            # キャッシュに保存
+            if image_bytes:
+                job = _job_manager.get_job(job_id)
+                if job:
+                    save_to_cache(
+                        cache_dir, graph_name, job.time_start, job.time_end, job.limit_altitude, image_bytes
+                    )
         except Exception:
             logging.exception("Job %s failed for %s", job_id, graph_name)
             _job_manager.update_status(
@@ -2300,6 +2313,7 @@ def _start_job_async(  # noqa: PLR0913
     time_start: datetime.datetime,
     time_end: datetime.datetime,
     limit_altitude: bool,
+    cache_dir: pathlib.Path,
 ) -> None:
     """プロセスプールを使用してジョブを非同期実行（ポーリング方式）"""
     _job_manager.update_status(job_id, JobStatus.PROCESSING, progress=10, stage="開始中...")
@@ -2318,7 +2332,7 @@ def _start_job_async(  # noqa: PLR0913
 
     # 保留中の結果リストに追加（ポーリングスレッドが監視）
     with _async_results_lock:
-        _pending_async_results[job_id] = (async_result, graph_name)
+        _pending_async_results[job_id] = (async_result, graph_name, cache_dir)
 
     logging.info("Started async job %s for %s (polling mode)", job_id, graph_name)
 
@@ -2390,7 +2404,7 @@ def create_graph_job():
             else:
                 # キャッシュミス: プロセスプールでジョブを開始
                 logging.info("[CACHE] MISS for %s, starting job", graph_name)
-                _start_job_async(config, job_id, graph_name, time_start, time_end, limit_altitude)
+                _start_job_async(config, job_id, graph_name, time_start, time_end, limit_altitude, cache_dir)
 
         return flask.jsonify({"jobs": jobs})
 
