@@ -196,7 +196,7 @@ test-playwright:
             fi
 
         - >
-            uv run pytest tests/e2e/test_webui.py
+            uv run pytest tests/e2e/test_webui.py --no-cov
             --junit-xml=tests/evidence/playwright-junit.xml
 
     cache:
@@ -309,9 +309,10 @@ test-playwright-docker:
 
         # Playwrightテストを実行（ホストからポート経由で接続）
         - >
-            uv run pytest --output tests/evidence/e2e
+            uv run pytest tests/e2e/test_webui.py --no-cov
+            --output tests/evidence/e2e
             --junit-xml=tests/evidence/playwright-docker-junit.xml
-            tests/e2e/test_webui.py --host ${APP_HOST} --port ${APP_PORT}
+            --host ${APP_HOST} --port ${APP_PORT}
 
         # ログ取得とクリーンアップ
         - docker logs ${CI_JOB_NAME}-${CI_JOB_ID} > flask_log.txt
