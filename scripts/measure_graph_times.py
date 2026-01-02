@@ -264,16 +264,11 @@ def run_measurement(base_url: str, no_cache: bool) -> int:
     return 0
 
 
-def main() -> int:
-    """メイン処理"""
+if __name__ == "__main__":
     assert __doc__ is not None  # noqa: S101
     args = docopt(__doc__)
 
     base_url = args["--url"].rstrip("/")
     no_cache = args["--no-cache"]
 
-    return run_measurement(base_url, no_cache)
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_measurement(base_url, no_cache))
