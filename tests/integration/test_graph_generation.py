@@ -66,19 +66,19 @@ class TestGraphGeneration:
                 data, tuple(x / modes.webui.api.graph.IMAGE_DPI for x in graph_def.size)
             )
 
-            png_data = modes.webui.api.graph.plot(config_dict, graph_name, time_start, time_end)
+            png_data = modes.webui.api.graph.plot(config, graph_name, time_start, time_end)
 
             with PIL.Image.open(io.BytesIO(png_data)) as img:
                 img.verify()
                 assert img.width == graph_def.size[0]
                 assert img.height == graph_def.size[1]
 
-    def test_graph_generation_with_date_range(self, config_dict: dict):
+    def test_graph_generation_with_date_range(self, config: Config):
         """特定の日付範囲でのグラフ生成をテスト"""
         end_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)
         start_date = end_date - datetime.timedelta(days=7)
 
-        png_data = modes.webui.api.graph.plot(config_dict, "scatter_2d", start_date, end_date)
+        png_data = modes.webui.api.graph.plot(config, "scatter_2d", start_date, end_date)
 
         # PNG画像データが生成されていることを確認
         assert png_data is not None
@@ -103,19 +103,19 @@ class TestGraphGeneration:
 class TestLimitAltitude:
     """高度制限パラメータのテスト"""
 
-    def test_limit_altitude_parameter(self, config_dict: dict):
+    def test_limit_altitude_parameter(self, config: Config):
         """limit_altitude機能の基本動作をテスト"""
         end_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)
         start_date = end_date - datetime.timedelta(days=7)
 
         # limit_altitude=Falseでグラフ生成
         png_data_unlimited = modes.webui.api.graph.plot(
-            config_dict, "scatter_2d", start_date, end_date, limit_altitude=False
+            config, "scatter_2d", start_date, end_date, limit_altitude=False
         )
 
         # limit_altitude=Trueでグラフ生成
         png_data_limited = modes.webui.api.graph.plot(
-            config_dict, "scatter_2d", start_date, end_date, limit_altitude=True
+            config, "scatter_2d", start_date, end_date, limit_altitude=True
         )
 
         # 両方のPNG画像データが生成されていることを確認
