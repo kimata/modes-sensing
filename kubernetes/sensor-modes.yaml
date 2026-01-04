@@ -2,106 +2,106 @@
 kind: Service
 apiVersion: v1
 metadata:
-  name: modes-sensing-webui
-  namespace: sensor
-  annotations:
-    metallb.universe.tf/address-pool: default
-    external-dns.alpha.kubernetes.io/hostname: modes-sensing-webui.kubernetes.green-rabbit.net
+    name: modes-sensing-webui
+    namespace: sensor
+    annotations:
+        metallb.universe.tf/address-pool: default
+        external-dns.alpha.kubernetes.io/hostname: modes-sensing-webui.kubernetes.green-rabbit.net
 spec:
-  selector:
-    app: modes-sensing-webui
-  ports:
-    - port: 5000
-      targetPort: 5000
-  type: LoadBalancer
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: modes-sensing-collector
-  namespace: sensor
-  labels:
-    app: modes-sensing-collector
-spec:
-  replicas: 1
-  strategy:
-    type: Recreate
-  selector:
-    matchLabels:
-      app: modes-sensing-collector
-  template:
-    metadata:
-      labels:
-        app: modes-sensing-collector
-    spec:
-      containers:
-        - name: modes-sensing-collector
-          image: gitlab.green-rabbit.net:5050/kimata/modes-sensing:latest
-          imagePullPolicy: Always
-          resources:
-            requests:
-              memory: 256Mi
-            limits:
-              memory: 512Mi
-          livenessProbe:
-            exec:
-              command:
-                - /opt/modes-sensing/src/healthz.py
-                - -m COL
-            initialDelaySeconds: 120
-            periodSeconds: 60
-            timeoutSeconds: 5
-            successThreshold: 1
-            failureThreshold: 3
-
-      imagePullSecrets:
-        - name: gitlab-regcred
-
-      dnsPolicy: Default
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: modes-sensing-webui
-  namespace: sensor
-  labels:
-    app: modes-sensing-webui
-spec:
-  replicas: 1
-  strategy:
-    type: Recreate
-  selector:
-    matchLabels:
-      app: modes-sensing-webui
-  template:
-    metadata:
-      labels:
+    selector:
         app: modes-sensing-webui
-    spec:
-      containers:
-        - name: modes-sensing-webui
-          image: gitlab.green-rabbit.net:5050/kimata/modes-sensing:latest
-          imagePullPolicy: Always
-          command: [./src/webui.py]
-          resources:
-            requests:
-              memory: 512Mi
-              cpu: 500m
-            limits:
-              memory: 1Gi
-              cpu: 1000m
+    ports:
+        - port: 5000
+          targetPort: 5000
+    type: LoadBalancer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: modes-sensing-collector
+    namespace: sensor
+    labels:
+        app: modes-sensing-collector
+spec:
+    replicas: 1
+    strategy:
+        type: Recreate
+    selector:
+        matchLabels:
+            app: modes-sensing-collector
+    template:
+        metadata:
+            labels:
+                app: modes-sensing-collector
+        spec:
+            containers:
+                - name: modes-sensing-collector
+                  image: gitlab.green-rabbit.net:5050/kimata/modes-sensing:latest
+                  imagePullPolicy: Always
+                  resources:
+                      requests:
+                          memory: 256Mi
+                      limits:
+                          memory: 512Mi
+                  livenessProbe:
+                      exec:
+                          command:
+                              - /opt/modes-sensing/src/healthz.py
+                              - -m COL
+                      initialDelaySeconds: 120
+                      periodSeconds: 60
+                      timeoutSeconds: 5
+                      successThreshold: 1
+                      failureThreshold: 3
 
-          # livenessProbe:
-          #   httpGet:
-          #     path: /wattmeter-sharp/api/sysinfo
-          #     port: 5000
-          #   initialDelaySeconds: 120
-          #   periodSeconds: 120
-          #   timeoutSeconds: 30
-          #   successThreshold: 1
-          #   failureThreshold: 3
+            imagePullSecrets:
+                - name: gitlab-regcred
 
-      dnsPolicy: Default
+            dnsPolicy: Default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: modes-sensing-webui
+    namespace: sensor
+    labels:
+        app: modes-sensing-webui
+spec:
+    replicas: 1
+    strategy:
+        type: Recreate
+    selector:
+        matchLabels:
+            app: modes-sensing-webui
+    template:
+        metadata:
+            labels:
+                app: modes-sensing-webui
+        spec:
+            containers:
+                - name: modes-sensing-webui
+                  image: gitlab.green-rabbit.net:5050/kimata/modes-sensing:latest
+                  imagePullPolicy: Always
+                  command: [./src/webui.py]
+                  resources:
+                      requests:
+                          memory: 512Mi
+                          cpu: 500m
+                      limits:
+                          memory: 1Gi
+                          cpu: 1000m
 
-      imagePullSecrets:
-        - name: gitlab-regcred
+                  # livenessProbe:
+                  #   httpGet:
+                  #     path: /wattmeter-sharp/api/sysinfo
+                  #     port: 5000
+                  #   initialDelaySeconds: 120
+                  #   periodSeconds: 120
+                  #   timeoutSeconds: 30
+                  #   successThreshold: 1
+                  #   failureThreshold: 3
+
+            dnsPolicy: Default
+
+            imagePullSecrets:
+                - name: gitlab-regcred

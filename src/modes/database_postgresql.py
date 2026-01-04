@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     import multiprocessing
     from collections.abc import Sequence
 
-    from psycopg2.extensions import connection as PgConnection  # noqa: N812
+    from psycopg2.extensions import connection as PgConnection
 
 
 class ReconnectError(Exception):
@@ -119,7 +119,7 @@ RECONNECT_DELAY: float = 5.0
 should_terminate = threading.Event()
 
 
-def open(host: str, port: int, database: str, user: str, password: str) -> PgConnection:  # noqa: A001
+def open(host: str, port: int, database: str, user: str, password: str) -> PgConnection:
     connection_params: dict[str, Any] = {
         "host": host,
         "port": port,
@@ -257,7 +257,7 @@ class _StoreState:
         return self.consecutive_errors >= self.max_consecutive_errors
 
 
-def store_queue(  # noqa: PLR0913
+def store_queue(
     conn: PgConnection,
     measurement_queue: multiprocessing.Queue[MeasurementData],
     liveness_file: pathlib.Path,
@@ -375,7 +375,7 @@ def store_term() -> None:
     should_terminate.set()
 
 
-def fetch_by_time(  # noqa: PLR0913
+def fetch_by_time(
     conn: PgConnection,
     time_start: datetime.datetime,
     time_end: datetime.datetime,
@@ -476,7 +476,7 @@ def fetch_by_time(  # noqa: PLR0913
         return data
 
 
-def fetch_by_time_numpy(  # noqa: PLR0913
+def fetch_by_time_numpy(
     conn: PgConnection,
     time_start: datetime.datetime,
     time_end: datetime.datetime,
@@ -512,7 +512,7 @@ def fetch_by_time_numpy(  # noqa: PLR0913
         }
 
     """
-    import numpy  # noqa: ICN001
+    import numpy
 
     # カラム選択
     if include_wind:
@@ -651,7 +651,7 @@ def fetch_aggregated_numpy(
         NumPy配列を含む辞書（fetch_by_time_numpy と同じ形式）
 
     """
-    import numpy  # noqa: ICN001
+    import numpy
 
     days = (time_end - time_start).total_seconds() / 86400
     level = get_aggregation_level(days)

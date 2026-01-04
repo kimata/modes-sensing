@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-import datetime  # noqa: TC003
+import datetime
 import logging
 import threading
 import time
@@ -75,7 +75,7 @@ class JobManager:
     CLEANUP_INTERVAL = 60  # 1分ごとにクリーンアップ
     JOB_TIMEOUT_SECONDS = 1200  # 20分でジョブをタイムアウトとみなす（半年分のグラフ対応）
 
-    def __new__(cls) -> JobManager:  # noqa: PYI034
+    def __new__(cls) -> JobManager:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -154,7 +154,7 @@ class JobManager:
         with self._jobs_lock:
             return self._jobs.get(job_id)
 
-    def update_status(  # noqa: PLR0913
+    def update_status(
         self,
         job_id: str,
         status: JobStatus,

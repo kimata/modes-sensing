@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-# ruff: noqa: S101, SLF001
+# ruff: noqa: S101
 """
 graph.py のユニットテスト
 
 純粋な関数のテストを行います。
 """
+
 import datetime
 import logging
 import os
@@ -37,9 +38,7 @@ class TestTemperatureRange:
 
     def test_temperature_range_logging(self):
         """温度範囲のログ出力を確認"""
-        temp_min_limited, temp_max_limited = modes.webui.api.graph.get_temperature_range(
-            limit_altitude=True
-        )
+        temp_min_limited, temp_max_limited = modes.webui.api.graph.get_temperature_range(limit_altitude=True)
         temp_min_unlimited, temp_max_unlimited = modes.webui.api.graph.get_temperature_range(
             limit_altitude=False
         )
@@ -75,12 +74,10 @@ class TestGraphCache:
     @patch("modes.webui.api.graph.get_git_commit_hash", return_value="abc123hash")
     def test_generate_cache_filename(self, _mock_hash):
         """キャッシュファイル名が正しく生成されること"""
-        time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
-        time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.timezone.utc)
+        time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.UTC)
+        time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.UTC)
 
-        filename1 = modes.webui.api.graph.generate_cache_filename(
-            "scatter_2d", time_start, time_end, False
-        )
+        filename1 = modes.webui.api.graph.generate_cache_filename("scatter_2d", time_start, time_end, False)
 
         # 形式: {graph_name}_{period_seconds}_{limit}_{start_ts}_{git}.png
         # 6日間 = 518400秒
@@ -88,29 +85,20 @@ class TestGraphCache:
         assert filename1.endswith("_abc123hash.png")
 
         # 同じパラメータなら同じファイル名
-        filename2 = modes.webui.api.graph.generate_cache_filename(
-            "scatter_2d", time_start, time_end, False
-        )
+        filename2 = modes.webui.api.graph.generate_cache_filename("scatter_2d", time_start, time_end, False)
         assert filename1 == filename2
 
         # 異なるグラフ名なら異なるファイル名
-        filename3 = modes.webui.api.graph.generate_cache_filename(
-            "contour_2d", time_start, time_end, False
-        )
+        filename3 = modes.webui.api.graph.generate_cache_filename("contour_2d", time_start, time_end, False)
         assert filename1 != filename3
 
         # limit_altitude が異なれば異なるファイル名
-        filename4 = modes.webui.api.graph.generate_cache_filename(
-            "scatter_2d", time_start, time_end, True
-        )
+        filename4 = modes.webui.api.graph.generate_cache_filename("scatter_2d", time_start, time_end, True)
         assert filename1 != filename4
         assert "_1_" in filename4  # limit_altitude=True なら "1"
 
     def test_parse_cache_filename(self):
         """キャッシュファイル名が正しくパースされること"""
-        # 有効なファイル名
-        filepath = pathlib.Path("/tmp/cache/scatter_2d_518400_0_1735689600_abc123hash.png")
-
         # ファイルが存在しないとパースできないので、一時ファイルを作成
         with tempfile.TemporaryDirectory() as tmpdir:
             test_file = pathlib.Path(tmpdir) / "scatter_2d_518400_0_1735689600_abc123hash.png"
@@ -130,8 +118,8 @@ class TestGraphCache:
         """存在しないキャッシュファイルは None を返す"""
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = pathlib.Path(tmpdir)
-            time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
-            time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.timezone.utc)
+            time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.UTC)
+            time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.UTC)
 
             result, filename = modes.webui.api.graph.get_cached_image(
                 cache_dir, "nonexistent", time_start, time_end, False
@@ -144,8 +132,8 @@ class TestGraphCache:
         """有効なキャッシュファイルが返される"""
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = pathlib.Path(tmpdir)
-            time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
-            time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.timezone.utc)
+            time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.UTC)
+            time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.UTC)
 
             # まずキャッシュを保存
             test_data = b"PNG_IMAGE_DATA"
@@ -165,8 +153,8 @@ class TestGraphCache:
         """TTL を超えたキャッシュファイルは削除されて None を返す"""
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = pathlib.Path(tmpdir)
-            time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
-            time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.timezone.utc)
+            time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.UTC)
+            time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.UTC)
 
             # キャッシュを保存
             test_data = b"PNG_IMAGE_DATA"
@@ -193,8 +181,8 @@ class TestGraphCache:
         """開始日時の差が30分以内ならキャッシュがヒットすること"""
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = pathlib.Path(tmpdir)
-            time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
-            time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.timezone.utc)
+            time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.UTC)
+            time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.UTC)
 
             # キャッシュを保存
             test_data = b"PNG_IMAGE_DATA"
@@ -225,8 +213,8 @@ class TestGraphCache:
         """キャッシュに画像を保存できること"""
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = pathlib.Path(tmpdir) / "subdir"
-            time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
-            time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.timezone.utc)
+            time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.UTC)
+            time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.UTC)
             test_data = b"PNG_IMAGE_DATA"
 
             # ディレクトリが存在しなくても保存できる
@@ -271,8 +259,8 @@ class TestGraphCache:
         """ETagキーが正しく生成されること（開始時刻は10分単位に丸められる）"""
         # 2025-01-01 00:05:00 UTC (timestamp: 1735689900)
         # 10分単位に丸めると 00:00:00 (timestamp: 1735689600)
-        time_start = datetime.datetime(2025, 1, 1, 0, 5, 0, tzinfo=datetime.timezone.utc)
-        time_end = datetime.datetime(2025, 1, 7, 0, 5, 0, tzinfo=datetime.timezone.utc)
+        time_start = datetime.datetime(2025, 1, 1, 0, 5, 0, tzinfo=datetime.UTC)
+        time_end = datetime.datetime(2025, 1, 7, 0, 5, 0, tzinfo=datetime.UTC)
 
         etag_key = modes.webui.api.graph.generate_etag_key("scatter_2d", time_start, time_end, False)
 
@@ -284,7 +272,7 @@ class TestGraphCache:
     def test_generate_etag_key_time_rounding(self, _mock_hash):
         """ETagキーの開始時刻が10分単位に丸められること"""
         # 基準時刻: 2025-01-01 00:00:00 UTC
-        base_time = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
+        base_time = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.UTC)
         time_end = base_time + datetime.timedelta(days=7)
 
         # 00:00:00 -> 00:00:00 に丸められる

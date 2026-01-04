@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import requests
@@ -35,7 +35,7 @@ def page_init(page, host, port, worker_id, webserver):
     else:
         time.sleep(0.5)  # master の場合は短縮
 
-    page.on("console", lambda msg: print(msg.text))  # noqa: T201
+    page.on("console", lambda msg: print(msg.text))
     page.set_viewport_size({"width": 2400, "height": 1600})
 
     return page
@@ -197,12 +197,12 @@ def wait_for_all_images_individually(page, timeout=30000):
                 )
                 logging.info("%s: Loaded successfully", title)
             except Exception as e:
-                logging.error("%s: Failed to load - %s", title, e)  # noqa: TRY400
+                logging.error("%s: Failed to load - %s", title, e)
                 raise
         else:
             logging.error("%s: Not found in DOM even after retry", title)
             msg = f"{title} not found in DOM"
-            raise Exception(msg)  # noqa: TRY002
+            raise Exception(msg)
 
 
 def wait_for_images_to_load(page, expected_count=8, timeout=120000):
@@ -357,7 +357,7 @@ def test_all_images_display_correctly(page_init, host, port):
             timeout=120000,  # 非同期API対応で120秒に延長
         )
     except Exception as e:
-        logging.error("Failed to wait for all images to be visible: %s", e)  # noqa: TRY400
+        logging.error("Failed to wait for all images to be visible: %s", e)
         raise
 
     # 全画像の読み込み状態を一括で確認（効率化）
@@ -392,7 +392,7 @@ def test_all_images_display_correctly(page_init, host, port):
             timeout=120000,  # 非同期API対応で120秒に延長
         )
     except Exception as e:
-        logging.error("Failed to wait for all images to be loaded: %s", e)  # noqa: TRY400
+        logging.error("Failed to wait for all images to be loaded: %s", e)
         # 失敗時の状態をログ出力
         current_states = page.evaluate(f"""
             () => {{
@@ -416,7 +416,7 @@ def test_all_images_display_correctly(page_init, host, port):
                 return states;
             }}
         """)
-        logging.error("Image states at failure: %s", current_states)  # noqa: TRY400
+        logging.error("Image states at failure: %s", current_states)
         raise
 
     # CI環境でcontour_2dが読み込まれない問題への追加対策
@@ -474,7 +474,7 @@ def test_all_images_display_correctly(page_init, host, port):
 
         # src属性があることを確認
         src_attribute = image_locator.get_attribute("src")
-        assert src_attribute and len(src_attribute) > 0, f"{graph_type} のsrc属性が空です"  # noqa: S101, PT018
+        assert src_attribute and len(src_attribute) > 0, f"{graph_type} のsrc属性が空です"  # noqa: S101
 
         # 画像が実際に読み込まれているかチェック（CI環境対応で回数増加）
         is_loaded = False
@@ -640,7 +640,7 @@ def test_period_selection_buttons(page_init, host, port):
 
         # 最初の画像にsrc属性があることを確認
         first_image_src = images.first.get_attribute("src")
-        assert first_image_src and len(first_image_src) > 0, f"{period_name} の画像src属性が空です"  # noqa: S101, PT018
+        assert first_image_src and len(first_image_src) > 0, f"{period_name} の画像src属性が空です"  # noqa: S101
 
 
 def _debug_button_state(page):
@@ -711,7 +711,7 @@ def _debug_error_state(page):
     return error_state
 
 
-def test_custom_date_range(page_init, host, port):  # noqa: PLR0915
+def test_custom_date_range(page_init, host, port):
     """カスタムの区間を指定して、画像が正常に表示できることをテスト"""
     page = page_init
     page.goto(app_url(host, port))
@@ -750,7 +750,7 @@ def test_custom_date_range(page_init, host, port):  # noqa: PLR0915
         )
     else:
         # データ範囲が取得できない場合のフォールバック
-        end_date = datetime.now(timezone.utc) - timedelta(days=2)
+        end_date = datetime.now(UTC) - timedelta(days=2)
         start_date = end_date - timedelta(days=3, hours=12)  # 3.5日間
 
     # 日付フォーマット（datetime-local input用）
@@ -888,7 +888,7 @@ def test_custom_date_range(page_init, host, port):  # noqa: PLR0915
 
     # 最初の画像にsrc属性があることを確認
     first_image_src = images.first.get_attribute("src")
-    assert first_image_src and len(first_image_src) > 0, "カスタム期間の画像src属性が空です"  # noqa: S101, PT018
+    assert first_image_src and len(first_image_src) > 0, "カスタム期間の画像src属性が空です"  # noqa: S101
 
 
 def test_wind_direction_graph_display(page_init, host, port):

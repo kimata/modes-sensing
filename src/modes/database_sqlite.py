@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
-def open(log_db_path: pathlib.Path) -> sqlite3.Connection:  # noqa: A001
+def open(log_db_path: pathlib.Path) -> sqlite3.Connection:
     with my_lib.sqlite_util.connect(log_db_path) as sqlite:
         # 外部スキーマファイルからスキーマを読み込んで実行
         _execute_schema(sqlite)

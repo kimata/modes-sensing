@@ -5,6 +5,7 @@ database_postgresql.py の統合テスト
 
 データベースクエリ機能をテストします。
 """
+
 import datetime
 import logging
 
@@ -56,7 +57,7 @@ class TestAltitudeFiltering:
 
     def test_altitude_filtering(self, config: Config):
         """高度フィルタリング機能をテスト"""
-        end_time = datetime.datetime.now(datetime.timezone.utc)
+        end_time = datetime.datetime.now(datetime.UTC)
         start_time = end_time - datetime.timedelta(days=7)
 
         conn = modes.database_postgresql.open(

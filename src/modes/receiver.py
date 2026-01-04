@@ -130,7 +130,7 @@ def calc_magnetic_declination(latitude: float, longitude: float) -> float:
     )
 
 
-def calc_wind(  # noqa: PLR0913
+def calc_wind(
     latitude: float,
     longitude: float,
     trackangle: float,
@@ -161,7 +161,7 @@ def calc_wind(  # noqa: PLR0913
     )
 
 
-def calc_meteorological_data(  # noqa: PLR0913
+def calc_meteorological_data(
     callsign: str,
     altitude: float,
     latitude: float,
@@ -170,7 +170,7 @@ def calc_meteorological_data(  # noqa: PLR0913
     groundspeed: float,
     trueair: float,
     heading: float,
-    indicatedair: float,  # noqa: ARG001
+    indicatedair: float,
     mach: float,
     distance: float,
 ) -> MeteorologicalData:
@@ -252,7 +252,7 @@ def is_physically_reasonable(
         return True  # エラー時は保守的に妥当とみなす
 
 
-def detect_outlier_by_altitude_neighbors(  # noqa: PLR0913
+def detect_outlier_by_altitude_neighbors(
     altitude: float,
     temperature: float,
     altitudes: npt.NDArray[np.floating[Any]],
@@ -716,7 +716,7 @@ def worker(
             retry_count += 1
             if retry_count > RECONNECT_MAX_RETRIES:
                 error_message = f"最大再接続回数（{RECONNECT_MAX_RETRIES}回）に達しました。処理を終了します"
-                logging.error(error_message)  # noqa: TRY400
+                logging.error(error_message)
                 my_lib.notify.slack.error(
                     _slack_config,
                     "Mode-S受信エラー",
@@ -759,7 +759,7 @@ def start(
         開始されたスレッド
 
     """
-    global _receiver_liveness_file, _slack_config  # noqa: PLW0603
+    global _receiver_liveness_file, _slack_config
     _receiver_liveness_file = config.liveness.file.receiver
     _slack_config = config.slack
 

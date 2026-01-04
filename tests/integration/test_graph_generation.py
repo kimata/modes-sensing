@@ -5,6 +5,7 @@
 
 グラフ生成機能をテストします。
 """
+
 import datetime
 import io
 import logging
@@ -75,7 +76,7 @@ class TestGraphGeneration:
 
     def test_graph_generation_with_date_range(self, config: Config):
         """特定の日付範囲でのグラフ生成をテスト"""
-        end_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)
+        end_date = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=7)
         start_date = end_date - datetime.timedelta(days=7)
 
         png_data = modes.webui.api.graph.plot(config, "scatter_2d", start_date, end_date)
@@ -105,7 +106,7 @@ class TestLimitAltitude:
 
     def test_limit_altitude_parameter(self, config: Config):
         """limit_altitude機能の基本動作をテスト"""
-        end_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)
+        end_date = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=7)
         start_date = end_date - datetime.timedelta(days=7)
 
         # limit_altitude=Falseでグラフ生成

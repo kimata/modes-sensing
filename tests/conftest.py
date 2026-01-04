@@ -5,6 +5,7 @@
 
 テスト全体で使用する共通のフィクスチャとヘルパーを定義します。
 """
+
 import logging
 import pathlib
 import unittest.mock
@@ -14,6 +15,7 @@ import pytest
 # === 定数 ===
 CONFIG_FILE = "config.example.yaml"
 SCHEMA_CONFIG = "config.schema"
+
 
 # === 環境モック ===
 @pytest.fixture(scope="session", autouse=True)
@@ -54,8 +56,8 @@ def _clear():
     """各テスト前にステートをクリア"""
     import my_lib.notify.slack
 
-    my_lib.notify.slack._interval_clear()  # noqa: SLF001
-    my_lib.notify.slack._hist_clear()  # noqa: SLF001
+    my_lib.notify.slack._interval_clear()
+    my_lib.notify.slack._hist_clear()
 
 
 # === 設定フィクスチャ ===
@@ -83,12 +85,12 @@ def slack_checker():
 
     class SlackChecker:
         def assert_notified(self, message, index=-1):
-            notify_hist = my_lib.notify.slack._hist_get(is_thread_local=False)  # noqa: SLF001
+            notify_hist = my_lib.notify.slack._hist_get(is_thread_local=False)
             assert len(notify_hist) != 0, "通知がされていません。"
             assert notify_hist[index].find(message) != -1, f"「{message}」が通知されていません。"
 
         def assert_not_notified(self):
-            notify_hist = my_lib.notify.slack._hist_get(is_thread_local=False)  # noqa: SLF001
+            notify_hist = my_lib.notify.slack._hist_get(is_thread_local=False)
             assert notify_hist == [], "通知がされています。"
 
     return SlackChecker()
