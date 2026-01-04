@@ -63,17 +63,17 @@ class MessageFragment(TypedDict, total=False):
     bsd60: tuple[float | None, float | None, float | None]
 
 
-FRAGMENT_BUF_SIZE: int = 100
+_FRAGMENT_BUF_SIZE: int = 100
 
 # 再接続設定
-RECONNECT_MAX_RETRIES: int = 10
-RECONNECT_BASE_DELAY: float = 2.0
-RECONNECT_MAX_DELAY: float = 60.0
-SOCKET_TIMEOUT: float = 30.0
+_RECONNECT_MAX_RETRIES: int = 10
+_RECONNECT_BASE_DELAY: float = 2.0
+_RECONNECT_MAX_DELAY: float = 60.0
+_SOCKET_TIMEOUT: float = 30.0
 
-fragment_list: list[MessageFragment] = []
+_fragment_list: list[MessageFragment] = []
 
-should_terminate = threading.Event()
+_should_terminate = threading.Event()
 
 # receiver専用Livenessファイルパス（start()で設定される）
 _receiver_liveness_file: pathlib.Path = pathlib.Path()
@@ -84,11 +84,11 @@ _slack_config: my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.Sl
 )
 
 HISTRY_SAMPLES: int = 30000
-meteorological_history: collections.deque[HistoryData] = collections.deque(maxlen=HISTRY_SAMPLES)
-OUTLIER_DETECTION_MIN_SAMPLES: int = 100  # 外れ値検出を開始する最小サンプル数
+_meteorological_history: collections.deque[HistoryData] = collections.deque(maxlen=HISTRY_SAMPLES)
+_OUTLIER_DETECTION_MIN_SAMPLES: int = 100  # 外れ値検出を開始する最小サンプル数
 
 
-def receive_lines(sock: socket.socket) -> Generator[str, None, None]:
+def _receive_lines(sock: socket.socket) -> Generator[str, None, None]:
     buffer = b""
 
     while True:
@@ -103,7 +103,7 @@ def receive_lines(sock: socket.socket) -> Generator[str, None, None]:
             yield line.decode()
 
 
-def calc_temperature(trueair: float, mach: float) -> float:
+def _calc_temperature(trueair: float, mach: float) -> float:
     k = 1.403  # 比熱比(空気)
     M = 28.966e-3  # 分子量(空気) [kg/mol]
     R = 8.314472  # 気体定数
@@ -113,7 +113,7 @@ def calc_temperature(trueair: float, mach: float) -> float:
     return (trueair / mach) * (trueair / mach) * K - 273.15
 
 
-def calc_magnetic_declination(latitude: float, longitude: float) -> float:
+def _calc_magnetic_declination(latitude: float, longitude: float) -> float:
     # NOTE:
     # 地磁気値(2020.0年値)を求める
     # https://vldb.gsi.go.jp/sokuchi/geomag/menu_04/
@@ -130,7 +130,7 @@ def calc_magnetic_declination(latitude: float, longitude: float) -> float:
     )
 
 
-def calc_wind(
+def _calc_wind(
     latitude: float,
     longitude: float,
     trackangle: float,
@@ -138,7 +138,7 @@ def calc_wind(
     heading: float,
     trueair: float,
 ) -> WindData:
-    magnetic_declination = calc_magnetic_declination(latitude, longitude)
+    magnetic_declination = _calc_magnetic_declination(latitude, longitude)
 
     ground_dir = math.pi / 2 - math.radians(trackangle)
     ground_x = groundspeed * math.cos(ground_dir)
@@ -161,7 +161,7 @@ def calc_wind(
     )
 
 
-def calc_meteorological_data(
+def _calc_meteorological_data(
     callsign: str,
     altitude: float,
     latitude: float,
@@ -178,8 +178,8 @@ def calc_meteorological_data(
     groundspeed *= 0.514  # 単位換算: knot → m/s
     trueair *= 0.514
 
-    temperature = calc_temperature(trueair, mach)
-    wind = calc_wind(latitude, longitude, trackangle, groundspeed, heading, trueair)
+    temperature = _calc_temperature(trueair, mach)
+    wind = _calc_wind(latitude, longitude, trackangle, groundspeed, heading, trueair)
 
     if temperature < -100:
         logging.warning(
@@ -202,7 +202,7 @@ def calc_meteorological_data(
     )
 
 
-def is_physically_reasonable(
+def _is_physically_reasonable(
     altitude: float,
     temperature: float,
     regression_model: sklearn.linear_model.LinearRegression,
@@ -252,7 +252,7 @@ def is_physically_reasonable(
         return True  # エラー時は保守的に妥当とみなす
 
 
-def detect_outlier_by_altitude_neighbors(
+def _detect_outlier_by_altitude_neighbors(
     altitude: float,
     temperature: float,
     altitudes: npt.NDArray[np.floating[Any]],
@@ -344,7 +344,7 @@ def detect_outlier_by_altitude_neighbors(
     return bool(is_outlier)
 
 
-def is_outlier_data(
+def _is_outlier_data(
     temperature: float,
     altitude: float,
     callsign: str,
@@ -365,21 +365,21 @@ def is_outlier_data(
         外れ値の場合True、正常値の場合False
 
     """
-    global meteorological_history
+    global _meteorological_history
 
     # データが十分蓄積されていない場合は外れ値として扱わない
-    if len(meteorological_history) < OUTLIER_DETECTION_MIN_SAMPLES:
+    if len(_meteorological_history) < _OUTLIER_DETECTION_MIN_SAMPLES:
         return False
 
     try:
         # 履歴データから特徴量を抽出
         valid_data = [
             data
-            for data in meteorological_history
+            for data in _meteorological_history
             if data.altitude is not None and data.temperature is not None
         ]
 
-        if len(valid_data) < OUTLIER_DETECTION_MIN_SAMPLES:
+        if len(valid_data) < _OUTLIER_DETECTION_MIN_SAMPLES:
             return False
 
         altitudes = np.array([[data.altitude] for data in valid_data])
@@ -390,18 +390,18 @@ def is_outlier_data(
         regression_model.fit(altitudes, temperatures)
 
         # 物理的相関チェック（より寛容に）
-        if is_physically_reasonable(altitude, temperature, regression_model, tolerance_factor=2.5):
+        if _is_physically_reasonable(altitude, temperature, regression_model, tolerance_factor=2.5):
             return False  # 物理的に妥当なので外れ値ではない
 
         # 第二段階：高度近傍ベースの異常検知（低高度でのばらつき対応）
-        return detect_outlier_by_altitude_neighbors(altitude, temperature, altitudes, temperatures, callsign)
+        return _detect_outlier_by_altitude_neighbors(altitude, temperature, altitudes, temperatures, callsign)
 
     except Exception as e:
         logging.warning("外れ値検出でエラーが発生しました: %s", e)
         return False
 
 
-def calc_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+def _calc_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     R = 6371.0
 
     lat1 = math.radians(lat1)
@@ -419,15 +419,15 @@ def calc_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return R * c
 
 
-def round_floats(obj: Any, ndigits: int = 1) -> Any:
+def _round_floats(obj: Any, ndigits: int = 1) -> Any:
     if isinstance(obj, float):
         return round(obj, ndigits)
     elif isinstance(obj, dict):
-        return {k: round_floats(v, ndigits) for k, v in obj.items()}
+        return {k: _round_floats(v, ndigits) for k, v in obj.items()}
     elif isinstance(obj, list):
-        return [round_floats(elem, ndigits) for elem in obj]
+        return [_round_floats(elem, ndigits) for elem in obj]
     elif isinstance(obj, tuple):
-        return tuple(round_floats(elem, ndigits) for elem in obj)
+        return tuple(_round_floats(elem, ndigits) for elem in obj)
     else:
         return obj
 
@@ -444,7 +444,7 @@ def _process_complete_fragment(
     area_config: Area,
 ) -> None:
     """完全なフラグメントを処理してキューに送信する"""
-    global meteorological_history
+    global _meteorological_history
 
     # TypedDict の各キーを .get() で安全に取得
     adsb_pos = fragment.get("adsb_pos")
@@ -462,14 +462,14 @@ def _process_complete_fragment(
     if any(v is None for v in bsd50) or any(v is None for v in bsd60):
         return
 
-    distance = calc_distance(
+    distance = _calc_distance(
         area_config.lat.ref,
         area_config.lon.ref,
         adsb_pos[1],
         adsb_pos[2],
     )
     # NOTE: 上記の None チェック後でもタプル要素の型は絞り込まれないため type: ignore が必要
-    meteorological_data = calc_meteorological_data(
+    meteorological_data = _calc_meteorological_data(
         *adsb_sign,
         *adsb_pos,  # type: ignore[arg-type]
         *bsd50,  # type: ignore[arg-type]
@@ -483,7 +483,7 @@ def _process_complete_fragment(
         return
 
     # 外れ値検出
-    is_outlier = is_outlier_data(
+    is_outlier = _is_outlier_data(
         meteorological_data.temperature,
         meteorological_data.altitude,
         meteorological_data.callsign,
@@ -492,9 +492,9 @@ def _process_complete_fragment(
         return
 
     # 正常値の場合、queueに送信し履歴に追加
-    logging.info(round_floats(meteorological_data))
+    logging.info(_round_floats(meteorological_data))
     data_queue.put(meteorological_data)
-    meteorological_history.append(
+    _meteorological_history.append(
         HistoryData(
             altitude=meteorological_data.altitude,
             temperature=meteorological_data.temperature,
@@ -504,15 +504,15 @@ def _process_complete_fragment(
 
 def _add_new_fragment(icao: str, packet_type: str, data: tuple[Any, ...]) -> None:
     """新しいフラグメントをリストに追加する"""
-    global fragment_list
+    global _fragment_list
 
     # 動的キーを使用するため type: ignore が必要
-    fragment_list.append({"icao": icao, packet_type: data})  # type: ignore[list-item, misc]
-    if len(fragment_list) >= FRAGMENT_BUF_SIZE:
-        fragment_list.pop(0)
+    _fragment_list.append({"icao": icao, packet_type: data})  # type: ignore[list-item, misc]
+    if len(_fragment_list) >= _FRAGMENT_BUF_SIZE:
+        _fragment_list.pop(0)
 
 
-def message_pairing(
+def _message_pairing(
     icao: str,
     packet_type: str,
     data: tuple[Any, ...],
@@ -520,13 +520,13 @@ def message_pairing(
     area_config: Area,
 ) -> None:
     """メッセージフラグメントをペアリングして気象データを生成する"""
-    global fragment_list
+    global _fragment_list
 
     if not all(value is not None for value in data):
         logging.warning("データに欠損があるので捨てます．(type: %s, data: %s)", packet_type, data)
         return
 
-    fragment = next((f for f in fragment_list if f.get("icao") == icao), None)
+    fragment = next((f for f in _fragment_list if f.get("icao") == icao), None)
 
     if fragment is None:
         _add_new_fragment(icao, packet_type, data)
@@ -539,7 +539,7 @@ def message_pairing(
         return
 
     _process_complete_fragment(fragment, data_queue, area_config)
-    fragment_list.remove(fragment)
+    _fragment_list.remove(fragment)
 
 
 def _process_adsb_position(
@@ -554,7 +554,7 @@ def _process_adsb_position(
         return
 
     latitude, longitude = pyModeS.adsb.position_with_ref(message, area_config.lat.ref, area_config.lon.ref)
-    message_pairing(icao, "adsb_pos", (altitude, latitude, longitude), data_queue, area_config)
+    _message_pairing(icao, "adsb_pos", (altitude, latitude, longitude), data_queue, area_config)
 
 
 def _process_adsb_message(
@@ -576,7 +576,7 @@ def _process_adsb_message(
     # コールサイン（typecode 1-4）
     elif 1 <= code <= 4:
         callsign = pyModeS.adsb.callsign(message).rstrip("_")
-        message_pairing(icao, "adsb_sign", (callsign,), data_queue, area_config)
+        _message_pairing(icao, "adsb_sign", (callsign,), data_queue, area_config)
 
 
 def _process_commb_message(
@@ -591,17 +591,17 @@ def _process_commb_message(
         trackangle = pyModeS.commb.trk50(message)
         groundspeed = pyModeS.commb.gs50(message)
         trueair = pyModeS.commb.tas50(message)
-        message_pairing(icao, "bsd50", (trackangle, groundspeed, trueair), data_queue, area_config)
+        _message_pairing(icao, "bsd50", (trackangle, groundspeed, trueair), data_queue, area_config)
 
     elif pyModeS.bds.bds60.is60(message):
         logging.debug("receive BDS60")
         heading = pyModeS.commb.hdg60(message)
         indicatedair = pyModeS.commb.ias60(message)
         mach = pyModeS.commb.mach60(message)
-        message_pairing(icao, "bsd60", (heading, indicatedair, mach), data_queue, area_config)
+        _message_pairing(icao, "bsd60", (heading, indicatedair, mach), data_queue, area_config)
 
 
-def process_message(
+def _process_message(
     message: str,
     data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
     area_config: Area,
@@ -629,13 +629,13 @@ def process_message(
 
 def _calculate_retry_delay(retry_count: int) -> float:
     """指数バックオフで再接続遅延時間を計算する"""
-    return min(RECONNECT_BASE_DELAY * (2 ** (retry_count - 1)), RECONNECT_MAX_DELAY)
+    return min(_RECONNECT_BASE_DELAY * (2 ** (retry_count - 1)), _RECONNECT_MAX_DELAY)
 
 
 def _wait_with_interrupt(delay: float) -> None:
     """中断可能な待機を行う"""
     for _ in range(int(delay * 10)):
-        if should_terminate.is_set():
+        if _should_terminate.is_set():
             break
         time.sleep(0.1)
 
@@ -646,12 +646,12 @@ def _process_socket_messages(
     area_config: Area,
 ) -> None:
     """ソケットからメッセージを受信して処理する"""
-    for line in receive_lines(sock):
-        if should_terminate.is_set():
+    for line in _receive_lines(sock):
+        if _should_terminate.is_set():
             break
 
         try:
-            process_message(line, data_queue, area_config)
+            _process_message(line, data_queue, area_config)
 
             # データ受信成功時にLivenessファイル更新
             my_lib.footprint.update(_receiver_liveness_file)
@@ -673,20 +673,20 @@ def _handle_connection(
 
     """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.settimeout(SOCKET_TIMEOUT)
+        sock.settimeout(_SOCKET_TIMEOUT)
         sock.connect((host, port))
         logging.info("%s:%d に接続しました", host, port)
 
         _process_socket_messages(sock, data_queue, area_config)
 
-        if should_terminate.is_set():
+        if _should_terminate.is_set():
             return True
 
         logging.warning("リモートホストによって接続が閉じられました")
         return True
 
 
-def worker(
+def _worker(
     host: str,
     port: int,
     data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
@@ -698,15 +698,15 @@ def worker(
     最大リトライ回数に達した場合のみワーカーを終了します。
     """
     logging.info("受信ワーカーを開始します")
-    should_terminate.clear()
+    _should_terminate.clear()
     retry_count = 0
 
-    while not should_terminate.is_set():
+    while not _should_terminate.is_set():
         try:
             _handle_connection(host, port, data_queue, area_config)
             retry_count = 0  # 接続成功でリセット
 
-            if should_terminate.is_set():
+            if _should_terminate.is_set():
                 break
 
         except TimeoutError:
@@ -714,8 +714,8 @@ def worker(
 
         except (OSError, ConnectionError) as e:
             retry_count += 1
-            if retry_count > RECONNECT_MAX_RETRIES:
-                error_message = f"最大再接続回数（{RECONNECT_MAX_RETRIES}回）に達しました。処理を終了します"
+            if retry_count > _RECONNECT_MAX_RETRIES:
+                error_message = f"最大再接続回数（{_RECONNECT_MAX_RETRIES}回）に達しました。処理を終了します"
                 logging.error(error_message)
                 my_lib.notify.slack.error(
                     _slack_config,
@@ -728,7 +728,7 @@ def worker(
             logging.warning(
                 "接続に失敗しました（%d/%d回目）: %s。%.1f秒後に再試行します...",
                 retry_count,
-                RECONNECT_MAX_RETRIES,
+                _RECONNECT_MAX_RETRIES,
                 e,
                 delay,
             )
@@ -742,7 +742,7 @@ def worker(
 
 
 def init(data: list[HistoryData]) -> None:
-    meteorological_history.extend(data)
+    _meteorological_history.extend(data)
 
 
 def start(
@@ -764,7 +764,7 @@ def start(
     _slack_config = config.slack
 
     thread = threading.Thread(
-        target=worker,
+        target=_worker,
         args=(
             config.modes.decoder.host,
             config.modes.decoder.port,
@@ -778,7 +778,7 @@ def start(
 
 
 def term() -> None:
-    should_terminate.set()
+    _should_terminate.set()
 
 
 if __name__ == "__main__":
@@ -806,5 +806,5 @@ if __name__ == "__main__":
     while True:
         logging.info(measurement_queue.get())
 
-        if should_terminate.is_set():
+        if _should_terminate.is_set():
             break

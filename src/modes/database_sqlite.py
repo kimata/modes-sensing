@@ -26,7 +26,7 @@ import my_lib.sqlite_util
 from modes.database_postgresql import DataRangeResult, MeasurementData
 
 # スキーマファイルのパス
-SCHEMA_FILE = pathlib.Path(__file__).parent.parent.parent / "schema" / "sqlite.schema"
+_SCHEMA_FILE = pathlib.Path(__file__).parent.parent.parent / "schema" / "sqlite.schema"
 
 if TYPE_CHECKING:
     import sqlite3
@@ -45,7 +45,7 @@ def open(log_db_path: pathlib.Path) -> sqlite3.Connection:
 
 def _execute_schema(sqlite: sqlite3.Connection) -> None:
     """外部スキーマファイルを読み込んで実行"""
-    schema_sql = SCHEMA_FILE.read_text(encoding="utf-8")
+    schema_sql = _SCHEMA_FILE.read_text(encoding="utf-8")
 
     # スキーマファイル内の各ステートメントを実行
     for raw_statement in schema_sql.split(";"):
@@ -350,7 +350,7 @@ def fetch_data_range(conn: sqlite3.Connection) -> DataRangeResult:
         return DataRangeResult(earliest=None, latest=None, count=0)
 
 
-SCHEMA_CONFIG = "config.schema"
+_SCHEMA_CONFIG = "config.schema"
 
 if __name__ == "__main__":
     import docopt
@@ -368,7 +368,7 @@ if __name__ == "__main__":
 
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
-    config_dict = my_lib.config.load(config_file, pathlib.Path(SCHEMA_CONFIG))
+    config_dict = my_lib.config.load(config_file, pathlib.Path(_SCHEMA_CONFIG))
     config = load_from_dict(config_dict, pathlib.Path.cwd())
 
     measurement_queue: queue.Queue[MeasurementData] = queue.Queue()
