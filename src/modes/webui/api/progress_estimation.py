@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 # グラフ生成時間のデフォルト推定値（秒）
 # キー: (graph_name, duration_hours_bucket, limit_altitude)
 # 2026-01-02 計測結果（1年分は1ヶ月と6ヶ月から線形補完）
-DEFAULT_GENERATION_TIMES: dict[tuple[str, int, bool], float] = {
+_DEFAULT_GENERATION_TIMES: dict[tuple[str, int, bool], float] = {
     # scatter_2d
     ("scatter_2d", 24, False): 3.7,
     ("scatter_2d", 24, True): 2.3,
@@ -111,10 +111,10 @@ DEFAULT_GENERATION_TIMES: dict[tuple[str, int, bool], float] = {
 }
 
 # 期間バケット（時間）
-DURATION_BUCKETS = [24, 168, 720, 4320, 8760]
+_DURATION_BUCKETS = [24, 168, 720, 4320, 8760]
 
 
-def get_duration_bucket(hours: float) -> int:
+def _get_duration_bucket(hours: float) -> int:
     """期間をバケットに変換"""
     if hours <= 24:
         return 24
@@ -127,11 +127,11 @@ def get_duration_bucket(hours: float) -> int:
     return 8760
 
 
-def get_default_generation_time(graph_name: str, duration_hours: float, limit_altitude: bool) -> float:
+def _get_default_generation_time(graph_name: str, duration_hours: float, limit_altitude: bool) -> float:
     """デフォルトの推定生成時間を取得"""
-    bucket = get_duration_bucket(duration_hours)
+    bucket = _get_duration_bucket(duration_hours)
     key = (graph_name, bucket, limit_altitude)
-    return DEFAULT_GENERATION_TIMES.get(key, 30.0)  # デフォルト30秒
+    return _DEFAULT_GENERATION_TIMES.get(key, 30.0)  # デフォルト30秒
 
 
 class GenerationTimeHistory:
@@ -178,7 +178,7 @@ class GenerationTimeHistory:
 
     def _make_key(self, graph_name: str, duration_hours: float, limit_altitude: bool) -> str:
         """履歴キーを生成"""
-        bucket = get_duration_bucket(duration_hours)
+        bucket = _get_duration_bucket(duration_hours)
         return f"{graph_name}|{bucket}|{str(limit_altitude).lower()}"
 
     def _load(self) -> None:
@@ -217,7 +217,7 @@ class GenerationTimeHistory:
             if key in self._history:
                 return self._history[key]
 
-        return get_default_generation_time(graph_name, duration_hours, limit_altitude)
+        return _get_default_generation_time(graph_name, duration_hours, limit_altitude)
 
     def record(self, graph_name: str, duration_hours: float, limit_altitude: bool, elapsed: float) -> None:
         """生成時間を記録"""

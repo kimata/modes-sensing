@@ -21,13 +21,13 @@ if TYPE_CHECKING:
     import modes.config
 
 # 事前生成の間隔（秒）
-PREGENERATION_INTERVAL_SECONDS = 25 * 60  # 25分
+_PREGENERATION_INTERVAL_SECONDS = 25 * 60  # 25分
 
 # デフォルト表示期間（日）
-DEFAULT_PERIOD_DAYS = 7
+_DEFAULT_PERIOD_DAYS = 7
 
 # 事前生成対象のグラフ
-PREGENERATION_GRAPHS = [
+_PREGENERATION_GRAPHS = [
     "scatter_2d",
     "contour_2d",
     "density",
@@ -86,8 +86,8 @@ class CachePregenerator:
             self._schedule_next(delay=10)
             logging.info(
                 "CachePregenerator initialized: interval=%d sec, graphs=%d",
-                PREGENERATION_INTERVAL_SECONDS,
-                len(PREGENERATION_GRAPHS),
+                _PREGENERATION_INTERVAL_SECONDS,
+                len(_PREGENERATION_GRAPHS),
             )
 
     def stop(self) -> None:
@@ -104,7 +104,7 @@ class CachePregenerator:
         if not self._initialized:
             return
 
-        interval = delay if delay is not None else PREGENERATION_INTERVAL_SECONDS
+        interval = delay if delay is not None else _PREGENERATION_INTERVAL_SECONDS
         self._timer = threading.Timer(interval, self._run_pregeneration)
         self._timer.daemon = True
         self._timer.start()
@@ -122,7 +122,7 @@ class CachePregenerator:
             # JSTで統一し、分単位で正規化（ユーザーリクエストと一致させる）
             now = my_lib.time.now()
             time_end = now.replace(second=0, microsecond=0)
-            time_start = time_end - datetime.timedelta(days=DEFAULT_PERIOD_DAYS)
+            time_start = time_end - datetime.timedelta(days=_DEFAULT_PERIOD_DAYS)
 
             logging.info(
                 "[PREGEN] Starting pregeneration: %s to %s",
@@ -138,7 +138,7 @@ class CachePregenerator:
             logging.info(
                 "[PREGEN] Completed: %d/%d graphs in %.1f sec",
                 generated,
-                len(PREGENERATION_GRAPHS),
+                len(_PREGENERATION_GRAPHS),
                 elapsed,
             )
 
@@ -171,7 +171,7 @@ class CachePregenerator:
 
         generated = 0
 
-        for graph_name in PREGENERATION_GRAPHS:
+        for graph_name in _PREGENERATION_GRAPHS:
             try:
                 # キャッシュの有効性をチェック（TTL残り時間も考慮）
                 cache_info = graph_module.find_matching_cache(
@@ -189,7 +189,7 @@ class CachePregenerator:
                     ttl_remaining = graph_module.CACHE_TTL_SECONDS - cache_age
 
                     # 次回の事前生成までTTLが持つ場合はスキップ
-                    if ttl_remaining > PREGENERATION_INTERVAL_SECONDS:
+                    if ttl_remaining > _PREGENERATION_INTERVAL_SECONDS:
                         logging.debug(
                             "[PREGEN] Cache valid for %s: %s (TTL remaining: %.0f sec)",
                             graph_name,
