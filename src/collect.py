@@ -29,10 +29,10 @@ import modes.receiver
 from modes.config import Config
 from modes.database_postgresql import DBConfig, MeasurementData
 
-SCHEMA_CONFIG = "config.schema"
+_SCHEMA_CONFIG = "config.schema"
 
 
-def sig_handler(num: int, _: FrameType | None) -> None:
+def _sig_handler(num: int, _: FrameType | None) -> None:
     logging.warning("receive signal %d", num)
 
     if num in (signal.SIGTERM, signal.SIGINT):
@@ -45,7 +45,7 @@ def execute(
     liveness_file: pathlib.Path,
     count: int = 0,
 ) -> None:
-    signal.signal(signal.SIGTERM, sig_handler)
+    signal.signal(signal.SIGTERM, _sig_handler)
 
     measurement_queue: multiprocessing.Queue[MeasurementData] = multiprocessing.Queue()
 
@@ -126,7 +126,7 @@ if __name__ == "__main__":
 
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
-    config_dict = my_lib.config.load(config_file, pathlib.Path(SCHEMA_CONFIG))
+    config_dict = my_lib.config.load(config_file, pathlib.Path(_SCHEMA_CONFIG))
     config = load_from_dict(config_dict, pathlib.Path.cwd())
 
     execute(config, config.liveness.file.collector, count)

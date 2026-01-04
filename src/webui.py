@@ -30,10 +30,10 @@ import modes.config
 if TYPE_CHECKING:
     from types import FrameType
 
-SCHEMA_CONFIG = "config.schema"
+_SCHEMA_CONFIG = "config.schema"
 
 
-def term() -> NoReturn:
+def _term() -> NoReturn:
     # 子プロセスを終了
     my_lib.proc_util.kill_child()
 
@@ -42,11 +42,11 @@ def term() -> NoReturn:
     sys.exit(0)
 
 
-def sig_handler(num: int, frame: FrameType | None) -> None:
+def _sig_handler(num: int, frame: FrameType | None) -> None:
     logging.warning("receive signal %d", num)
 
     if num in (signal.SIGTERM, signal.SIGINT):
-        term()
+        _term()
 
 
 def create_app(config: modes.config.Config) -> flask.Flask:
@@ -102,7 +102,7 @@ if __name__ == "__main__":
 
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
-    config_dict = my_lib.config.load(config_file, pathlib.Path(SCHEMA_CONFIG))
+    config_dict = my_lib.config.load(config_file, pathlib.Path(_SCHEMA_CONFIG))
     config = modes.config.load_from_dict(config_dict, pathlib.Path.cwd())
 
     app = create_app(config)
@@ -152,7 +152,7 @@ if __name__ == "__main__":
                 # プロセスグループ操作に失敗した場合は通常の終了処理
                 pass
 
-            term()
+            _term()
 
     signal.signal(signal.SIGTERM, enhanced_sig_handler)
     signal.signal(signal.SIGINT, enhanced_sig_handler)

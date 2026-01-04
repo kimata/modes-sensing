@@ -18,7 +18,7 @@ import pathlib
 import my_lib.healthz
 from my_lib.healthz import HealthzTarget
 
-SCHEMA_CONFIG = "config.schema"
+_SCHEMA_CONFIG = "config.schema"
 
 
 def check_liveness(targets: list[HealthzTarget], port: int | None = None) -> bool:
@@ -50,7 +50,7 @@ if __name__ == "__main__":
 
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
-    config = my_lib.config.load(config_file, pathlib.Path(SCHEMA_CONFIG))
+    config = my_lib.config.load(config_file, pathlib.Path(_SCHEMA_CONFIG))
 
     logging.info("Mode: %s", mode)
 
