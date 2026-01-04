@@ -31,20 +31,20 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypedDict
 
 import flask
-import matplotlib  # noqa: ICN001
+import matplotlib
 
 matplotlib.use("Agg")  # pyplotのimport前に設定する必要がある
 import matplotlib.dates
 import matplotlib.font_manager
-import matplotlib.pyplot  # noqa: ICN001
+import matplotlib.pyplot
 import matplotlib.ticker
 import mpl_toolkits.mplot3d  # noqa: F401
 import my_lib.panel_config
 import my_lib.pil_util
 import my_lib.plot_util
 import my_lib.time
-import numpy  # noqa: ICN001
-import pandas  # noqa: ICN001
+import numpy
+import pandas
 import PIL.Image
 import PIL.ImageDraw
 import PIL.ImageFont
@@ -59,7 +59,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from matplotlib.axes import Axes
-    from psycopg2.extensions import connection as PgConnection  # noqa: N812
+    from psycopg2.extensions import connection as PgConnection
 
 
 @dataclass
@@ -210,7 +210,7 @@ _result_checker_started = False
 
 def _start_result_checker_thread() -> None:
     """非同期ジョブの完了をポーリングするバックグラウンドスレッドを開始"""
-    global _result_checker_started  # noqa: PLW0603
+    global _result_checker_started
     if _result_checker_started:
         return
 
@@ -457,7 +457,7 @@ def apply_time_axis_format_3d(ax: Any, time_numeric: numpy.ndarray) -> None:
     ax.set_xticklabels(tick_labels)
 
 
-def append_colorbar(scatter, shrink=0.8, pad=0.01, aspect=35, fraction=0.046, limit_altitude=False):  # noqa: PLR0913
+def append_colorbar(scatter, shrink=0.8, pad=0.01, aspect=35, fraction=0.046, limit_altitude=False):
     """
     カラーバーを追加（サイズを縮小してプロットエリアを拡大）
 
@@ -481,7 +481,7 @@ def append_colorbar(scatter, shrink=0.8, pad=0.01, aspect=35, fraction=0.046, li
     return cbar
 
 
-def create_grid(  # noqa: PLR0913
+def create_grid(
     time_numeric, altitudes, temperatures, grid_points=100, time_range=None, limit_altitude=False
 ):
     """グリッド作成を最適化（データ前処理改善、メモリ効率向上）"""
@@ -720,7 +720,7 @@ def prepare_data(raw_data) -> PreparedData:
         temperatures=clean_temperatures,
     )
     # ローカルテスト用にDataFrameを直接設定
-    result._dataframe = clean_df  # noqa: SLF001
+    result._dataframe = clean_df
     return result
 
 
@@ -1308,7 +1308,7 @@ def _prepare_wind_data(data, limit_altitude=False):
         raise ValueError("No valid wind data after binning")
 
     # 高度ビンインデックスから実際の高度値に変換
-    alt_indices: Any = grouped["alt_bin_idx"].values  # noqa: PD011
+    alt_indices: Any = grouped["alt_bin_idx"].values
     grouped["altitude_bin"] = altitude_bins[alt_indices]
 
     # 風速と風向を再計算（ベクトル化）
@@ -1376,7 +1376,7 @@ def plot_wind_direction(data, figsize, limit_altitude=False):
     # u（時間軸方向）= 東西成分、v（高度軸方向）= 南北成分
     grouped["u_normalized"] = (gwind_x / wind_magnitude) * arrow_scale
     grouped["v_normalized"] = (gwind_y / wind_magnitude) * arrow_scale * aspect_correction
-    wind_speeds: Any = grouped["wind_speed"].values  # noqa: PD011
+    wind_speeds: Any = grouped["wind_speed"].values
     wind_speeds_clipped = numpy.clip(wind_speeds, 0, 100)
 
     quiver = ax.quiver(
@@ -1782,7 +1782,7 @@ def get_cached_image(
         return None, None
 
 
-def save_to_cache(  # noqa: PLR0913
+def save_to_cache(
     cache_dir: pathlib.Path,
     graph_name: str,
     time_start: datetime.datetime,
@@ -1809,13 +1809,13 @@ def save_to_cache(  # noqa: PLR0913
         return None
 
 
-def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_altitude=False):  # noqa: PLR0913, PLR0915
+def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_altitude=False):
     """子プロセス内でデータ取得からグラフ描画まで一貫して実行する関数"""
-    import matplotlib  # noqa: ICN001
+    import matplotlib
 
     matplotlib.use("Agg")
 
-    import matplotlib.pyplot  # noqa: ICN001
+    import matplotlib.pyplot
 
     # デバッグ: 子プロセスに渡された時間範囲を記録
     period_days = (time_end - time_start).total_seconds() / 86400
@@ -2146,7 +2146,7 @@ def data_range():
 
 
 @blueprint.route("/api/graph/<path:graph_name>", methods=["GET"])
-def graph(graph_name):  # noqa: PLR0915
+def graph(graph_name):
     # デフォルト値を設定
     default_time_end = my_lib.time.now()
     default_time_start = default_time_end - datetime.timedelta(days=1)
@@ -2280,7 +2280,7 @@ def graph(graph_name):  # noqa: PLR0915
 
 
 @blueprint.route("/api/debug/date-parse", methods=["GET"])
-def debug_date_parse():  # noqa: PLR0915
+def debug_date_parse():
     """デバッグ用：日付パース処理をテストするAPI"""
     import json
 
@@ -2408,7 +2408,7 @@ def _parse_datetime_from_request(date_str: str | None) -> datetime.datetime | No
         return None
 
 
-def _start_job_async(  # noqa: PLR0913
+def _start_job_async(
     config: dict[str, Any],
     job_id: str,
     graph_name: str,

@@ -112,7 +112,7 @@ def _parse_slack_config(
     parsed = my_lib.notify.slack.parse_config(slack_dict)
 
     # SlackErrorOnlyConfig または SlackEmptyConfig のみを許可
-    if isinstance(parsed, (my_lib.notify.slack.SlackErrorOnlyConfig, my_lib.notify.slack.SlackEmptyConfig)):
+    if isinstance(parsed, my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.SlackEmptyConfig):
         return parsed
 
     # その他の設定タイプの場合、SlackErrorOnlyConfig に変換を試みる

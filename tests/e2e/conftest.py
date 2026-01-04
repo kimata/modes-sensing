@@ -50,7 +50,7 @@ def webserver(request):
         text=True,
         env=env,
         # Create new process group for proper cleanup
-        preexec_fn=os.setsid,  # noqa: PLW1509
+        preexec_fn=os.setsid,
     )
 
     # Wait for server to start

@@ -5,6 +5,7 @@ receiver.py の統合テスト
 
 Mode S レシーバーの受信機能をテストします。
 """
+
 import queue
 
 import modes.receiver

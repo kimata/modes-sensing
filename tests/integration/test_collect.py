@@ -5,6 +5,7 @@ collect.py の統合テスト
 
 データ収集機能をテストします。
 """
+
 import my_lib.healthz
 from my_lib.healthz import HealthzTarget
 

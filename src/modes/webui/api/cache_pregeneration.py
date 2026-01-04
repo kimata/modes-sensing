@@ -61,11 +61,11 @@ class CachePregenerator:
             with cls._lock:
                 if cls._instance is None:
                     instance = object.__new__(cls)
-                    instance._config = None  # noqa: SLF001
-                    instance._cache_dir = None  # noqa: SLF001
-                    instance._timer = None  # noqa: SLF001
-                    instance._running = False  # noqa: SLF001
-                    instance._initialized = False  # noqa: SLF001
+                    instance._config = None
+                    instance._cache_dir = None
+                    instance._timer = None
+                    instance._running = False
+                    instance._initialized = False
                     cls._instance = instance
         return cls._instance  # type: ignore[return-value]
 

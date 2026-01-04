@@ -42,7 +42,7 @@ def term() -> NoReturn:
     sys.exit(0)
 
 
-def sig_handler(num: int, frame: FrameType | None) -> None:  # noqa: ARG001
+def sig_handler(num: int, frame: FrameType | None) -> None:
     logging.warning("receive signal %d", num)
 
     if num in (signal.SIGTERM, signal.SIGINT):
@@ -127,7 +127,7 @@ if __name__ == "__main__":
     # Enhanced signal handler for process group management
     _sig_handler_state = {"entered": False}
 
-    def enhanced_sig_handler(num, frame):  # noqa: ARG001
+    def enhanced_sig_handler(num, frame):
         if _sig_handler_state["entered"]:
             return  # 再入を防止
         _sig_handler_state["entered"] = True

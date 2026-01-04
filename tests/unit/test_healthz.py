@@ -1,5 +1,6 @@
 # ruff: noqa: S101
 """healthz.py のユニットテスト"""
+
 import pathlib
 import tempfile
 import time
