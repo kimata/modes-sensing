@@ -28,7 +28,7 @@ import psycopg2
 import psycopg2.extras
 
 # スキーマファイルのパス
-SCHEMA_FILE = pathlib.Path(__file__).parent.parent.parent / "schema" / "postgres.schema"
+_SCHEMA_FILE = pathlib.Path(__file__).parent.parent.parent / "schema" / "postgres.schema"
 
 if TYPE_CHECKING:
     import datetime
@@ -113,10 +113,10 @@ AGGREGATION_LEVELS: list[AggregationLevel] = [
 
 
 # 再接続設定
-MAX_RECONNECT_RETRIES: int = 5
-RECONNECT_DELAY: float = 5.0
+_MAX_RECONNECT_RETRIES: int = 5
+_RECONNECT_DELAY: float = 5.0
 
-should_terminate = threading.Event()
+_should_terminate = threading.Event()
 
 
 def open(host: str, port: int, database: str, user: str, password: str) -> PgConnection:
@@ -160,7 +160,7 @@ def open(host: str, port: int, database: str, user: str, password: str) -> PgCon
 
 def _execute_schema(conn: PgConnection) -> None:
     """外部スキーマファイルを読み込んで実行"""
-    schema_sql = SCHEMA_FILE.read_text(encoding="utf-8")
+    schema_sql = _SCHEMA_FILE.read_text(encoding="utf-8")
 
     with conn.cursor() as cur:
         # スキーマファイル内の各ステートメントを実行
@@ -171,7 +171,7 @@ def _execute_schema(conn: PgConnection) -> None:
                 cur.execute(statement)
 
 
-def insert(conn: PgConnection, data: MeasurementData) -> None:
+def _insert(conn: PgConnection, data: MeasurementData) -> None:
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO meteorological_data (time, callsign, distance, altitude, latitude, longitude, "
@@ -208,17 +208,17 @@ def _attempt_reconnect(db_config: DBConfig) -> PgConnection:
         ReconnectError: すべての再接続試行に失敗した場合
 
     """
-    for attempt in range(1, MAX_RECONNECT_RETRIES + 1):
-        if should_terminate.is_set():
+    for attempt in range(1, _MAX_RECONNECT_RETRIES + 1):
+        if _should_terminate.is_set():
             raise TerminationRequestedError("終了が要求されました")
 
         logging.warning(
             "再接続を試行します（%d/%d回目、%.1f秒待機）...",
             attempt,
-            MAX_RECONNECT_RETRIES,
-            RECONNECT_DELAY,
+            _MAX_RECONNECT_RETRIES,
+            _RECONNECT_DELAY,
         )
-        time.sleep(RECONNECT_DELAY)
+        time.sleep(_RECONNECT_DELAY)
 
         try:
             new_conn = open(
@@ -233,7 +233,7 @@ def _attempt_reconnect(db_config: DBConfig) -> PgConnection:
         except Exception:
             logging.exception("再接続に失敗しました（%d回目）", attempt)
 
-    error_message = f"すべての再接続試行（{MAX_RECONNECT_RETRIES}回）に失敗しました"
+    error_message = f"すべての再接続試行（{_MAX_RECONNECT_RETRIES}回）に失敗しました"
     logging.error(error_message)
     raise ReconnectError(error_message)
 
@@ -279,7 +279,7 @@ def store_queue(
     logging.info("データ保存ワーカーを開始します")
     state = _StoreState(conn)
 
-    while not state.should_stop and not should_terminate.is_set():
+    while not state.should_stop and not _should_terminate.is_set():
         try:
             _process_one_item(state, measurement_queue, liveness_file)
 
@@ -308,7 +308,7 @@ def _process_one_item(
 ) -> None:
     """キューから1件取得してDBに保存する"""
     data = measurement_queue.get(timeout=1)
-    insert(state.conn, data)
+    _insert(state.conn, data)
     my_lib.footprint.update(liveness_file)
     state.reset_errors()
     state.processed_count += 1
@@ -372,7 +372,7 @@ def _handle_unexpected_error(
 
 
 def store_term() -> None:
-    should_terminate.set()
+    _should_terminate.set()
 
 
 def fetch_by_time(
