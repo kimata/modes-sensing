@@ -311,7 +311,7 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
                 }
             }
         },
-        [dateRange, limitAltitude, startPolling],
+        [dateRange, limitAltitude, startPolling]
     );
 
     // 全ジョブをリロード
