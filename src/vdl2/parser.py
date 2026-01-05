@@ -30,6 +30,17 @@ class AcarsWeatherData:
     wind_speed_kt: int | None  # ノット
 
 
+@dataclass
+class XidLocationData:
+    """XID メッセージから抽出した位置・高度データ"""
+
+    icao: str  # 航空機アドレス
+    timestamp: datetime | None
+    latitude: float | None  # 度
+    longitude: float | None  # 度
+    altitude_ft: int | None  # フィート
+
+
 def _parse_wn_line(msg_text: str) -> dict[str, Any] | None:
     """WN形式の位置報告から気象データを抽出する
 
@@ -425,3 +436,93 @@ def convert_to_measurement_data(
         wind=wind,
         distance=distance,
     )
+
+
+def parse_xid_location(json_line: str | bytes) -> XidLocationData | None:
+    """dumpvdl2 の JSON から XID 位置・高度データを抽出する
+
+    XID メッセージには ac_location フィールドがあり、
+    航空機の現在位置と高度が含まれることがある。
+
+    Args:
+        json_line: dumpvdl2 から受信した JSON 行
+
+    Returns:
+        抽出した位置・高度データ、または None
+    """
+    try:
+        data = json.loads(json_line)
+    except json.JSONDecodeError:
+        return None
+
+    vdl2 = data.get("vdl2", {})
+    avlc = vdl2.get("avlc", {})
+
+    # 航空機アドレス（ICAO）
+    src = avlc.get("src", {})
+    icao = src.get("addr", "")
+    if not icao:
+        return None
+
+    # XID 情報
+    xid = avlc.get("xid", {})
+    if not xid:
+        return None
+
+    vdl_params = xid.get("vdl_params", [])
+
+    # ac_location を探す
+    ac_location = None
+    for param in vdl_params:
+        if param.get("name") == "ac_location":
+            ac_location = param.get("value", {})
+            break
+
+    if not ac_location:
+        return None
+
+    # 高度を取得
+    altitude_ft = ac_location.get("alt")
+    if altitude_ft is None:
+        return None
+
+    # 位置を取得
+    loc = ac_location.get("loc", {})
+    latitude = loc.get("lat")
+    longitude = loc.get("lon")
+
+    # タイムスタンプを取得
+    t = vdl2.get("t", {})
+    sec = t.get("sec")
+    usec = t.get("usec", 0)
+    timestamp = None
+    if sec:
+        timestamp = datetime.fromtimestamp(sec + usec / 1e6, tz=UTC)
+
+    return XidLocationData(
+        icao=icao,
+        timestamp=timestamp,
+        latitude=latitude,
+        longitude=longitude,
+        altitude_ft=altitude_ft,
+    )
+
+
+def get_icao_from_message(json_line: str | bytes) -> str | None:
+    """dumpvdl2 の JSON から航空機アドレス（ICAO）を抽出する
+
+    Args:
+        json_line: dumpvdl2 から受信した JSON 行
+
+    Returns:
+        ICAO アドレス、または None
+    """
+    try:
+        data = json.loads(json_line)
+    except json.JSONDecodeError:
+        return None
+
+    vdl2 = data.get("vdl2", {})
+    avlc = vdl2.get("avlc", {})
+    src = avlc.get("src", {})
+    return src.get("addr") or None
