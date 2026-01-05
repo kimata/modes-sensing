@@ -26,7 +26,7 @@ class TestGraphGeneration:
         time_end = my_lib.time.now()
         time_start = time_end - datetime.timedelta(days=7)
 
-        data = modes.webui.api.graph.prepare_data(
+        data = modes.webui.api.graph._prepare_data(
             modes.database_postgresql.fetch_by_time(
                 modes.database_postgresql.open(
                     config.database.host,

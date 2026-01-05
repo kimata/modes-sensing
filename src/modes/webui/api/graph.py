@@ -647,10 +647,11 @@ def _create_no_data_image(config, graph_name, text="データがありません"
     return img
 
 
-def prepare_data(raw_data) -> PreparedData:
+def _prepare_data(raw_data) -> PreparedData:
     """データ前処理を最適化（無効データ除去、メモリ効率向上）
 
-    注意: この関数はローカルテスト用。本番では prepare_data_numpy を使用。
+    注意: 現在は未使用。本番では _prepare_data_numpy を使用。
+    ローカルテスト用に残している。
     """
     empty_array = numpy.array([], dtype=numpy.float32)
 
@@ -2650,7 +2651,7 @@ def get_jobs_stats():
 if __name__ == "__main__":
 
     def plot_local(raw_data):
-        data = prepare_data(raw_data)
+        data = _prepare_data(raw_data)
 
         if data is None:
             logging.warning("プロット用のデータがありません")
