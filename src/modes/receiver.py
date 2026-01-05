@@ -61,6 +61,9 @@ class MessageFragment(TypedDict, total=False):
     adsb_sign: tuple[str]
     bsd50: tuple[float | None, float | None, float | None]
     bsd60: tuple[float | None, float | None, float | None]
+    # BDS44: (temperature, wind_speed, wind_direction)
+    # 温度(℃), 風速(kt), 風向(度, 真北基準)
+    bds44: tuple[float, float, float]
 
 
 _FRAGMENT_BUF_SIZE: int = 100
@@ -194,6 +197,59 @@ def _calc_meteorological_data(
     return MeasurementData(
         callsign=callsign,
         altitude=altitude,
+        latitude=latitude,
+        longitude=longitude,
+        temperature=temperature,
+        wind=wind,
+        distance=distance,
+    )
+
+
+def _calc_meteorological_data_from_bds44(
+    callsign: str,
+    altitude: float,
+    latitude: float,
+    longitude: float,
+    temperature: float,
+    wind_speed: float,
+    wind_direction: float,
+    distance: float,
+) -> MeteorologicalData:
+    """BDS44 の直接気象データから MeteorologicalData を生成する
+
+    Args:
+        callsign: コールサイン
+        altitude: 高度 (feet)
+        latitude: 緯度
+        longitude: 経度
+        temperature: 気温 (℃) - BDS44 から直接取得
+        wind_speed: 風速 (kt) - BDS44 から直接取得（真の風）
+        wind_direction: 風向 (度, 真北基準) - BDS44 から直接取得
+        distance: 基準点からの距離 (km)
+
+    Returns:
+        MeteorologicalData
+
+    """
+    altitude_m = altitude * 0.3048  # 単位換算: feet → meter
+    wind_speed_ms = wind_speed * 0.514  # 単位換算: knot → m/s
+
+    # 風向から風のx, y成分を計算（北を0度、時計回り）
+    # wind_direction は「風が来る方向」
+    wind_rad = math.radians(wind_direction)
+    wind_x = -wind_speed_ms * math.sin(wind_rad)
+    wind_y = -wind_speed_ms * math.cos(wind_rad)
+
+    wind = WindData(
+        x=wind_x,
+        y=wind_y,
+        angle=wind_direction,
+        speed=wind_speed_ms,
+    )
+
+    return MeasurementData(
+        callsign=callsign,
+        altitude=altitude_m,
         latitude=latitude,
         longitude=longitude,
         temperature=temperature,
@@ -432,34 +488,55 @@ def _round_floats(obj: Any, ndigits: int = 1) -> Any:
         return obj
 
 
-def _is_fragment_complete(fragment: MessageFragment) -> bool:
-    """フラグメントが完全かどうかを判定する"""
-    required_types = ["adsb_pos", "adsb_sign", "bsd50", "bsd60"]
-    return all(packet_type in fragment for packet_type in required_types)
+def _is_fragment_complete(fragment: MessageFragment) -> tuple[bool, str]:
+    """フラグメントが完全かどうかを判定する
+
+    Returns:
+        (bool, str): (完全かどうか, データソース種別)
+        データソース種別: "bds50_60" または "bds44"
+
+    """
+    # 共通の必須フィールド
+    base_required = ["adsb_pos", "adsb_sign"]
+    if not all(packet_type in fragment for packet_type in base_required):
+        return False, ""
+
+    # BDS44 ルート: 直接気象データを持つ（BDS50/BDS60 より優先）
+    if "bds44" in fragment:
+        return True, "bds44"
+
+    # BDS50/BDS60 ルート: 従来の計算方式
+    if "bsd50" in fragment and "bsd60" in fragment:
+        return True, "bds50_60"
+
+    return False, ""
 
 
 def _process_complete_fragment(
     fragment: MessageFragment,
     data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
     area_config: Area,
+    data_source: str,
 ) -> None:
-    """完全なフラグメントを処理してキューに送信する"""
+    """完全なフラグメントを処理してキューに送信する
+
+    Args:
+        fragment: メッセージフラグメント
+        data_queue: データ送信キュー
+        area_config: エリア設定
+        data_source: データソース種別 ("bds44" または "bds50_60")
+
+    """
     global _meteorological_history
 
     # TypedDict の各キーを .get() で安全に取得
     adsb_pos = fragment.get("adsb_pos")
     adsb_sign = fragment.get("adsb_sign")
-    bsd50 = fragment.get("bsd50")
-    bsd60 = fragment.get("bsd60")
 
-    # 全てのデータが揃っていることを確認（_is_fragment_complete で確認済みだが型チェック用）
-    if adsb_pos is None or adsb_sign is None or bsd50 is None or bsd60 is None:
+    # 共通の必須フィールドチェック
+    if adsb_pos is None or adsb_sign is None:
         return
-
-    # タプル内の値が None でないことを確認
     if adsb_pos[1] is None or adsb_pos[2] is None:
-        return
-    if any(v is None for v in bsd50) or any(v is None for v in bsd60):
         return
 
     distance = _calc_distance(
@@ -468,14 +545,41 @@ def _process_complete_fragment(
         adsb_pos[1],
         adsb_pos[2],
     )
-    # NOTE: 上記の None チェック後でもタプル要素の型は絞り込まれないため type: ignore が必要
-    meteorological_data = _calc_meteorological_data(
-        *adsb_sign,
-        *adsb_pos,  # type: ignore[arg-type]
-        *bsd50,  # type: ignore[arg-type]
-        *bsd60,  # type: ignore[arg-type]
-        distance,
-    )
+
+    # データソースに応じて気象データを生成
+    if data_source == "bds44":
+        bds44 = fragment.get("bds44")
+        if bds44 is None:
+            return
+
+        logging.debug("BDS44 から気象データを生成")
+        meteorological_data = _calc_meteorological_data_from_bds44(
+            callsign=adsb_sign[0],
+            altitude=adsb_pos[0],
+            latitude=adsb_pos[1],
+            longitude=adsb_pos[2],
+            temperature=bds44[0],
+            wind_speed=bds44[1],
+            wind_direction=bds44[2],
+            distance=distance,
+        )
+    else:  # bds50_60
+        bsd50 = fragment.get("bsd50")
+        bsd60 = fragment.get("bsd60")
+
+        if bsd50 is None or bsd60 is None:
+            return
+        if any(v is None for v in bsd50) or any(v is None for v in bsd60):
+            return
+
+        # NOTE: 上記の None チェック後でもタプル要素の型は絞り込まれないため type: ignore が必要
+        meteorological_data = _calc_meteorological_data(
+            *adsb_sign,
+            *adsb_pos,  # type: ignore[arg-type]
+            *bsd50,  # type: ignore[arg-type]
+            *bsd60,  # type: ignore[arg-type]
+            distance,
+        )
 
     # 温度異常値は外れ値検出の対象外
     if meteorological_data.temperature < -100:
@@ -535,10 +639,11 @@ def _message_pairing(
     # 動的キーを使用するため type: ignore が必要
     fragment[packet_type] = data  # type: ignore[literal-required]
 
-    if not _is_fragment_complete(fragment):
+    is_complete, data_source = _is_fragment_complete(fragment)
+    if not is_complete:
         return
 
-    _process_complete_fragment(fragment, data_queue, area_config)
+    _process_complete_fragment(fragment, data_queue, area_config, data_source)
     _fragment_list.remove(fragment)
 
 
@@ -586,7 +691,17 @@ def _process_commb_message(
     area_config: Area,
 ) -> None:
     """Comm-Bメッセージ（dformat=20,21）を処理する"""
-    if pyModeS.bds.bds50.is50(message):
+    # BDS44: Meteorological routine air report（直接気象データを持つ）
+    if pyModeS.bds.bds44.is44(message):
+        logging.debug("receive BDS44 (MRAR)")
+        temperature = pyModeS.bds.bds44.temp44(message)
+        wind_speed, wind_direction = pyModeS.bds.bds44.wind44(message)
+        if temperature is not None and wind_speed is not None and wind_direction is not None:
+            _message_pairing(
+                icao, "bds44", (temperature, wind_speed, wind_direction), data_queue, area_config
+            )
+
+    elif pyModeS.bds.bds50.is50(message):
         logging.debug("receive BDS50")
         trackangle = pyModeS.commb.trk50(message)
         groundspeed = pyModeS.commb.gs50(message)
@@ -621,7 +736,8 @@ def _process_message(
     icao = str(pyModeS.icao(message))
     dformat = pyModeS.df(message)
 
-    if dformat == 17:
+    # DF=17: ADS-B, DF=18: TIS-B/ADS-R（同じ Extended Squitter 形式）
+    if dformat in (17, 18):
         _process_adsb_message(message, icao, data_queue, area_config)
     elif dformat in (20, 21):
         _process_commb_message(message, icao, data_queue, area_config)
