@@ -16,7 +16,9 @@ from vdl2.parser import (
     _parse_wn_line,
     _parse_wx_format,
     convert_to_measurement_data,
+    get_icao_from_message,
     parse_acars_weather,
+    parse_xid_location,
 )
 
 
@@ -202,6 +204,92 @@ class TestParseAcarsWeather:
         data = {"vdl2": {"avlc": {}}}
         json_line = json.dumps(data)
         result = parse_acars_weather(json_line)
+        assert result is None
+
+
+class TestParseXidLocation:
+    """XID位置パーサーのテスト"""
+
+    def test_parse_xid_with_location(self) -> None:
+        """XIDメッセージから位置・高度を抽出"""
+        data = {
+            "vdl2": {
+                "t": {"sec": 1704067200, "usec": 0},
+                "avlc": {
+                    "src": {"addr": "84C27A", "type": "Aircraft"},
+                    "xid": {
+                        "vdl_params": [
+                            {
+                                "name": "ac_location",
+                                "value": {
+                                    "loc": {"lat": 35.1, "lon": 137.2},
+                                    "alt": 27000,
+                                },
+                            }
+                        ]
+                    },
+                },
+            }
+        }
+        json_line = json.dumps(data)
+        result = parse_xid_location(json_line)
+
+        assert result is not None
+        assert result.icao == "84C27A"
+        assert result.altitude_ft == 27000
+        assert result.latitude == pytest.approx(35.1, abs=0.001)
+        assert result.longitude == pytest.approx(137.2, abs=0.001)
+
+    def test_parse_xid_no_location(self) -> None:
+        """ac_locationがないXIDメッセージ"""
+        data = {
+            "vdl2": {
+                "avlc": {
+                    "src": {"addr": "84C27A"},
+                    "xid": {"vdl_params": []},
+                },
+            }
+        }
+        json_line = json.dumps(data)
+        result = parse_xid_location(json_line)
+        assert result is None
+
+    def test_parse_xid_no_xid(self) -> None:
+        """XIDフィールドがないメッセージ"""
+        data = {
+            "vdl2": {
+                "avlc": {
+                    "src": {"addr": "84C27A"},
+                    "acars": {"flight": "JAL123"},
+                },
+            }
+        }
+        json_line = json.dumps(data)
+        result = parse_xid_location(json_line)
+        assert result is None
+
+
+class TestGetIcaoFromMessage:
+    """ICAOアドレス抽出のテスト"""
+
+    def test_get_icao(self) -> None:
+        """ICAOアドレスを抽出"""
+        data = {
+            "vdl2": {
+                "avlc": {
+                    "src": {"addr": "84C27A", "type": "Aircraft"},
+                },
+            }
+        }
+        json_line = json.dumps(data)
+        result = get_icao_from_message(json_line)
+        assert result == "84C27A"
+
+    def test_get_icao_no_src(self) -> None:
+        """srcがない場合"""
+        data = {"vdl2": {"avlc": {}}}
+        json_line = json.dumps(data)
+        result = get_icao_from_message(json_line)
         assert result is None
 
 
