@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # ruff: noqa: S101
 """
-collect.py の統合テスト
+cli_collect.py の統合テスト
 
 データ収集機能をテストします。
 """
@@ -9,8 +9,8 @@ collect.py の統合テスト
 import my_lib.healthz
 from my_lib.healthz import HealthzTarget
 
+import amdar.cli_collect as collect
 import amdar.sources.modes.receiver as modes_receiver
-import collect
 from amdar.config import Config
 
 

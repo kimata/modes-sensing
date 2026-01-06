@@ -23,6 +23,11 @@ dependencies = [
     "flask-cors>=6.0.1",
 ]
 
+[project.scripts]
+amdar = "amdar.__main__:main"
+amdar-webui = "amdar.cli_webui:main"
+amdar-healthz = "amdar.cli_healthz:main"
+
 [dependency-groups]
 dev = [
     "pre-commit>=4.5.1",
