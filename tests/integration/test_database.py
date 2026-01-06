@@ -11,8 +11,8 @@ import logging
 
 import psycopg2.extras
 
-import modes.database_postgresql
-from modes.config import Config
+import amdar.database.postgresql as database_postgresql
+from amdar.config import Config
 
 
 class TestDataRange:
@@ -20,7 +20,7 @@ class TestDataRange:
 
     def test_data_range_query(self, config: Config):
         """データ範囲取得クエリをテスト"""
-        conn = modes.database_postgresql.open(
+        conn = database_postgresql.open(
             config.database.host,
             config.database.port,
             config.database.name,
@@ -60,7 +60,7 @@ class TestAltitudeFiltering:
         end_time = datetime.datetime.now(datetime.UTC)
         start_time = end_time - datetime.timedelta(days=7)
 
-        conn = modes.database_postgresql.open(
+        conn = database_postgresql.open(
             config.database.host,
             config.database.port,
             config.database.name,
@@ -69,12 +69,12 @@ class TestAltitudeFiltering:
         )
 
         # 高度制限なしでデータ取得
-        data_unlimited = modes.database_postgresql.fetch_by_time(
+        data_unlimited = database_postgresql.fetch_by_time(
             conn, start_time, end_time, config.filter.area.distance
         )
 
         # 高度制限ありでデータ取得（2000m以下）
-        data_limited = modes.database_postgresql.fetch_by_time(
+        data_limited = database_postgresql.fetch_by_time(
             conn, start_time, end_time, config.filter.area.distance, max_altitude=2000
         )
 

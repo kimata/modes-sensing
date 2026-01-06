@@ -1,7 +1,10 @@
-modes:
-    decoder:
+decoder:
+    modes:
         host: proxy.green-rabbit.net
         port: 30002
+    # vdl2:  # オプション: VDL2 データソースを使用する場合に指定
+    #     host: 192.168.0.20
+    #     port: 5050
 
 database:
     host: proxy.green-rabbit.net
@@ -32,7 +35,16 @@ webapp:
 liveness:
     file:
         collector: /dev/shm/modes-sensing/liveness/collector
-        receiver: /dev/shm/modes-sensing/liveness/receiver
+        receiver:
+            modes: /dev/shm/modes-sensing/liveness/modes
+            # vdl2: /dev/shm/modes-sensing/liveness/vdl2  # decoder.vdl2 設定時のみ
+    schedule:
+        daytime:
+            start_hour: 7
+            end_hour: 22
+            timeout_sec: 60 # 1分以内にデータ受信がなければ異常
+        nighttime:
+            timeout_sec: 3600 # 1時間以内にデータ受信がなければ異常
 
 slack:
     from: ModeS sensing
@@ -43,4 +55,4 @@ slack:
         channel:
             name: "#error"
             id: C04Q1CEGW9K
-        interval_min: 180
+        interval_min: 60

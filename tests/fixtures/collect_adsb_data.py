@@ -28,7 +28,7 @@ sys.path.insert(0, str(project_root / "src"))
 
 import my_lib.config  # noqa: E402
 
-from modes.config import load_from_dict  # noqa: E402
+from amdar.config import load_from_dict  # noqa: E402
 
 
 def collect_messages(host: str, port: int, duration_minutes: int, output_path: pathlib.Path) -> int:
@@ -111,8 +111,8 @@ def main() -> None:
     if config_path.exists():
         config_dict = my_lib.config.load(str(config_path))
         config = load_from_dict(config_dict, pathlib.Path.cwd())
-        host = config.modes.decoder.host
-        port = config.modes.decoder.port
+        host = config.decoder.modes.host
+        port = config.decoder.modes.port
     else:
         print(f"Config file not found: {config_path}")
         print("Using default: localhost:30002")

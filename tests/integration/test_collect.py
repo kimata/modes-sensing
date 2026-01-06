@@ -9,9 +9,9 @@ collect.py の統合テスト
 import my_lib.healthz
 from my_lib.healthz import HealthzTarget
 
+import amdar.sources.modes.receiver as modes_receiver
 import collect
-import modes.receiver
-from modes.config import Config
+from amdar.config import Config
 
 
 class TestCollect:
@@ -24,7 +24,7 @@ class TestCollect:
         # 1件だけ処理して終了
         collect.execute(config, liveness_file, 1)
 
-        modes.receiver.term()
+        modes_receiver.term()
 
         # Livenessファイルが更新されていることを確認
         target = HealthzTarget(name="collector", liveness_file=liveness_file, interval=60)

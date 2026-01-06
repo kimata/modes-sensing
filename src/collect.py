@@ -24,10 +24,11 @@ if TYPE_CHECKING:
 
 import my_lib.footprint
 
-import modes.database_postgresql
-import modes.receiver
-from modes.config import Config
-from modes.database_postgresql import DBConfig, MeasurementData
+import amdar.database.postgresql as database_postgresql
+import amdar.sources.modes.receiver as modes_receiver
+import amdar.sources.outlier
+from amdar.config import Config
+from amdar.database.postgresql import DBConfig, MeasurementData
 
 _SCHEMA_CONFIG = "config.schema"
 
@@ -36,8 +37,8 @@ def _sig_handler(num: int, _: FrameType | None) -> None:
     logging.warning("receive signal %d", num)
 
     if num in (signal.SIGTERM, signal.SIGINT):
-        modes.database_postgresql.store_term()
-        modes.receiver.term()
+        database_postgresql.store_term()
+        modes_receiver.term()
 
 
 def execute(
@@ -49,7 +50,7 @@ def execute(
 
     measurement_queue: multiprocessing.Queue[MeasurementData] = multiprocessing.Queue()
 
-    conn = modes.database_postgresql.open(
+    conn = database_postgresql.open(
         config.database.host,
         config.database.port,
         config.database.name,
@@ -62,25 +63,19 @@ def execute(
         logging.info("データベースから履歴データを取得中...")
 
         # 外れ値検出に必要な最新の履歴データを取得（高度と温度のペア）
-        historical_records = modes.database_postgresql.fetch_latest(
+        historical_records = database_postgresql.fetch_latest(
             conn,
-            modes.receiver.HISTRY_SAMPLES,
+            amdar.sources.outlier.DEFAULT_HISTORY_SIZE,
             distance=config.filter.area.distance,
             columns=["altitude", "temperature"],
         )
 
         if historical_records:
-            # receiver.pyの履歴データ形式に変換
-            historical_data = [
-                modes.receiver.HistoryData(
-                    altitude=record["altitude"],
-                    temperature=record["temperature"],
-                )
-                for record in historical_records
-            ]
+            # (altitude, temperature) のタプルリストに変換
+            historical_data = [(record["altitude"], record["temperature"]) for record in historical_records]
 
             # receiver.pyの履歴データを初期化
-            modes.receiver.init(historical_data)
+            modes_receiver.init(historical_data)
             logging.info("履歴データを初期化しました: %d件", len(historical_data))
         else:
             logging.warning("履歴データが見つかりませんでした")
@@ -89,7 +84,7 @@ def execute(
         logging.warning("履歴データの取得に失敗しました: %s", e)
         # エラーが発生しても処理を継続
 
-    modes.receiver.start(config, measurement_queue)
+    modes_receiver.start(config, measurement_queue)
 
     db_config = DBConfig(
         host=config.database.host,
@@ -100,13 +95,13 @@ def execute(
     )
 
     try:
-        modes.database_postgresql.store_queue(
+        database_postgresql.store_queue(
             conn, measurement_queue, liveness_file, db_config, config.slack, count
         )
     except Exception:
         logging.exception("Failed to store data")
 
-    modes.receiver.term()
+    modes_receiver.term()
 
 
 ######################################################################
@@ -115,7 +110,7 @@ if __name__ == "__main__":
     import my_lib.config
     import my_lib.logger
 
-    from modes.config import load_from_dict
+    from amdar.config import load_from_dict
 
     assert __doc__ is not None  # noqa: S101
     args = docopt.docopt(__doc__)

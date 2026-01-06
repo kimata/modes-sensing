@@ -2,10 +2,25 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "properties": {
-        "modes": {
+        "decoder": {
             "type": "object",
             "properties": {
-                "decoder": {
+                "modes": {
+                    "type": "object",
+                    "properties": {
+                        "host": {
+                            "type": "string"
+                        },
+                        "port": {
+                            "type": "integer"
+                        }
+                    },
+                    "required": [
+                        "host",
+                        "port"
+                    ]
+                },
+                "vdl2": {
                     "type": "object",
                     "properties": {
                         "host": {
@@ -22,7 +37,7 @@
                 }
             },
             "required": [
-                "decoder"
+                "modes"
             ]
         },
         "database": {
@@ -105,17 +120,74 @@
                             "type": "string"
                         },
                         "receiver": {
-                            "type": "string"
+                            "type": "object",
+                            "properties": {
+                                "modes": {
+                                    "type": "string"
+                                },
+                                "vdl2": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "modes"
+                            ]
                         }
                     },
                     "required": [
                         "collector",
                         "receiver"
                     ]
+                },
+                "schedule": {
+                    "type": "object",
+                    "properties": {
+                        "daytime": {
+                            "type": "object",
+                            "properties": {
+                                "start_hour": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 23
+                                },
+                                "end_hour": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 23
+                                },
+                                "timeout_sec": {
+                                    "type": "integer",
+                                    "minimum": 1
+                                }
+                            },
+                            "required": [
+                                "start_hour",
+                                "end_hour",
+                                "timeout_sec"
+                            ]
+                        },
+                        "nighttime": {
+                            "type": "object",
+                            "properties": {
+                                "timeout_sec": {
+                                    "type": "integer",
+                                    "minimum": 1
+                                }
+                            },
+                            "required": [
+                                "timeout_sec"
+                            ]
+                        }
+                    },
+                    "required": [
+                        "daytime",
+                        "nighttime"
+                    ]
                 }
             },
             "required": [
-                "file"
+                "file",
+                "schedule"
             ]
         },
         "webapp": {
@@ -221,8 +293,9 @@
     },
     "required": [
         "database",
+        "decoder",
         "filter",
-        "modes",
+        "liveness",
         "webapp"
     ]
 }

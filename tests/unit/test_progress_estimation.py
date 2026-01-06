@@ -4,7 +4,7 @@
 progress_estimation.py のテスト
 """
 
-import modes.webui.api.progress_estimation
+import amdar.viewer.api.progress_estimation as progress_estimation
 
 
 class TestGetDurationBucket:
@@ -12,28 +12,28 @@ class TestGetDurationBucket:
 
     def test_bucket_24h(self):
         """24時間以下"""
-        assert modes.webui.api.progress_estimation._get_duration_bucket(12) == 24
-        assert modes.webui.api.progress_estimation._get_duration_bucket(24) == 24
+        assert progress_estimation._get_duration_bucket(12) == 24
+        assert progress_estimation._get_duration_bucket(24) == 24
 
     def test_bucket_168h(self):
         """1週間以下"""
-        assert modes.webui.api.progress_estimation._get_duration_bucket(48) == 168
-        assert modes.webui.api.progress_estimation._get_duration_bucket(168) == 168
+        assert progress_estimation._get_duration_bucket(48) == 168
+        assert progress_estimation._get_duration_bucket(168) == 168
 
     def test_bucket_720h(self):
         """1ヶ月以下"""
-        assert modes.webui.api.progress_estimation._get_duration_bucket(300) == 720
-        assert modes.webui.api.progress_estimation._get_duration_bucket(720) == 720
+        assert progress_estimation._get_duration_bucket(300) == 720
+        assert progress_estimation._get_duration_bucket(720) == 720
 
     def test_bucket_4320h(self):
         """6ヶ月以下"""
-        assert modes.webui.api.progress_estimation._get_duration_bucket(2000) == 4320
-        assert modes.webui.api.progress_estimation._get_duration_bucket(4320) == 4320
+        assert progress_estimation._get_duration_bucket(2000) == 4320
+        assert progress_estimation._get_duration_bucket(4320) == 4320
 
     def test_bucket_8760h(self):
         """1年以上"""
-        assert modes.webui.api.progress_estimation._get_duration_bucket(5000) == 8760
-        assert modes.webui.api.progress_estimation._get_duration_bucket(10000) == 8760
+        assert progress_estimation._get_duration_bucket(5000) == 8760
+        assert progress_estimation._get_duration_bucket(10000) == 8760
 
 
 class TestGetDefaultGenerationTime:
@@ -41,17 +41,17 @@ class TestGetDefaultGenerationTime:
 
     def test_known_graph(self):
         """既知のグラフタイプ"""
-        time = modes.webui.api.progress_estimation._get_default_generation_time("scatter_2d", 24, False)
+        time = progress_estimation._get_default_generation_time("scatter_2d", 24, False)
         assert time == 3.7
 
     def test_limit_altitude(self):
         """高度制限あり"""
-        time = modes.webui.api.progress_estimation._get_default_generation_time("scatter_2d", 24, True)
+        time = progress_estimation._get_default_generation_time("scatter_2d", 24, True)
         assert time == 2.3
 
     def test_unknown_graph(self):
         """未知のグラフタイプ"""
-        time = modes.webui.api.progress_estimation._get_default_generation_time("unknown_graph", 24, False)
+        time = progress_estimation._get_default_generation_time("unknown_graph", 24, False)
         assert time == 30.0  # デフォルト値
 
 
@@ -60,19 +60,19 @@ class TestGenerationTimeHistory:
 
     def test_singleton(self):
         """シングルトンパターン"""
-        history1 = modes.webui.api.progress_estimation.GenerationTimeHistory()
-        history2 = modes.webui.api.progress_estimation.GenerationTimeHistory()
+        history1 = progress_estimation.GenerationTimeHistory()
+        history2 = progress_estimation.GenerationTimeHistory()
         assert history1 is history2
 
     def test_make_key(self):
         """キー生成"""
-        history = modes.webui.api.progress_estimation.GenerationTimeHistory()
+        history = progress_estimation.GenerationTimeHistory()
         key = history._make_key("scatter_2d", 48, True)
         assert key == "scatter_2d|168|true"
 
     def test_get_estimated_time_default(self):
         """デフォルトの推定時間を取得"""
-        history = modes.webui.api.progress_estimation.GenerationTimeHistory()
+        history = progress_estimation.GenerationTimeHistory()
 
         # 履歴をクリア
         with history._history_lock:
@@ -83,7 +83,7 @@ class TestGenerationTimeHistory:
 
     def test_record_and_get(self, tmp_path):
         """記録と取得"""
-        history = modes.webui.api.progress_estimation.GenerationTimeHistory()
+        history = progress_estimation.GenerationTimeHistory()
 
         # テスト用に初期化
         history._cache_file = tmp_path / "test_times.json"
@@ -98,7 +98,7 @@ class TestGenerationTimeHistory:
 
     def test_record_zero_elapsed(self, tmp_path):
         """0秒以下は記録しない"""
-        history = modes.webui.api.progress_estimation.GenerationTimeHistory()
+        history = progress_estimation.GenerationTimeHistory()
 
         # テスト用に初期化
         history._cache_file = tmp_path / "test_times.json"
@@ -114,7 +114,7 @@ class TestGenerationTimeHistory:
     def test_initialize(self, tmp_path):
         """初期化"""
         # 新しいインスタンスを強制的に作成（テスト用）
-        history = modes.webui.api.progress_estimation.GenerationTimeHistory()
+        history = progress_estimation.GenerationTimeHistory()
         history._initialized = False
 
         history.initialize(tmp_path)
@@ -124,7 +124,7 @@ class TestGenerationTimeHistory:
 
     def test_initialize_twice(self, tmp_path):
         """二重初期化はスキップ"""
-        history = modes.webui.api.progress_estimation.GenerationTimeHistory()
+        history = progress_estimation.GenerationTimeHistory()
         history._initialized = False
 
         history.initialize(tmp_path)
@@ -142,7 +142,7 @@ class TestGenerationTimeHistory:
         cache_file = tmp_path / "generation_times.json"
         cache_file.write_text(json.dumps({"scatter_2d|24|false": 2.5}))
 
-        history = modes.webui.api.progress_estimation.GenerationTimeHistory()
+        history = progress_estimation.GenerationTimeHistory()
         history._cache_file = cache_file
         history._load()
 
@@ -155,7 +155,7 @@ class TestGenerationTimeHistory:
         cache_file = tmp_path / "generation_times.json"
         cache_file.write_text("invalid json {{{")
 
-        history = modes.webui.api.progress_estimation.GenerationTimeHistory()
+        history = progress_estimation.GenerationTimeHistory()
         history._cache_file = cache_file
         history._history = {"existing": 1.0}
 
@@ -169,7 +169,7 @@ class TestGenerationTimeHistory:
 
         cache_file = tmp_path / "generation_times.json"
 
-        history = modes.webui.api.progress_estimation.GenerationTimeHistory()
+        history = progress_estimation.GenerationTimeHistory()
         history._cache_file = cache_file
         history._history = {"test_key": 3.5}
 

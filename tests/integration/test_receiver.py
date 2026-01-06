@@ -8,8 +8,8 @@ Mode S レシーバーの受信機能をテストします。
 
 import queue
 
-import modes.receiver
-from modes.config import Config
+import amdar.sources.modes.receiver as modes_receiver
+from amdar.config import Config
 
 
 class TestReceiver:
@@ -19,10 +19,10 @@ class TestReceiver:
         """レシーバーの起動とデータ受信をテスト"""
         measurement_queue = queue.Queue()
 
-        modes.receiver.start(config, measurement_queue)
+        modes_receiver.start(config, measurement_queue)
 
         # データを1件受信
         data = measurement_queue.get(timeout=30)
         assert data is not None
 
-        modes.receiver.term()
+        modes_receiver.term()
