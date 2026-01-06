@@ -25,11 +25,11 @@ from typing import TYPE_CHECKING
 import my_lib.config
 import my_lib.logger
 
-import modes.config
-import vdl2.receiver
+import amdar.config
+import amdar.sources.vdl2.receiver as vdl2_receiver
 
 if TYPE_CHECKING:
-    import modes.database_postgresql
+    import amdar.database.postgresql
 
 
 def _parse_args() -> argparse.Namespace:
@@ -72,24 +72,29 @@ def _main() -> None:
 
     config_dict = my_lib.config.load(str(config_path))
 
-    # VDL2 設定の取得（将来的には config.py に追加）
-    vdl2_config = config_dict.get("vdl2", {}).get("decoder", {})
-    host = vdl2_config.get("host", "192.168.0.20")
-    port = vdl2_config.get("port", 5050)
+    # VDL2 設定の取得
+    decoder_config = config_dict.get("decoder", {})
+    vdl2_config = decoder_config.get("vdl2")
+    if vdl2_config is None:
+        logging.error("VDL2 設定が見つかりません。config.yaml に decoder.vdl2 を設定してください。")
+        sys.exit(1)
+
+    host = vdl2_config["host"]
+    port = vdl2_config["port"]
 
     # 基準点の取得
     filter_config = config_dict.get("filter", {}).get("area", {})
-    ref_lat = filter_config.get("latitude", 35.682677)
-    ref_lon = filter_config.get("longitude", 139.762230)
+    ref_lat = filter_config.get("lat", {}).get("ref", 35.682677)
+    ref_lon = filter_config.get("lon", {}).get("ref", 139.762230)
 
     logging.info("VDL2 host: %s:%d", host, port)
     logging.info("Reference point: %.6f, %.6f", ref_lat, ref_lon)
 
     # データキュー
-    data_queue: queue.Queue[modes.database_postgresql.MeasurementData] = queue.Queue()
+    data_queue: queue.Queue[amdar.database.postgresql.MeasurementData] = queue.Queue()
 
     # 受信開始
-    vdl2.receiver.start(host, port, data_queue, ref_lat, ref_lon)
+    vdl2_receiver.start(host, port, data_queue, ref_lat, ref_lon)
 
     count = 0
     try:
@@ -126,7 +131,7 @@ def _main() -> None:
     except KeyboardInterrupt:
         logging.info("Interrupted by user")
     finally:
-        vdl2.receiver.term()
+        vdl2_receiver.term()
         logging.info("Total: %d weather data points", count)
 
 

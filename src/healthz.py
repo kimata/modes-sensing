@@ -14,11 +14,32 @@ Options:
 
 import logging
 import pathlib
+from datetime import datetime
+from typing import Any
 
 import my_lib.healthz
 from my_lib.healthz import HealthzTarget
 
 _SCHEMA_CONFIG = "config.schema"
+
+
+def _get_timeout_for_now(schedule: dict[str, Any]) -> int:
+    """現在時刻に応じたタイムアウト値を返す
+
+    Args:
+        schedule: liveness.schedule 設定辞書
+
+    Returns:
+        タイムアウト秒数
+    """
+    current_hour = datetime.now().hour
+    daytime = schedule["daytime"]
+    start_hour = daytime["start_hour"]
+    end_hour = daytime["end_hour"]
+
+    if start_hour <= current_hour < end_hour:
+        return daytime["timeout_sec"]
+    return schedule["nighttime"]["timeout_sec"]
 
 
 def check_liveness(targets: list[HealthzTarget], port: int | None = None) -> bool:
@@ -54,20 +75,46 @@ if __name__ == "__main__":
 
     logging.info("Mode: %s", mode)
 
+    # 時間帯に応じたタイムアウト値を取得
+    timeout = _get_timeout_for_now(config["liveness"]["schedule"])
+    logging.info("Current timeout: %d seconds", timeout)
+
+    targets: list[HealthzTarget] = []
+
     if mode == "COL":
-        conf_list = ["collector", "receiver"]
+        # collector liveness
+        targets.append(
+            HealthzTarget(
+                name="collector",
+                liveness_file=pathlib.Path(config["liveness"]["file"]["collector"]),
+                interval=timeout,
+            )
+        )
+
+        # modes receiver liveness
+        targets.append(
+            HealthzTarget(
+                name="modes",
+                liveness_file=pathlib.Path(config["liveness"]["file"]["receiver"]["modes"]),
+                interval=timeout,
+            )
+        )
+
+        # vdl2 receiver liveness (設定されている場合のみ)
+        vdl2_file = config["liveness"]["file"]["receiver"].get("vdl2")
+        if vdl2_file:
+            targets.append(
+                HealthzTarget(
+                    name="vdl2",
+                    liveness_file=pathlib.Path(vdl2_file),
+                    interval=timeout,
+                )
+            )
+
         port = None
     else:
-        conf_list = []
-
-    targets = [
-        HealthzTarget(
-            name=conf,
-            liveness_file=pathlib.Path(config["liveness"]["file"][conf]),
-            interval=60 * 10,
-        )
-        for conf in conf_list
-    ]
+        # WEB mode では liveness チェックなし
+        pass
 
     logging.debug(my_lib.pretty.format(targets))
 

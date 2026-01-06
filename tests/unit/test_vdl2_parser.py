@@ -9,13 +9,14 @@ from datetime import UTC, datetime
 
 import pytest
 
-from vdl2.parser import (
+from amdar.sources.vdl2.parser import (
     AcarsWeatherData,
     _parse_fl_format,
     _parse_pntaf_format,
     _parse_wn_line,
     _parse_wx_format,
     convert_to_measurement_data,
+    convert_to_weather_observation,
     get_icao_from_message,
     parse_acars_weather,
     parse_xid_location,
@@ -26,25 +27,32 @@ class TestParseWnLine:
     """WN形式パーサーのテスト"""
 
     def test_parse_wn_pattern1(self) -> None:
-        """パターン1（連結形式）のパース"""
+        """パターン1（連結形式、P接頭辞付き高度）のパース"""
+        # WN + 緯度(5桁) + E + 経度(6桁) + 時刻(6桁) + P + 高度(5桁) + M + 温度(2桁) + 風向(3桁) + 風速(3桁)
         msg = "WN35123E136555014610P24008M33260081027720"
         result = _parse_wn_line(msg)
 
         assert result is not None
-        # 正規表現は貪欲マッチングなので 351 が風向として解析される
-        assert result["wind_dir_deg"] == 351
-        assert result["wind_speed_kt"] == 23
+        assert result["latitude"] == pytest.approx(35.123, abs=0.001)
+        assert result["longitude"] == pytest.approx(136.555, abs=0.001)
         assert result["altitude_ft"] == 24008
         assert result["temperature_c"] == -33
+        assert result["wind_dir_deg"] == 260
+        assert result["wind_speed_kt"] == 81
 
     def test_parse_wn_pattern2(self) -> None:
-        """パターン2（スペース区切り）のパース"""
-        msg = "WN35 95E137163014813 24003-35261 78 10520"
+        """パターン2（スペース区切り風速）のパース"""
+        # 実データ例: WN34514E13729000390739998-48258119 54770
+        msg = "WN34514E13729000390739998-48258119 54770"
         result = _parse_wn_line(msg)
 
         assert result is not None
-        assert result["wind_dir_deg"] == 350  # 35 -> 350
-        assert result["wind_speed_kt"] == 95
+        assert result["latitude"] == pytest.approx(34.514, abs=0.001)
+        assert result["longitude"] == pytest.approx(137.290, abs=0.001)
+        assert result["altitude_ft"] == 39998
+        assert result["temperature_c"] == -48
+        assert result["wind_dir_deg"] == 258
+        assert result["wind_speed_kt"] == 119
 
     def test_parse_wn_no_match(self) -> None:
         """WN形式でないメッセージ"""
@@ -54,11 +62,17 @@ class TestParseWnLine:
 
     def test_parse_wn_multiline(self) -> None:
         """複数行メッセージからWN行を抽出"""
-        msg = "Header\r\nWN35123E136555014610P24008M33260081027720\r\nFooter"
+        # 実データ例: WN35050E13655100384918002-24291044005200
+        msg = "Header\r\nWN35050E13655100384918002-24291044005200\r\nFooter"
         result = _parse_wn_line(msg)
 
         assert result is not None
-        assert result["altitude_ft"] == 24008
+        assert result["latitude"] == pytest.approx(35.050, abs=0.001)
+        assert result["longitude"] == pytest.approx(136.551, abs=0.001)
+        assert result["altitude_ft"] == 18002
+        assert result["temperature_c"] == -24
+        assert result["wind_dir_deg"] == 291
+        assert result["wind_speed_kt"] == 44
 
 
 class TestParsePntafFormat:
@@ -174,8 +188,12 @@ class TestParseAcarsWeather:
         assert result is not None
         assert result.flight == "JAL123"
         assert result.reg == "JA123A"
+        assert result.latitude == pytest.approx(35.123, abs=0.001)
+        assert result.longitude == pytest.approx(136.555, abs=0.001)
         assert result.altitude_ft == 24008
         assert result.temperature_c == -33
+        assert result.wind_dir_deg == 260
+        assert result.wind_speed_kt == 81
         assert result.timestamp == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
 
     def test_parse_acars_no_weather(self) -> None:
@@ -374,3 +392,106 @@ class TestConvertToMeasurementData:
         assert result is not None
         # 緯度1度 ≈ 111km
         assert result.distance == pytest.approx(111.0, rel=0.1)
+
+
+class TestConvertToWeatherObservation:
+    """WeatherObservation変換のテスト"""
+
+    def test_convert_with_wind(self) -> None:
+        """風データ付き変換"""
+        acars = AcarsWeatherData(
+            flight="JAL123",
+            reg="JA123A",
+            timestamp=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+            latitude=35.0,
+            longitude=139.0,
+            altitude_ft=35000,
+            temperature_c=-50,
+            wind_dir_deg=270,
+            wind_speed_kt=100,
+        )
+
+        result = convert_to_weather_observation(acars, 35.0, 139.0)
+
+        assert result is not None
+        assert result.callsign == "JAL123"
+        assert result.altitude == pytest.approx(35000 * 0.3048, rel=0.01)
+        assert result.temperature == -50
+        assert result.wind is not None
+        assert result.wind.speed == pytest.approx(100 * 0.514444, rel=0.01)
+        assert result.wind.angle == 270
+        assert result.method == "vdl2"
+        assert result.data_source == "acars"
+        assert result.altitude_source == "acars"
+
+    def test_convert_without_wind(self) -> None:
+        """風データなし変換"""
+        acars = AcarsWeatherData(
+            flight="ANA456",
+            reg="JA456B",
+            timestamp=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+            latitude=35.0,
+            longitude=139.0,
+            altitude_ft=35000,
+            temperature_c=-50,
+            wind_dir_deg=None,
+            wind_speed_kt=None,
+        )
+
+        result = convert_to_weather_observation(acars, 35.0, 139.0)
+
+        assert result is not None
+        assert result.wind is None
+
+    def test_convert_missing_altitude(self) -> None:
+        """高度なしはNone"""
+        acars = AcarsWeatherData(
+            flight="JAL123",
+            reg=None,
+            timestamp=None,
+            latitude=35.0,
+            longitude=139.0,
+            altitude_ft=None,
+            temperature_c=-50,
+            wind_dir_deg=None,
+            wind_speed_kt=None,
+        )
+
+        result = convert_to_weather_observation(acars, 35.0, 139.0)
+        assert result is None
+
+    def test_convert_missing_temperature(self) -> None:
+        """温度なしはNone"""
+        acars = AcarsWeatherData(
+            flight="JAL123",
+            reg=None,
+            timestamp=None,
+            latitude=35.0,
+            longitude=139.0,
+            altitude_ft=35000,
+            temperature_c=None,
+            wind_dir_deg=None,
+            wind_speed_kt=None,
+        )
+
+        result = convert_to_weather_observation(acars, 35.0, 139.0)
+        assert result is None
+
+    def test_is_valid(self) -> None:
+        """生成されたWeatherObservationが有効か"""
+        acars = AcarsWeatherData(
+            flight="JAL123",
+            reg="JA123A",
+            timestamp=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+            latitude=35.0,
+            longitude=139.0,
+            altitude_ft=35000,
+            temperature_c=-50,
+            wind_dir_deg=270,
+            wind_speed_kt=100,
+        )
+
+        result = convert_to_weather_observation(acars, 35.0, 139.0)
+
+        assert result is not None
+        assert result.is_valid() is True

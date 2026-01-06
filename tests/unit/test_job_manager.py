@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-import modes.webui.api.job_manager
+import amdar.viewer.api.job_manager as job_manager
 
 
 class TestJobStatus:
@@ -17,11 +17,11 @@ class TestJobStatus:
 
     def test_job_status_values(self):
         """ジョブステータスの値"""
-        assert modes.webui.api.job_manager.JobStatus.PENDING.value == "pending"
-        assert modes.webui.api.job_manager.JobStatus.PROCESSING.value == "processing"
-        assert modes.webui.api.job_manager.JobStatus.COMPLETED.value == "completed"
-        assert modes.webui.api.job_manager.JobStatus.FAILED.value == "failed"
-        assert modes.webui.api.job_manager.JobStatus.TIMEOUT.value == "timeout"
+        assert job_manager.JobStatus.PENDING.value == "pending"
+        assert job_manager.JobStatus.PROCESSING.value == "processing"
+        assert job_manager.JobStatus.COMPLETED.value == "completed"
+        assert job_manager.JobStatus.FAILED.value == "failed"
+        assert job_manager.JobStatus.TIMEOUT.value == "timeout"
 
 
 class TestJob:
@@ -29,7 +29,7 @@ class TestJob:
 
     def test_job_creation(self):
         """ジョブ作成"""
-        job = modes.webui.api.job_manager.Job(
+        job = job_manager.Job(
             job_id="test-123",
             graph_name="scatter_2d",
             time_start=datetime.datetime.now(),
@@ -39,7 +39,7 @@ class TestJob:
 
         assert job.job_id == "test-123"
         assert job.graph_name == "scatter_2d"
-        assert job.status == modes.webui.api.job_manager.JobStatus.PENDING
+        assert job.status == job_manager.JobStatus.PENDING
         assert job.progress == 0
         assert job.result is None
         assert job.error is None
@@ -51,7 +51,7 @@ class TestJobManager:
     @pytest.fixture
     def manager(self):
         """JobManager インスタンス"""
-        manager = modes.webui.api.job_manager.JobManager()
+        manager = job_manager.JobManager()
         # 既存のジョブをクリア
         with manager._jobs_lock:
             manager._jobs.clear()
@@ -59,8 +59,8 @@ class TestJobManager:
 
     def test_singleton(self):
         """シングルトンパターン"""
-        manager1 = modes.webui.api.job_manager.JobManager()
-        manager2 = modes.webui.api.job_manager.JobManager()
+        manager1 = job_manager.JobManager()
+        manager2 = job_manager.JobManager()
         assert manager1 is manager2
 
     def test_create_job(self, manager):
@@ -76,7 +76,7 @@ class TestJobManager:
         job = manager.get_job(job_id)
         assert job is not None
         assert job.graph_name == "scatter_2d"
-        assert job.status == modes.webui.api.job_manager.JobStatus.PENDING
+        assert job.status == job_manager.JobStatus.PENDING
 
     def test_create_job_with_id(self, manager):
         """カスタムIDでジョブ作成"""
@@ -102,7 +102,7 @@ class TestJobManager:
         )
 
         # 完了としてマーク
-        manager.update_status(job_id, modes.webui.api.job_manager.JobStatus.COMPLETED, result=b"test")
+        manager.update_status(job_id, job_manager.JobStatus.COMPLETED, result=b"test")
 
         # 同じIDで再作成を試みる
         reused_id = manager.create_job(
@@ -131,13 +131,13 @@ class TestJobManager:
 
         manager.update_status(
             job_id,
-            modes.webui.api.job_manager.JobStatus.PROCESSING,
+            job_manager.JobStatus.PROCESSING,
             progress=50,
             stage="データ取得中",
         )
 
         job = manager.get_job(job_id)
-        assert job.status == modes.webui.api.job_manager.JobStatus.PROCESSING
+        assert job.status == job_manager.JobStatus.PROCESSING
         assert job.progress == 50
         assert job.stage == "データ取得中"
         assert job.started_at is not None
@@ -153,13 +153,13 @@ class TestJobManager:
 
         manager.update_status(
             job_id,
-            modes.webui.api.job_manager.JobStatus.COMPLETED,
+            job_manager.JobStatus.COMPLETED,
             result=b"PNG data",
             progress=100,
         )
 
         job = manager.get_job(job_id)
-        assert job.status == modes.webui.api.job_manager.JobStatus.COMPLETED
+        assert job.status == job_manager.JobStatus.COMPLETED
         assert job.result == b"PNG data"
         assert job.completed_at is not None
 
@@ -174,12 +174,12 @@ class TestJobManager:
 
         manager.update_status(
             job_id,
-            modes.webui.api.job_manager.JobStatus.FAILED,
+            job_manager.JobStatus.FAILED,
             error="テストエラー",
         )
 
         job = manager.get_job(job_id)
-        assert job.status == modes.webui.api.job_manager.JobStatus.FAILED
+        assert job.status == job_manager.JobStatus.FAILED
         assert job.error == "テストエラー"
         assert job.completed_at is not None
 
@@ -188,7 +188,7 @@ class TestJobManager:
         # 例外なく完了
         manager.update_status(
             "nonexistent-job",
-            modes.webui.api.job_manager.JobStatus.COMPLETED,
+            job_manager.JobStatus.COMPLETED,
         )
 
     def test_get_job_status_dict(self, manager):
@@ -200,7 +200,7 @@ class TestJobManager:
             limit_altitude=False,
         )
 
-        manager.update_status(job_id, modes.webui.api.job_manager.JobStatus.PROCESSING, progress=50)
+        manager.update_status(job_id, job_manager.JobStatus.PROCESSING, progress=50)
 
         status_dict = manager.get_job_status_dict(job_id)
 
@@ -233,7 +233,7 @@ class TestJobManager:
         )
 
         # 1つを完了にする
-        manager.update_status(job_id1, modes.webui.api.job_manager.JobStatus.COMPLETED)
+        manager.update_status(job_id1, job_manager.JobStatus.COMPLETED)
 
         stats = manager.get_stats()
 
@@ -251,7 +251,7 @@ class TestJobManager:
         )
 
         # 完了として即座にクリーンアップ対象にする
-        manager.update_status(job_id, modes.webui.api.job_manager.JobStatus.COMPLETED)
+        manager.update_status(job_id, job_manager.JobStatus.COMPLETED)
         job = manager.get_job(job_id)
         # 時間を過去に設定
         job.completed_at = time.time() - manager.JOB_EXPIRY_SECONDS - 1
@@ -278,5 +278,5 @@ class TestJobManager:
 
         # タイムアウトステータスになっていることを確認
         job = manager.get_job(job_id)
-        assert job.status == modes.webui.api.job_manager.JobStatus.TIMEOUT
+        assert job.status == job_manager.JobStatus.TIMEOUT
         assert "timed out" in job.error

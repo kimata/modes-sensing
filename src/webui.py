@@ -25,7 +25,7 @@ import my_lib.config
 import my_lib.logger
 import my_lib.proc_util
 
-import modes.config
+import amdar.config
 
 if TYPE_CHECKING:
     from types import FrameType
@@ -49,7 +49,7 @@ def _sig_handler(num: int, frame: FrameType | None) -> None:
         _term()
 
 
-def create_app(config: modes.config.Config) -> flask.Flask:
+def create_app(config: amdar.config.Config) -> flask.Flask:
     # NOTE: アクセスログは無効にする
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
@@ -61,9 +61,9 @@ def create_app(config: modes.config.Config) -> flask.Flask:
     import my_lib.webapp.base
     import my_lib.webapp.util
 
-    import modes.webui.api.cache_pregeneration
-    import modes.webui.api.graph
-    import modes.webui.api.progress_estimation
+    import amdar.viewer.api.cache_pregeneration
+    import amdar.viewer.api.graph
+    import amdar.viewer.api.progress_estimation
 
     app = flask.Flask("modes-sensing")
 
@@ -74,14 +74,14 @@ def create_app(config: modes.config.Config) -> flask.Flask:
     app.register_blueprint(my_lib.webapp.base.blueprint, url_prefix=my_lib.webapp.config.URL_PREFIX)
     app.register_blueprint(my_lib.webapp.base.blueprint_default)
     app.register_blueprint(my_lib.webapp.util.blueprint, url_prefix=my_lib.webapp.config.URL_PREFIX)
-    app.register_blueprint(modes.webui.api.graph.blueprint, url_prefix=my_lib.webapp.config.URL_PREFIX)
+    app.register_blueprint(amdar.viewer.api.graph.blueprint, url_prefix=my_lib.webapp.config.URL_PREFIX)
 
     my_lib.webapp.config.show_handler_list(app)
 
     # 履歴管理とキャッシュ事前生成を初期化
     cache_dir = config.webapp.cache_dir_path
-    modes.webui.api.progress_estimation.generation_time_history.initialize(cache_dir)
-    modes.webui.api.cache_pregeneration.cache_pregenerator.initialize(config, cache_dir)
+    amdar.viewer.api.progress_estimation.generation_time_history.initialize(cache_dir)
+    amdar.viewer.api.cache_pregeneration.cache_pregenerator.initialize(config, cache_dir)
 
     return app
 
@@ -103,7 +103,7 @@ if __name__ == "__main__":
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
     config_dict = my_lib.config.load(config_file, pathlib.Path(_SCHEMA_CONFIG))
-    config = modes.config.load_from_dict(config_dict, pathlib.Path.cwd())
+    config = amdar.config.load_from_dict(config_dict, pathlib.Path.cwd())
 
     app = create_app(config)
 

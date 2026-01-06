@@ -15,14 +15,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from modes.config import Config, load_from_dict
-from modes.receiver import (
+from amdar.config import Config, load_from_dict
+from amdar.sources.modes.receiver import (
     _fragment_list,
     _process_message,
 )
 
 if TYPE_CHECKING:
-    from modes.database_postgresql import MeasurementData
+    from amdar.database.postgresql import MeasurementData
 
 # テストデータのパス
 FIXTURE_PATH = pathlib.Path(__file__).parent.parent / "fixtures" / "ads-b.dat"

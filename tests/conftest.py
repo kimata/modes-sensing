@@ -72,7 +72,7 @@ def config_dict() -> dict:
 @pytest.fixture(scope="session")
 def config(config_dict: dict):
     """Config 形式の設定を返す"""
-    from modes.config import load_from_dict
+    from amdar.config import load_from_dict
 
     return load_from_dict(config_dict, pathlib.Path.cwd())
 

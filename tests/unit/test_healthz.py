@@ -159,8 +159,8 @@ class TestHealthzIntegration:
                 interval=60 * 10,
             ),
             HealthzTarget(
-                name="receiver",
-                liveness_file=pathlib.Path(config_dict["liveness"]["file"]["receiver"]),
+                name="modes",
+                liveness_file=pathlib.Path(config_dict["liveness"]["file"]["receiver"]["modes"]),
                 interval=60 * 10,
             ),
         ]
@@ -168,7 +168,7 @@ class TestHealthzIntegration:
         # ターゲットが正しく作成されていることを確認
         assert len(targets) == 2
         assert targets[0].name == "collector"
-        assert targets[1].name == "receiver"
+        assert targets[1].name == "modes"
 
     def test_web_mode_no_file_targets(self):
         """WEB モードではファイルターゲットが空"""
