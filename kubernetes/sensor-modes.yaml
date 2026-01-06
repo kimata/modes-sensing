@@ -46,8 +46,11 @@ spec:
                   livenessProbe:
                       exec:
                           command:
-                              - /opt/modes-sensing/src/healthz.py
-                              - -m COL
+                              - python
+                              - -m
+                              - amdar.cli_healthz
+                              - -m
+                              - COL
                       initialDelaySeconds: 120
                       periodSeconds: 60
                       timeoutSeconds: 5
@@ -82,7 +85,7 @@ spec:
                 - name: modes-sensing-webui
                   image: gitlab.green-rabbit.net:5050/kimata/modes-sensing:latest
                   imagePullPolicy: Always
-                  command: [./src/webui.py]
+                  command: ["python", "-m", "amdar.cli_webui"]
                   resources:
                       requests:
                           memory: 512Mi

@@ -39,6 +39,9 @@ WORKDIR /opt/modes-sensing
 
 COPY . .
 
+# amdar パッケージのインポートを可能にする
+ENV PYTHONPATH=/opt/modes-sensing/src
+
 EXPOSE 5000
 
-CMD ["./src/collect.py"]
+CMD ["python", "-m", "amdar"]

@@ -174,7 +174,7 @@ test-playwright:
         - mv private_font/* font
 
         # Flaskを起動（エラー出力も記録、明示的にポート指定）
-        - uv run python ./src/webui.py -p 5000 > flask_log.txt 2>&1 &
+        - uv run amdar-webui -p 5000 > flask_log.txt 2>&1 &
         - "sleep 10"
 
         - uv run playwright install --with-deps chromium
@@ -237,7 +237,7 @@ test-docker:
             docker run --tty
             --name ${CI_JOB_NAME}-${CI_JOB_ID} --label job=${CI_PROJECT_NAME}-${CI_JOB_NAME}
             ${CI_REGISTRY_IMAGE}:${TAG}
-            ./src/collect.py -n 1
+            python -m amdar -n 1
 
 test-playwright-docker:
     stage: test
@@ -276,7 +276,7 @@ test-playwright-docker:
             --name ${CI_JOB_NAME}-${CI_JOB_ID} --label job=${CI_PROJECT_NAME}-${CI_JOB_NAME}
             --network ${DOCKER_NETWORK} --publish :5000 --env TEST=true
             ${CI_REGISTRY_IMAGE}:${TAG}
-            ./src/webui.py
+            python -m amdar.cli_webui
 
         - echo "Container started, checking status..."
         - docker ps -a --filter name=${CI_JOB_NAME}-${CI_JOB_ID}

@@ -21,18 +21,23 @@
 
 ```
 src/
-├── collect.py                  # データ収集エントリーポイント
-├── webui.py                    # Web サーバーエントリーポイント
-├── healthz.py                  # ヘルスチェック
-└── modes/
+├── collect_combined.py         # Mode S + VDL2 統合収集
+├── collect_vdl2.py             # VDL2 のみ収集（デバッグ用）
+└── amdar/
+    ├── __main__.py             # amdar コマンド (Mode S 収集)
+    ├── cli_collect.py          # amdar エントリポイント実装
+    ├── cli_webui.py            # amdar-webui (Flask Web サーバー)
+    ├── cli_healthz.py          # amdar-healthz (ヘルスチェック)
     ├── config.py               # 設定管理（dataclass ベース）
-    ├── receiver.py             # Mode S 受信・デコード
-    ├── database_postgresql.py  # PostgreSQL データアクセス
-    ├── database_sqlite.py      # SQLite データアクセス（開発用）
-    └── webui/
-        └── api/
-            ├── graph.py        # グラフ生成 API
-            └── job_manager.py  # 非同期ジョブ管理
+    ├── sources/
+    │   ├── modes/receiver.py   # Mode S 受信・デコード
+    │   └── vdl2/receiver.py    # VDL2 受信・デコード
+    ├── database/
+    │   ├── postgresql.py       # PostgreSQL データアクセス
+    │   └── sqlite.py           # SQLite データアクセス（開発用）
+    └── viewer/api/
+        ├── graph.py            # グラフ生成 API
+        └── job_manager.py      # 非同期ジョブ管理
 
 react/                          # React フロントエンド
 ├── src/
@@ -65,14 +70,14 @@ uv sync
 
 ```bash
 # データ収集
-uv run python src/collect.py              # 通常実行
-uv run python src/collect.py -c config.yaml -n 100  # 設定指定、100件で停止
-uv run python src/collect.py -D           # デバッグモード
+uv run amdar                              # 通常実行
+uv run amdar -c config.yaml -n 100        # 設定指定、100件で停止
+uv run amdar -D                           # デバッグモード
 
 # Web サーバー
-uv run python src/webui.py                # 通常実行（ポート 5000）
-uv run python src/webui.py -p 8080        # ポート指定
-uv run python src/webui.py -D             # デバッグモード
+uv run amdar-webui                        # 通常実行（ポート 5000）
+uv run amdar-webui -p 8080                # ポート指定
+uv run amdar-webui -D                     # デバッグモード
 ```
 
 ### テスト実行

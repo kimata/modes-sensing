@@ -44,7 +44,7 @@ def webserver(request):
         env["PYTHONPATH"] = src_path
 
     server_process = subprocess.Popen(  # noqa: S603
-        ["uv", "run", "python", "src/webui.py", "-c", "config.example.yaml", "-p", str(port), "-D"],  # noqa: S607
+        ["uv", "run", "amdar-webui", "-c", "config.example.yaml", "-p", str(port), "-D"],  # noqa: S607
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
