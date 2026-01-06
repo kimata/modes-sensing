@@ -170,12 +170,13 @@ flowchart LR
 
 ```
 src/
-├── collect.py                     # Mode S のみ収集
 ├── collect_combined.py            # Mode S + VDL2 統合収集
 ├── collect_vdl2.py                # VDL2 のみ収集（デバッグ用）
-├── webui.py                       # Flask Web サーバー
-├── healthz.py                     # ヘルスチェック
 └── amdar/
+    ├── __main__.py                # amdar コマンド (Mode S 収集)
+    ├── cli_collect.py             # amdar エントリポイント実装
+    ├── cli_webui.py               # amdar-webui (Flask Web サーバー)
+    ├── cli_healthz.py             # amdar-healthz (ヘルスチェック)
     ├── config.py                  # 設定 dataclass
     ├── core/
     │   └── types.py               # WeatherObservation, WindData
@@ -259,7 +260,7 @@ docker run -d \
 
 ```bash
 # Mode S のみ
-uv run python src/collect.py
+uv run amdar
 
 # Mode S + VDL2 統合（推奨）
 uv run python src/collect_combined.py
@@ -275,7 +276,7 @@ uv run python src/collect_vdl2.py
 cd react && npm run build && cd ..
 
 # Flask サーバー起動
-uv run python src/webui.py
+uv run amdar-webui
 # → http://localhost:5000
 ```
 
