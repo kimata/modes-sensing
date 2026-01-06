@@ -13,7 +13,7 @@ dependencies = [
     # NOTE: これがないと pyModeS が古い pyzmq をインストールしようとして、Python 12 以降でエラーになる
     "pyzmq>=27.0.0",
     "pymodes @ git+https://github.com/junzis/pyModeS@v2.21.1",
-    "my-lib @ git+https://github.com/kimata/my-py-lib@4c8aa48accbf4d9f6bc0081c68f845561bb5b153",
+    "my-lib @ git+https://github.com/kimata/my-py-lib@e3ead72e328a2e8f00b6eacd8f036e62112973d8",
     "psycopg2-binary>=2.9.0",
     "numpy>=1.24.0",
     "scikit-learn>=1.3.0",
@@ -56,7 +56,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/modes"]
+packages = ["src/amdar"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
