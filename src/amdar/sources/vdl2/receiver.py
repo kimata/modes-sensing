@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 import my_lib.footprint
 import zmq
 
+import amdar.sources.outlier
 import amdar.sources.vdl2.parser
 
 if TYPE_CHECKING:
@@ -49,6 +50,44 @@ class _AircraftFragment:
     xid_timestamp: float = 0.0
     acars_data: amdar.sources.vdl2.parser.AcarsWeatherData | None = None
     acars_timestamp: float = 0.0
+
+
+def _check_and_add_measurement(
+    measurement: amdar.database.postgresql.MeasurementData,
+    data_queue: queue.Queue[amdar.database.postgresql.MeasurementData],
+    source: str,
+) -> bool:
+    """外れ値検出を行い、正常値をキューに追加
+
+    Args:
+        measurement: 追加するデータ
+        data_queue: 出力キュー
+        source: データソース（ログ用）
+
+    Returns:
+        追加された場合 True、外れ値の場合 False
+    """
+    detector = amdar.sources.outlier.get_default_detector()
+
+    # 外れ値検出
+    if detector.is_outlier(
+        measurement.altitude,
+        measurement.temperature,
+        measurement.callsign or "",
+    ):
+        logging.warning(
+            "VDL2 %s 外れ値検出: callsign=%s, altitude=%.1fm, temperature=%.1f°C",
+            source,
+            measurement.callsign or "Unknown",
+            measurement.altitude,
+            measurement.temperature,
+        )
+        return False
+
+    # 正常値をキューに追加し、履歴にも追加
+    data_queue.put(measurement)
+    detector.add_history(measurement.altitude, measurement.temperature)
+    return True
 
 
 def _try_combine_fragments(
@@ -278,17 +317,18 @@ def _worker(
                     acars_data, ref_lat, ref_lon, received_at=received_at
                 )
                 if measurement:
-                    weather_count += 1
-                    data_queue.put(measurement)
-                    # Liveness ファイルを更新
-                    if _liveness_file is not None:
-                        my_lib.footprint.update(_liveness_file)
-                    logging.debug(
-                        "VDL2 weather data: %s alt=%d temp=%.1f",
-                        measurement.callsign,
-                        measurement.altitude,
-                        measurement.temperature,
-                    )
+                    # 外れ値検出を行い、正常値のみキューに追加
+                    if _check_and_add_measurement(measurement, data_queue, "直接変換"):
+                        weather_count += 1
+                        # Liveness ファイルを更新
+                        if _liveness_file is not None:
+                            my_lib.footprint.update(_liveness_file)
+                        logging.debug(
+                            "VDL2 weather data: %s alt=%d temp=%.1f",
+                            measurement.callsign,
+                            measurement.altitude,
+                            measurement.temperature,
+                        )
                 else:
                     # 高度がない場合、まず IntegratedBuffer から補完を試みる
                     if buffer is not None:
@@ -296,18 +336,19 @@ def _worker(
                             acars_data, icao, buffer, ref_lat, ref_lon, received_at
                         )
                         if buffer_補完:
-                            buffer_combined_count += 1
-                            weather_count += 1
-                            data_queue.put(buffer_補完)
-                            # Liveness ファイルを更新
-                            if _liveness_file is not None:
-                                my_lib.footprint.update(_liveness_file)
-                            logging.info(
-                                "VDL2 buffer補完 weather: %s alt=%d temp=%.1f",
-                                buffer_補完.callsign,
-                                buffer_補完.altitude,
-                                buffer_補完.temperature,
-                            )
+                            # 外れ値検出を行い、正常値のみキューに追加
+                            if _check_and_add_measurement(buffer_補完, data_queue, "buffer補完"):
+                                buffer_combined_count += 1
+                                weather_count += 1
+                                # Liveness ファイルを更新
+                                if _liveness_file is not None:
+                                    my_lib.footprint.update(_liveness_file)
+                                logging.info(
+                                    "VDL2 buffer補完 weather: %s alt=%d temp=%.1f",
+                                    buffer_補完.callsign,
+                                    buffer_補完.altitude,
+                                    buffer_補完.temperature,
+                                )
                             continue
 
                     # IntegratedBuffer で補完できなかった場合、内部フラグメントバッファに保存
@@ -320,10 +361,10 @@ def _worker(
 
                         # フラグメント結合を試みる
                         combined = _try_combine_fragments(icao, ref_lat, ref_lon, received_at)
-                        if combined:
+                        # 外れ値検出を行い、正常値のみキューに追加
+                        if combined and _check_and_add_measurement(combined, data_queue, "fragment結合"):
                             combined_count += 1
                             weather_count += 1
-                            data_queue.put(combined)
                             # Liveness ファイルを更新
                             if _liveness_file is not None:
                                 my_lib.footprint.update(_liveness_file)

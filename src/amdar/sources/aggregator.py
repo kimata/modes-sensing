@@ -318,6 +318,7 @@ class RealtimeAggregator:
 
     ADS-B と VDL2 の両データソースからリアルタイムでデータを受信し、
     統合された WeatherObservation を生成します。
+    外れ値検出機能を内蔵し、両データソースに対して統一的に適用します。
     """
 
     def __init__(
@@ -325,6 +326,7 @@ class RealtimeAggregator:
         window_seconds: float = 60.0,
         ref_lat: float = 35.682677,
         ref_lon: float = 139.762230,
+        enable_outlier_filter: bool = True,
     ):
         """初期化
 
@@ -332,11 +334,16 @@ class RealtimeAggregator:
             window_seconds: 補完ウィンドウ（秒）
             ref_lat: 基準点緯度
             ref_lon: 基準点経度
+            enable_outlier_filter: 外れ値検出を有効にするか
         """
         self._buffer = IntegratedBuffer(window_seconds=window_seconds)
         self._ref_lat = ref_lat
         self._ref_lon = ref_lon
         self._output_queue: Queue[WeatherObservation] = Queue()
+        self._enable_outlier_filter = enable_outlier_filter
+        self._outlier_detector: amdar.sources.outlier.OutlierDetector | None = (
+            amdar.sources.outlier.OutlierDetector() if enable_outlier_filter else None
+        )
 
     @property
     def buffer(self) -> IntegratedBuffer:
@@ -347,6 +354,70 @@ class RealtimeAggregator:
     def output_queue(self) -> Queue[WeatherObservation]:
         """出力キュー"""
         return self._output_queue
+
+    @property
+    def outlier_detector(self) -> amdar.sources.outlier.OutlierDetector | None:
+        """外れ値検出器へのアクセス"""
+        return self._outlier_detector
+
+    def init_outlier_history(self, data: list[tuple[float, float]]) -> None:
+        """外れ値検出用の履歴データを初期化
+
+        Args:
+            data: (altitude, temperature) のタプルのリスト
+        """
+        if self._outlier_detector is None:
+            return
+        for altitude, temperature in data:
+            self._outlier_detector.add_history(altitude, temperature)
+        logging.info("RealtimeAggregator: 外れ値検出用履歴データを初期化しました: %d件", len(data))
+
+    def _check_outlier(
+        self,
+        altitude: float,
+        temperature: float | None,
+        callsign: str | None,
+        source: str,
+    ) -> bool:
+        """外れ値かどうかを判定
+
+        Args:
+            altitude: 高度 [m]
+            temperature: 気温 [°C]
+            callsign: コールサイン
+            source: データソース（ログ用）
+
+        Returns:
+            外れ値の場合 True、正常値または検出無効の場合 False
+        """
+        if self._outlier_detector is None:
+            return False
+        if temperature is None:
+            return False
+
+        is_outlier = self._outlier_detector.is_outlier(altitude, temperature, callsign or "")
+        if is_outlier:
+            logging.warning(
+                "%s 外れ値検出: callsign=%s, altitude=%.1fm, temperature=%.1f°C",
+                source,
+                callsign or "Unknown",
+                altitude,
+                temperature,
+            )
+        return is_outlier
+
+    def _add_to_outlier_history(self, altitude: float, temperature: float | None) -> None:
+        """正常値を外れ値検出用履歴に追加
+
+        Args:
+            altitude: 高度 [m]
+            temperature: 気温 [°C]
+        """
+        if self._outlier_detector is None:
+            return
+        if temperature is None:
+            return
+        self._outlier_detector.add_history(altitude, temperature)
 
     def process_modes_position(
         self,
@@ -444,11 +515,17 @@ class RealtimeAggregator:
             altitude_source="adsb",
         )
 
-        if observation.is_valid():
-            self._output_queue.put(observation)
-            return observation
+        if not observation.is_valid():
+            return None
 
-        return None
+        # 外れ値検出
+        if self._check_outlier(altitude_m, temperature_c, callsign, "Mode-S"):
+            return None
+
+        # 正常値を出力キューに追加し、履歴にも追加
+        self._output_queue.put(observation)
+        self._add_to_outlier_history(altitude_m, temperature_c)
+        return observation
 
     def process_vdl2_weather(
         self,
@@ -534,11 +611,17 @@ class RealtimeAggregator:
             altitude_source=altitude_source,
         )
 
-        if observation.is_valid():
-            self._output_queue.put(observation)
-            return observation
+        if not observation.is_valid():
+            return None
 
-        return None
+        # 外れ値検出
+        if self._check_outlier(final_altitude, temperature_c, callsign, "VDL2"):
+            return None
+
+        # 正常値を出力キューに追加し、履歴にも追加
+        self._output_queue.put(observation)
+        self._add_to_outlier_history(final_altitude, temperature_c)
+        return observation
 
     def _calculate_distance(self, lat: float, lon: float) -> float:
         """基準点からの距離を計算
@@ -571,11 +654,15 @@ class RealtimeAggregator:
         """統計情報を取得"""
         stats = self._buffer.get_stats()
         stats["output_queue_size"] = self._output_queue.qsize()
+        if self._outlier_detector is not None:
+            stats["outlier_history_count"] = self._outlier_detector.history_count
         return stats
 
     def clear(self) -> None:
         """内部状態をクリア"""
         self._buffer.clear()
+        if self._outlier_detector is not None:
+            self._outlier_detector.clear_history()
         # キューはクリアしない（消費者が処理する）
 
 
