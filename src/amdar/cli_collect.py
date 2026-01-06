@@ -3,7 +3,7 @@
 ModeS のメッセージを PostgreSQL に保存します
 
 Usage:
-  collect.py [-c CONFIG] [-n COUNT] [-D]
+  amdar [-c CONFIG] [-n COUNT] [-D]
 
 Options:
   -c CONFIG         : CONFIG を設定ファイルとして読み込んで実行します．[default: config.yaml]
@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from types import FrameType
 
-import my_lib.footprint
 
 import amdar.database.postgresql as database_postgresql
 import amdar.sources.modes.receiver as modes_receiver
@@ -104,15 +103,17 @@ def execute(
     modes_receiver.term()
 
 
-######################################################################
-if __name__ == "__main__":
+def main() -> None:
+    """CLI エントリポイント"""
     import docopt
     import my_lib.config
     import my_lib.logger
 
     from amdar.config import load_from_dict
 
-    assert __doc__ is not None  # noqa: S101
+    if __doc__ is None:
+        raise RuntimeError("__doc__ is not set")
+
     args = docopt.docopt(__doc__)
 
     config_file = args["-c"]
@@ -125,3 +126,7 @@ if __name__ == "__main__":
     config = load_from_dict(config_dict, pathlib.Path.cwd())
 
     execute(config, config.liveness.file.collector, count)
+
+
+if __name__ == "__main__":
+    main()

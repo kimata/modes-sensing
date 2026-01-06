@@ -3,7 +3,7 @@
 気象データの Web UI サーバです。
 
 Usage:
-  webui.py [-c CONFIG] [-p PORT] [-D]
+  amdar-webui [-c CONFIG] [-p PORT] [-D]
 
 Options:
   -c CONFIG         : 通常モードで使う設定ファイルを指定します。[default: config.yaml]
@@ -86,14 +86,17 @@ def create_app(config: amdar.config.Config) -> flask.Flask:
     return app
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """CLI エントリポイント"""
     import atexit
     import contextlib
     import os
 
     import docopt
 
-    assert __doc__ is not None  # noqa: S101
+    if __doc__ is None:
+        raise RuntimeError("__doc__ is not set")
+
     args = docopt.docopt(__doc__)
 
     config_file = args["-c"]
@@ -171,3 +174,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logging.info("Received KeyboardInterrupt, shutting down...")
         enhanced_sig_handler(signal.SIGINT, None)
+
+
+if __name__ == "__main__":
+    main()

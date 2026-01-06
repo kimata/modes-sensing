@@ -1,5 +1,5 @@
 # ruff: noqa: S101
-"""healthz.py のユニットテスト"""
+"""cli_healthz.py のユニットテスト"""
 
 import pathlib
 import tempfile
@@ -9,7 +9,7 @@ import unittest.mock
 import my_lib.footprint
 from my_lib.healthz import HealthzTarget
 
-import healthz
+import amdar.cli_healthz as healthz
 
 
 class TestCheckLiveness:

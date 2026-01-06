@@ -3,7 +3,7 @@
 Liveness のチェックを行います
 
 Usage:
-  healthz.py [-c CONFIG] [-m MODE] [-p PORT] [-D]
+  amdar-healthz [-c CONFIG] [-m MODE] [-p PORT] [-D]
 
 Options:
   -c CONFIG         : CONFIG を設定ファイルとして読み込んで実行します。[default: config.yaml]
@@ -53,7 +53,8 @@ def check_liveness(targets: list[HealthzTarget], port: int | None = None) -> boo
     return True
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """CLI エントリポイント"""
     import sys
 
     import docopt
@@ -61,7 +62,9 @@ if __name__ == "__main__":
     import my_lib.logger
     import my_lib.pretty
 
-    assert __doc__ is not None  # noqa: S101
+    if __doc__ is None:
+        raise RuntimeError("__doc__ is not set")
+
     args = docopt.docopt(__doc__)
 
     config_file = args["-c"]
@@ -123,3 +126,7 @@ if __name__ == "__main__":
         sys.exit(0)
     else:
         sys.exit(-1)
+
+
+if __name__ == "__main__":
+    main()
