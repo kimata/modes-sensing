@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import DateSelector from './components/DateSelector'
 import GraphDisplay from './components/GraphDisplay'
 import Modal from './components/Modal'
 import Footer from './components/Footer'
+import { parseUrlParams, updateUrl, resetUrl } from './hooks/useUrlParams'
 
 interface DataRange {
   earliest: string | null
@@ -11,7 +12,16 @@ interface DataRange {
 }
 
 function App() {
+  // URL パラメータを解析
+  const urlParams = parseUrlParams()
+
   const getInitialDate = () => {
+    // URL パラメータがあればそれを使用
+    if (urlParams.hasUrlParams && urlParams.start && urlParams.end) {
+      return { start: urlParams.start, end: urlParams.end }
+    }
+
+    // デフォルト: 7日間
     const end = new Date()
     end.setSeconds(0, 0) // 秒とミリ秒を0に設定
     const start = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) // 7 days ago
@@ -19,12 +29,21 @@ function App() {
     return { start, end }
   }
 
+  const getInitialLimitAltitude = () => {
+    // URL パラメータがあればそれを使用
+    if (urlParams.hasUrlParams) {
+      return urlParams.limitAltitude
+    }
+    return false // デフォルトでは高度制限なし
+  }
+
   const [dateRange, setDateRange] = useState(getInitialDate())
-  const [isInitialDateRangeSet, setIsInitialDateRangeSet] = useState(false)
+  // URL パラメータがある場合は、data-range による調整をスキップ
+  const [isInitialDateRangeSet, setIsInitialDateRangeSet] = useState(urlParams.hasUrlParams)
   const [modalImage, setModalImage] = useState<string | null>(null)
   const [dataRange, setDataRange] = useState<DataRange | null>(null)
   const [dataRangeSubtitle, setDataRangeSubtitle] = useState<string>('')
-  const [limitAltitude, setLimitAltitude] = useState(false) // デフォルトでは高度制限なし
+  const [limitAltitude, setLimitAltitude] = useState(getInitialLimitAltitude)
 
   // データ範囲を取得し、初期日付範囲を調整
   useEffect(() => {
@@ -111,7 +130,7 @@ function App() {
     fetchDataRange()
   }, [isInitialDateRangeSet])
 
-  const handleDateChange = (start: Date, end: Date) => {
+  const handleDateChange = useCallback((start: Date, end: Date) => {
     const periodDays = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
     console.log(`[App] handleDateChange called:`, {
       periodDays: periodDays.toFixed(2),
@@ -119,11 +138,27 @@ function App() {
       end: end.toISOString()
     })
     setDateRange({ start, end })
-  }
+    // URL を更新（デフォルト状態でなければパラメータを付与）
+    updateUrl(start, end, limitAltitude)
+  }, [limitAltitude])
 
-  const handleAltitudeChange = (limited: boolean) => {
+  const handleAltitudeChange = useCallback((limited: boolean) => {
     setLimitAltitude(limited)
-  }
+    // URL を更新
+    updateUrl(dateRange.start, dateRange.end, limited)
+  }, [dateRange])
+
+  // タイトルクリック: デフォルト状態にリセット
+  const handleTitleClick = useCallback(() => {
+    const end = new Date()
+    end.setSeconds(0, 0)
+    const start = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    start.setSeconds(0, 0)
+
+    setDateRange({ start, end })
+    setLimitAltitude(false)
+    resetUrl()
+  }, [])
 
   const handleImageClick = (imageUrl: string) => {
     setModalImage(imageUrl)
@@ -138,11 +173,28 @@ function App() {
       <section className="section">
         <div className="container">
           <h1 className="title is-2 has-text-centered">
-            <span className="icon is-large" style={{ marginRight: '0.5em' }}>
-              <i className="fas fa-plane"></i>
-            </span>
-            航空機の気象データ
-            <span style={{ marginLeft: '0.5em' }}></span>
+            <a
+              href={window.location.pathname}
+              onClick={(e) => {
+                e.preventDefault()
+                handleTitleClick()
+              }}
+              className="title-link"
+              style={{
+                color: 'inherit',
+                textDecoration: 'none',
+                cursor: 'pointer',
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.opacity = '0.7'}
+              onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+              title="クリックでデフォルト表示に戻る"
+            >
+              <span className="icon is-large" style={{ marginRight: '0.5em' }}>
+                <i className="fas fa-plane"></i>
+              </span>
+              航空機の気象データ
+            </a>
           </h1>
 
           {dataRangeSubtitle && (
