@@ -17,6 +17,7 @@ import atexit
 import concurrent.futures
 import datetime
 import functools
+import gc
 import io
 import json
 import logging
@@ -621,8 +622,10 @@ def _conver_to_img(fig):
 
     buf.close()
 
+    # メモリ解放: Figure を即座にクローズ
     matplotlib.pyplot.clf()
     matplotlib.pyplot.close(fig)
+    matplotlib.pyplot.close("all")  # 残存する Figure も全てクローズ
 
     return img
 
@@ -1887,21 +1890,34 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
     # データ準備（高速版NumPy処理）
     data = _prepare_data_numpy(numpy_data)
 
+    # numpy_data は data に変換済みなので解放
+    del numpy_data
+
     if data.count < 10:
         # データがない場合の画像を生成
+        del data
+        gc.collect()
         try:
             img = _create_no_data_image(config, graph_name)
             bytes_io = io.BytesIO()
             img.save(bytes_io, "PNG")
             bytes_io.seek(0)
-            return bytes_io.getvalue(), 0
+            result = bytes_io.getvalue()
+            bytes_io.close()
+            del img
+            gc.collect()
+            return result, 0
         except Exception:
             logging.exception("Failed to create no data image")
             img = _create_no_data_image(config, graph_name, "グラフの作成に失敗しました")
             bytes_io = io.BytesIO()
             img.save(bytes_io, "PNG")
             bytes_io.seek(0)
-            return bytes_io.getvalue(), 0
+            result = bytes_io.getvalue()
+            bytes_io.close()
+            del img
+            gc.collect()
+            return result, 0
 
     set_font(config.font)
 
@@ -1926,8 +1942,9 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
     bytes_io = io.BytesIO()
     img.save(bytes_io, "PNG")
     bytes_io.seek(0)
+    result_bytes = bytes_io.getvalue()
 
-    image_size = len(bytes_io.getvalue())
+    image_size = len(result_bytes)
     logging.info(
         "[DEBUG] plot_in_subprocess() completed for %s: elapsed=%.2f sec, image_size=%d bytes",
         graph_name,
@@ -1935,7 +1952,13 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
         image_size,
     )
 
-    return bytes_io.getvalue(), elapsed
+    # メモリ解放: 大きなオブジェクトを明示的に削除してGCを実行
+    del img
+    del data
+    bytes_io.close()
+    gc.collect()
+
+    return result_bytes, elapsed
 
 
 def _calculate_timeout(time_start, time_end):
