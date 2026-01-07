@@ -309,22 +309,38 @@ def test_all_images_display_correctly(page_init, host, port):
     ]
 
     # まず全画像要素の存在を確認（非同期APIでジョブ完了まで待機）
-    page.wait_for_function(
-        f"""
-        () => {{
-            const expectedTitles = {expected_images};
-            let foundCount = 0;
+    try:
+        page.wait_for_function(
+            f"""
+            () => {{
+                const expectedTitles = {expected_images};
+                let foundCount = 0;
 
-            for (const title of expectedTitles) {{
-                const img = document.querySelector(`img[alt="${{title}}"]`);
-                if (img) foundCount++;
+                for (const title of expectedTitles) {{
+                    const img = document.querySelector(`img[alt="${{title}}"]`);
+                    if (img) foundCount++;
+                }}
+
+                return foundCount >= 8;
             }}
-
-            return foundCount >= 8;
-        }}
-        """,
-        timeout=180000,  # 非同期API対応で180秒に延長
-    )
+            """,
+            timeout=180000,  # 非同期API対応で180秒に延長
+        )
+    except Exception as e:
+        # タイムアウト時にどの画像が欠けているか特定
+        missing_images = page.evaluate(f"""
+            () => {{
+                const expectedTitles = {expected_images};
+                const missing = [];
+                for (const title of expectedTitles) {{
+                    const img = document.querySelector(`img[alt="${{title}}"]`);
+                    if (!img) missing.push(title);
+                }}
+                return missing;
+            }}
+        """)
+        logging.error("Missing images: %s", missing_images)
+        raise AssertionError(f"画像が見つかりません: {missing_images}") from e
 
     # 全画像の表示状態を一括で確認（効率化）
     try:
