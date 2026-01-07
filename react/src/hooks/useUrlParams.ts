@@ -1,14 +1,27 @@
 /**
- * URL パラメータと状態の同期を管理するカスタムフック
+ * URL パラメータと状態の同期を管理
  *
- * - start/end: 日時範囲（ISO 8601 ローカル形式）
- * - limitAltitude: 高度制限フラグ
+ * クイック選択: ?period=30days&limitAltitude=true
+ * カスタム: ?start=2025-08-24T23:22&end=2026-01-07T14:20&limitAltitude=true
  *
- * デフォルト値の場合は URL パラメータを付けない
+ * デフォルト（7日間、高度制限なし）ではパラメータを付けない
  */
+
+// 期間タイプの定義
+export type PeriodType = "1day" | "7days" | "30days" | "180days" | "365days" | "custom";
+
+// 期間タイプと日数のマッピング
+export const PERIOD_DAYS: Record<Exclude<PeriodType, "custom">, number> = {
+    "1day": 1,
+    "7days": 7,
+    "30days": 30,
+    "180days": 180,
+    "365days": 365,
+};
 
 interface ParsedUrlState {
     hasUrlParams: boolean;
+    period: PeriodType | null;
     start: Date | null;
     end: Date | null;
     limitAltitude: boolean;
@@ -60,67 +73,68 @@ function parseDateFromUrl(str: string): Date | null {
 export function parseUrlParams(): ParsedUrlState {
     const params = new URLSearchParams(window.location.search);
 
+    const periodStr = params.get("period");
     const startStr = params.get("start");
     const endStr = params.get("end");
     const limitAltitudeStr = params.get("limitAltitude");
 
+    // period パラメータがある場合
+    if (periodStr && periodStr in PERIOD_DAYS) {
+        return {
+            hasUrlParams: true,
+            period: periodStr as PeriodType,
+            start: null,
+            end: null,
+            limitAltitude: limitAltitudeStr === "true",
+        };
+    }
+
+    // start/end パラメータがある場合（カスタム）
     const start = parseDateFromUrl(startStr || "");
     const end = parseDateFromUrl(endStr || "");
-    const limitAltitude = limitAltitudeStr === "true";
 
-    // URL パラメータが1つでもあれば hasUrlParams = true
-    const hasUrlParams = startStr !== null || endStr !== null || limitAltitudeStr !== null;
+    if (start && end) {
+        return {
+            hasUrlParams: true,
+            period: "custom",
+            start,
+            end,
+            limitAltitude: limitAltitudeStr === "true",
+        };
+    }
 
+    // limitAltitude のみの場合
+    if (limitAltitudeStr !== null) {
+        return {
+            hasUrlParams: true,
+            period: null,
+            start: null,
+            end: null,
+            limitAltitude: limitAltitudeStr === "true",
+        };
+    }
+
+    // パラメータなし
     return {
-        hasUrlParams,
-        start,
-        end,
-        limitAltitude,
+        hasUrlParams: false,
+        period: null,
+        start: null,
+        end: null,
+        limitAltitude: false,
     };
 }
 
 /**
- * 現在の状態がデフォルトかどうかを判定
- * デフォルト: 7日間、高度制限なし
- */
-export function isDefaultState(
-    start: Date,
-    end: Date,
-    limitAltitude: boolean,
-    defaultDays: number = 7
-): boolean {
-    // 高度制限がある場合は非デフォルト
-    if (limitAltitude) return false;
-
-    // 期間が指定日数かどうか（±1時間の誤差を許容）
-    const durationMs = end.getTime() - start.getTime();
-    const expectedDurationMs = defaultDays * 24 * 60 * 60 * 1000;
-    const tolerance = 60 * 60 * 1000; // 1時間
-
-    if (Math.abs(durationMs - expectedDurationMs) > tolerance) return false;
-
-    // 終了日時が現在に近いかどうか（±1時間の誤差を許容）
-    const now = new Date();
-    if (Math.abs(end.getTime() - now.getTime()) > tolerance) return false;
-
-    return true;
-}
-
-/**
  * URL を更新（履歴を汚さない replaceState を使用）
+ *
+ * @param period - 期間タイプ（クイック選択 or カスタム）
+ * @param start - 開始日時（カスタム時のみ使用）
+ * @param end - 終了日時（カスタム時のみ使用）
+ * @param limitAltitude - 高度制限
  */
-export function updateUrl(start: Date, end: Date, limitAltitude: boolean): void {
-    console.log("[updateUrl] called:", {
-        start: formatDateForUrl(start),
-        end: formatDateForUrl(end),
-        limitAltitude,
-        isDefault: isDefaultState(start, end, limitAltitude),
-    });
-
-    // デフォルト状態ならパラメータなし URL に
-    if (isDefaultState(start, end, limitAltitude)) {
-        console.log("[updateUrl] isDefault=true, skipping URL update");
-        // パラメータがある場合のみ更新
+export function updateUrl(period: PeriodType, start: Date, end: Date, limitAltitude: boolean): void {
+    // デフォルト状態（7日間、高度制限なし）ならパラメータなし
+    if (period === "7days" && !limitAltitude) {
         if (window.location.search) {
             const newUrl = window.location.pathname + window.location.hash;
             window.history.replaceState(null, "", newUrl);
@@ -128,18 +142,23 @@ export function updateUrl(start: Date, end: Date, limitAltitude: boolean): void 
         return;
     }
 
-    // 非デフォルト状態ならパラメータを設定
     const params = new URLSearchParams();
-    params.set("start", formatDateForUrl(start));
-    params.set("end", formatDateForUrl(end));
 
-    // limitAltitude は true の時のみ設定
+    if (period === "custom") {
+        // カスタム期間: start/end パラメータ
+        params.set("start", formatDateForUrl(start));
+        params.set("end", formatDateForUrl(end));
+    } else {
+        // クイック選択: period パラメータ
+        params.set("period", period);
+    }
+
+    // 高度制限
     if (limitAltitude) {
         params.set("limitAltitude", "true");
     }
 
     const newUrl = `${window.location.pathname}?${params.toString()}${window.location.hash}`;
-    console.log("[updateUrl] updating URL to:", newUrl);
     window.history.replaceState(null, "", newUrl);
 }
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import styles from './GraphDisplay.module.css'
+import type { PeriodType } from '../hooks/useUrlParams'
 
 interface DataRange {
   earliest: string | null
@@ -10,13 +11,22 @@ interface DataRange {
 interface DateSelectorProps {
   startDate: Date
   endDate: Date
-  onDateChange: (start: Date, end: Date) => void
+  initialPeriod: PeriodType | null  // URL から渡される初期期間
+  onPeriodChange: (period: PeriodType, start: Date, end: Date) => void
   dataRange: DataRange | null
   limitAltitude: boolean
   onAltitudeChange: (limited: boolean) => void
 }
 
-const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateChange, dataRange, limitAltitude, onAltitudeChange }) => {
+const DateSelector: React.FC<DateSelectorProps> = ({
+  startDate,
+  endDate,
+  initialPeriod,
+  onPeriodChange,
+  dataRange,
+  limitAltitude,
+  onAltitudeChange
+}) => {
   const formatDateForInput = (date: Date): string => {
     const year = date.getFullYear()
     const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -30,9 +40,11 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
   const [customEnd, setCustomEnd] = useState(formatDateForInput(endDate))
   const [hasChanges, setHasChanges] = useState(false)
   const [focusedField, setFocusedField] = useState<'start' | 'end' | null>(null)
-  const [selectedPeriod, setSelectedPeriod] = useState<'1day' | '7days' | '30days' | '180days' | '365days' | 'custom'>('7days')
-  const [userSelectedPeriod, setUserSelectedPeriod] = useState<'1day' | '7days' | '30days' | '180days' | '365days' | 'custom' | null>('7days') // デフォルトで7日間を明示的に設定
-  const [isQuickSelectActive, setIsQuickSelectActive] = useState(false) // 期間ボタン押下後の自動判定を抑制
+
+  // 初期期間を設定（URL パラメータから、またはデフォルトで7days）
+  const [selectedPeriod, setSelectedPeriod] = useState<PeriodType>(initialPeriod || '7days')
+  const [userSelectedPeriod, setUserSelectedPeriod] = useState<PeriodType | null>(initialPeriod || '7days')
+  const [isQuickSelectActive, setIsQuickSelectActive] = useState(false)
   const notificationRef = useRef<HTMLDivElement>(null)
 
   // propsが変更されたときに入力フィールドを更新
@@ -88,8 +100,6 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
       setSelectedPeriod('custom')
     }
   }, [startDate, endDate, isQuickSelectActive, userSelectedPeriod])
-
-  // 初期表示時のdataRangeによる日付調整はApp.tsxで実行済みのため削除
 
   // ページ読み込み時にハッシュがあれば該当要素にスクロール
   useEffect(() => {
@@ -154,12 +164,12 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
       } else {
         showCopyNotification('コピーに失敗しました')
       }
-    } catch (err) {
+    } catch {
       showCopyNotification('コピーに失敗しました')
     }
   }
 
-  const handleQuickSelect = (days: number, period: '1day' | '7days' | '30days' | '180days' | '365days') => {
+  const handleQuickSelect = (days: number, period: Exclude<PeriodType, 'custom'>) => {
     let end = new Date()
     end.setSeconds(0, 0) // 秒とミリ秒を0に設定
     let start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000)
@@ -205,7 +215,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
     console.log(`  start: ${start.toISOString()}`)
     console.log(`  end: ${end.toISOString()}`)
 
-    onDateChange(start, end)
+    onPeriodChange(period, start, end)
     setCustomStart(formatDateForInput(start))
     setCustomEnd(formatDateForInput(end))
   }
@@ -253,7 +263,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
       }
     }
 
-    onDateChange(start, end)
+    onPeriodChange('custom', start, end)
     setHasChanges(false)
     setSelectedPeriod('custom')
     setUserSelectedPeriod('custom') // カスタム期間として記録
@@ -268,7 +278,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
   const handleCustomButtonClick = () => {
     // 直前に選択されていた期間ボタンに基づいて日時を設定
     if (selectedPeriod !== 'custom') {
-      const periodDays = {
+      const periodDays: Record<Exclude<PeriodType, 'custom'>, number> = {
         '1day': 1,
         '7days': 7,
         '30days': 30,
@@ -276,7 +286,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({ startDate, endDate, onDateC
         '365days': 365
       }
 
-      const days = periodDays[selectedPeriod]
+      const days = periodDays[selectedPeriod as Exclude<PeriodType, 'custom'>]
       if (days) {
         let end = new Date()
         end.setSeconds(0, 0)
