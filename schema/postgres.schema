@@ -18,28 +18,12 @@ CREATE TABLE IF NOT EXISTS meteorological_data (
     method TEXT
 );
 
--- 基本インデックス（単一カラムでの範囲検索用）
+-- 基本インデックス
 CREATE INDEX IF NOT EXISTS idx_time ON meteorological_data (time);
-CREATE INDEX IF NOT EXISTS idx_distance ON meteorological_data (distance);
 CREATE INDEX IF NOT EXISTS idx_altitude ON meteorological_data (altitude);
 
--- 複合インデックス（よく使われる組み合わせ）
--- 時刻と距離の組み合わせ（メインクエリ用）
-CREATE INDEX IF NOT EXISTS idx_time_distance ON meteorological_data (time, distance);
--- 時刻と高度の組み合わせ（グラフ表示用）
+-- 複合インデックス（グラフ表示用）
 CREATE INDEX IF NOT EXISTS idx_time_alt ON meteorological_data (time, altitude);
-
--- 高効率部分インデックス（グラフ描画用 - 条件付きインデックスで効率化）
--- fetch_by_time関数で最も頻繁に使用される条件に特化
-CREATE INDEX IF NOT EXISTS idx_optimized_fetch
-ON meteorological_data (time, distance)
-WHERE distance <= 100 AND temperature > -100 AND altitude IS NOT NULL;
-
--- 風向データ専用インデックス（風向グラフ用）
--- 風向グラフ生成時の高速化（wind_speed > 0.1で無風データを除外）
-CREATE INDEX IF NOT EXISTS idx_wind_data
-ON meteorological_data (time, altitude, wind_x, wind_y, wind_speed, wind_angle)
-WHERE distance <= 100 AND wind_speed > 0.1;
 
 -- 温度・高度データ用複合インデックス（グラフ生成の高速化）
 -- 等高線、ヒートマップ、散布図の生成で使用

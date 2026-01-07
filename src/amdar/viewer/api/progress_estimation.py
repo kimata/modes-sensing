@@ -18,96 +18,98 @@ if TYPE_CHECKING:
 
 # グラフ生成時間のデフォルト推定値（秒）
 # キー: (graph_name, duration_hours_bucket, limit_altitude)
-# 2026-01-02 計測結果（1年分は1ヶ月と6ヶ月から線形補完）
+# 2026-01-07 更新: マテリアライズドビュー活用により7日超の生成時間を大幅短縮
+# - 7日以内: 生データを使用（データ量に比例）
+# - 7日超: 集約データを使用（データ量が1/10〜1/100に削減）
 _DEFAULT_GENERATION_TIMES: dict[tuple[str, int, bool], float] = {
     # scatter_2d
-    ("scatter_2d", 24, False): 3.7,
-    ("scatter_2d", 24, True): 2.3,
-    ("scatter_2d", 168, False): 10.5,
-    ("scatter_2d", 168, True): 2.2,
-    ("scatter_2d", 720, False): 16.1,
-    ("scatter_2d", 720, True): 3.2,
-    ("scatter_2d", 4320, False): 98.4,
-    ("scatter_2d", 4320, True): 4.7,
-    ("scatter_2d", 8760, False): 199.9,
-    ("scatter_2d", 8760, True): 6.6,
+    ("scatter_2d", 24, False): 3.0,
+    ("scatter_2d", 24, True): 2.0,
+    ("scatter_2d", 168, False): 8.0,
+    ("scatter_2d", 168, True): 2.0,
+    ("scatter_2d", 720, False): 5.0,  # 集約データ使用
+    ("scatter_2d", 720, True): 3.0,
+    ("scatter_2d", 4320, False): 6.0,  # 集約データ使用
+    ("scatter_2d", 4320, True): 4.0,
+    ("scatter_2d", 8760, False): 8.0,  # 集約データ使用
+    ("scatter_2d", 8760, True): 5.0,
     # scatter_3d
     ("scatter_3d", 24, False): 4.0,
-    ("scatter_3d", 24, True): 3.3,
-    ("scatter_3d", 168, False): 12.1,
-    ("scatter_3d", 168, True): 4.2,
-    ("scatter_3d", 720, False): 18.6,
-    ("scatter_3d", 720, True): 3.2,
-    ("scatter_3d", 4320, False): 117.9,
-    ("scatter_3d", 4320, True): 5.2,
-    ("scatter_3d", 8760, False): 240.4,
-    ("scatter_3d", 8760, True): 7.7,
+    ("scatter_3d", 24, True): 3.0,
+    ("scatter_3d", 168, False): 10.0,
+    ("scatter_3d", 168, True): 4.0,
+    ("scatter_3d", 720, False): 6.0,  # 集約データ使用
+    ("scatter_3d", 720, True): 3.0,
+    ("scatter_3d", 4320, False): 7.0,  # 集約データ使用
+    ("scatter_3d", 4320, True): 4.0,
+    ("scatter_3d", 8760, False): 9.0,  # 集約データ使用
+    ("scatter_3d", 8760, True): 5.0,
     # contour_2d
     ("contour_2d", 24, False): 3.0,
-    ("contour_2d", 24, True): 2.2,
-    ("contour_2d", 168, False): 8.0,
-    ("contour_2d", 168, True): 3.2,
-    ("contour_2d", 720, False): 14.1,
-    ("contour_2d", 720, True): 3.2,
-    ("contour_2d", 4320, False): 83.3,
-    ("contour_2d", 4320, True): 4.2,
-    ("contour_2d", 8760, False): 168.6,
-    ("contour_2d", 8760, True): 5.4,
+    ("contour_2d", 24, True): 2.0,
+    ("contour_2d", 168, False): 6.0,
+    ("contour_2d", 168, True): 3.0,
+    ("contour_2d", 720, False): 4.0,  # 集約データ使用
+    ("contour_2d", 720, True): 3.0,
+    ("contour_2d", 4320, False): 5.0,  # 集約データ使用
+    ("contour_2d", 4320, True): 3.0,
+    ("contour_2d", 8760, False): 6.0,  # 集約データ使用
+    ("contour_2d", 8760, True): 4.0,
     # contour_3d
-    ("contour_3d", 24, False): 5.5,
-    ("contour_3d", 24, True): 3.8,
-    ("contour_3d", 168, False): 10.5,
-    ("contour_3d", 168, True): 4.7,
-    ("contour_3d", 720, False): 15.6,
-    ("contour_3d", 720, True): 3.7,
-    ("contour_3d", 4320, False): 89.8,
-    ("contour_3d", 4320, True): 4.7,
-    ("contour_3d", 8760, False): 181.3,
-    ("contour_3d", 8760, True): 5.9,
+    ("contour_3d", 24, False): 5.0,
+    ("contour_3d", 24, True): 4.0,
+    ("contour_3d", 168, False): 8.0,
+    ("contour_3d", 168, True): 5.0,
+    ("contour_3d", 720, False): 5.0,  # 集約データ使用
+    ("contour_3d", 720, True): 4.0,
+    ("contour_3d", 4320, False): 6.0,  # 集約データ使用
+    ("contour_3d", 4320, True): 4.0,
+    ("contour_3d", 8760, False): 7.0,  # 集約データ使用
+    ("contour_3d", 8760, True): 5.0,
     # density
-    ("density", 24, False): 3.5,
-    ("density", 24, True): 2.2,
-    ("density", 168, False): 8.0,
-    ("density", 168, True): 2.2,
-    ("density", 720, False): 17.1,
-    ("density", 720, True): 2.7,
-    ("density", 4320, False): 105.4,
-    ("density", 4320, True): 4.2,
-    ("density", 8760, False): 214.3,
-    ("density", 8760, True): 6.1,
+    ("density", 24, False): 3.0,
+    ("density", 24, True): 2.0,
+    ("density", 168, False): 6.0,
+    ("density", 168, True): 2.0,
+    ("density", 720, False): 4.0,  # 集約データ使用
+    ("density", 720, True): 2.0,
+    ("density", 4320, False): 5.0,  # 集約データ使用
+    ("density", 4320, True): 3.0,
+    ("density", 8760, False): 6.0,  # 集約データ使用
+    ("density", 8760, True): 4.0,
     # heatmap
-    ("heatmap", 24, False): 3.5,
-    ("heatmap", 24, True): 2.7,
-    ("heatmap", 168, False): 7.0,
-    ("heatmap", 168, True): 2.7,
-    ("heatmap", 720, False): 13.0,
-    ("heatmap", 720, True): 2.7,
-    ("heatmap", 4320, False): 84.3,
-    ("heatmap", 4320, True): 3.6,
-    ("heatmap", 8760, False): 172.2,
-    ("heatmap", 8760, True): 4.7,
+    ("heatmap", 24, False): 3.0,
+    ("heatmap", 24, True): 2.0,
+    ("heatmap", 168, False): 5.0,
+    ("heatmap", 168, True): 2.0,
+    ("heatmap", 720, False): 4.0,  # 集約データ使用
+    ("heatmap", 720, True): 2.0,
+    ("heatmap", 4320, False): 5.0,  # 集約データ使用
+    ("heatmap", 4320, True): 3.0,
+    ("heatmap", 8760, False): 6.0,  # 集約データ使用
+    ("heatmap", 8760, True): 4.0,
     # temperature
-    ("temperature", 24, False): 2.5,
-    ("temperature", 24, True): 2.2,
-    ("temperature", 168, False): 6.0,
-    ("temperature", 168, True): 2.2,
-    ("temperature", 720, False): 10.5,
-    ("temperature", 720, True): 2.7,
-    ("temperature", 4320, False): 63.7,
-    ("temperature", 4320, True): 3.1,
-    ("temperature", 8760, False): 129.3,
-    ("temperature", 8760, True): 3.6,
+    ("temperature", 24, False): 2.0,
+    ("temperature", 24, True): 2.0,
+    ("temperature", 168, False): 5.0,
+    ("temperature", 168, True): 2.0,
+    ("temperature", 720, False): 3.0,  # 集約データ使用
+    ("temperature", 720, True): 2.0,
+    ("temperature", 4320, False): 4.0,  # 集約データ使用
+    ("temperature", 4320, True): 2.0,
+    ("temperature", 8760, False): 5.0,  # 集約データ使用
+    ("temperature", 8760, True): 3.0,
     # wind_direction
-    ("wind_direction", 24, False): 3.5,
-    ("wind_direction", 24, True): 2.2,
-    ("wind_direction", 168, False): 7.5,
-    ("wind_direction", 168, True): 2.7,
-    ("wind_direction", 720, False): 14.5,
-    ("wind_direction", 720, True): 2.1,
-    ("wind_direction", 4320, False): 79.3,
-    ("wind_direction", 4320, True): 4.1,
-    ("wind_direction", 8760, False): 159.2,
-    ("wind_direction", 8760, True): 6.6,
+    ("wind_direction", 24, False): 3.0,
+    ("wind_direction", 24, True): 2.0,
+    ("wind_direction", 168, False): 6.0,
+    ("wind_direction", 168, True): 2.0,
+    ("wind_direction", 720, False): 4.0,  # 集約データ使用
+    ("wind_direction", 720, True): 2.0,
+    ("wind_direction", 4320, False): 5.0,  # 集約データ使用
+    ("wind_direction", 4320, True): 3.0,
+    ("wind_direction", 8760, False): 6.0,  # 集約データ使用
+    ("wind_direction", 8760, True): 4.0,
 }
 
 # 期間バケット（時間）
