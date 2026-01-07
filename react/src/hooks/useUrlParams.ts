@@ -110,8 +110,16 @@ export function isDefaultState(
  * URL を更新（履歴を汚さない replaceState を使用）
  */
 export function updateUrl(start: Date, end: Date, limitAltitude: boolean): void {
+    console.log("[updateUrl] called:", {
+        start: formatDateForUrl(start),
+        end: formatDateForUrl(end),
+        limitAltitude,
+        isDefault: isDefaultState(start, end, limitAltitude),
+    });
+
     // デフォルト状態ならパラメータなし URL に
     if (isDefaultState(start, end, limitAltitude)) {
+        console.log("[updateUrl] isDefault=true, skipping URL update");
         // パラメータがある場合のみ更新
         if (window.location.search) {
             const newUrl = window.location.pathname + window.location.hash;
@@ -131,6 +139,7 @@ export function updateUrl(start: Date, end: Date, limitAltitude: boolean): void 
     }
 
     const newUrl = `${window.location.pathname}?${params.toString()}${window.location.hash}`;
+    console.log("[updateUrl] updating URL to:", newUrl);
     window.history.replaceState(null, "", newUrl);
 }
 
