@@ -181,8 +181,9 @@ class ProcessPoolManager:
         if self.pool is None:
             with self._lock:
                 if self.pool is None:
-                    # CPUコア数に基づいてプロセス数を決定（最大10、最小1）
-                    max_workers = min(max(multiprocessing.cpu_count() // 2, 1), 10)
+                    # CPUコア数に基づいてプロセス数を決定（最大10、最小2）
+                    # 最小2: Kubernetes Pod等でCPU制限されている環境でも並列性を確保
+                    max_workers = min(max(multiprocessing.cpu_count() // 2, 2), 10)
                     self.pool = multiprocessing.Pool(processes=max_workers)
                     # アプリ終了時にプールをクリーンアップ
                     atexit.register(self.cleanup)
@@ -291,6 +292,37 @@ def _check_single_job(
     """単一のジョブをチェックし、完了していればTrueを返す"""
     try:
         if not async_result.ready():
+            # タイムアウト検出: ジョブがキュー待ちまたは実行中で時間超過している場合
+            job = _job_manager.get_job(job_id)
+            if job and job.started_at:
+                elapsed = time.time() - job.started_at
+                # 期間に応じたタイムアウト（_calculate_timeout と同じロジック + 60秒のバッファ）
+                days = (job.time_end - job.time_start).total_seconds() / 86400
+                if days <= 7:
+                    max_timeout = 60 + 60  # 120秒
+                elif days <= 30:
+                    max_timeout = 120 + 60  # 180秒
+                elif days <= 90:
+                    max_timeout = 180 + 60  # 240秒
+                else:
+                    max_timeout = 300 + 60  # 360秒
+
+                if elapsed > max_timeout:
+                    logging.warning(
+                        "Job %s for %s timed out after %.1f sec (max: %d sec, queued or stuck)",
+                        job_id,
+                        graph_name,
+                        elapsed,
+                        max_timeout,
+                    )
+                    _job_manager.update_status(
+                        job_id,
+                        JobStatus.TIMEOUT,
+                        error=f"ジョブがタイムアウトしました（{int(elapsed)}秒経過）",
+                        stage="タイムアウト",
+                    )
+                    return True
+
             # 未完了の場合は進捗を更新
             progress, stage = _estimate_progress_and_stage(job_id)
             _job_manager.update_status(job_id, JobStatus.PROCESSING, progress=progress, stage=stage)
