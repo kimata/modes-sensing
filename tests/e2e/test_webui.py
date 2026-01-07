@@ -234,8 +234,6 @@ def wait_for_images_to_load(page, expected_count=8, timeout=180000):
                     }}
                 }});
 
-                // 連続チェックを削除してシンプルに
-                console.log(`Loaded ${{loadedCount}}/{expected_count} images`);
                 return loadedCount >= {expected_count};
             }}
             """,
@@ -322,7 +320,6 @@ def test_all_images_display_correctly(page_init, host, port):
                 if (img) foundCount++;
             }}
 
-            console.log(`Found images: ${{foundCount}}/8`);
             return foundCount >= 8;
         }}
         """,
@@ -350,7 +347,6 @@ def test_all_images_display_correctly(page_init, host, port):
                     }}
                 }}
 
-                console.log(`Visible images: ${{visibleCount}}/8`);
                 return visibleCount >= 8;
             }}
             """,
@@ -384,8 +380,6 @@ def test_all_images_display_correctly(page_init, host, port):
                     }}
                 }}
 
-                // 連続チェックを削除してシンプルに
-                console.log(`Loaded images: ${{loadedCount}}/8`);
                 return loadedCount >= 8;
             }}
             """,
@@ -436,13 +430,7 @@ def test_all_images_display_correctly(page_init, host, port):
                 """
                 () => {
                     const img = document.querySelector('img[alt="2D等高線プロット"]');
-                    if (!img) return false;
-                    console.log('contour_2d check:', {
-                        complete: img.complete,
-                        naturalWidth: img.naturalWidth,
-                        src: img.src.substring(0, 50) + '...'
-                    });
-                    return img.complete && img.naturalWidth > 0;
+                    return img && img.complete && img.naturalWidth > 0;
                 }
                 """,
                 timeout=60000,
