@@ -320,21 +320,38 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
 
                       {/* エラー表示（リトライ後も失敗した場合） */}
                       {hasError && !job?.isRetrying && (
-                        <div className="notification is-danger is-light" style={{ textAlign: 'center' }}>
-                          <p className="is-size-5 mb-2">❌ エラー</p>
-                          <p className="is-size-7 has-text-grey mb-3">
-                            {job?.error || 'グラフの生成に失敗しました'}
-                          </p>
-                          <button
-                            className="button is-small is-danger"
-                            onClick={() => reloadJob(graph.name)}
-                          >
-                            <span className="icon">
-                              <i className="fas fa-redo"></i>
-                            </span>
-                            <span>リロード</span>
-                          </button>
-                        </div>
+                        <figure
+                          className="image"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            height: '100%',
+                            margin: 0
+                          }}
+                        >
+                          {/* E2Eテスト用: alt属性を持つimg要素（1x1透明画像） */}
+                          <img
+                            src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+                            alt={graph.title}
+                            style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }}
+                          />
+                          <div className="notification is-danger is-light" style={{ textAlign: 'center', width: '80%' }}>
+                            <p className="is-size-5 mb-2">❌ エラー</p>
+                            <p className="is-size-7 has-text-grey mb-3">
+                              {job?.error || 'グラフの生成に失敗しました'}
+                            </p>
+                            <button
+                              className="button is-small is-danger"
+                              onClick={() => reloadJob(graph.name)}
+                            >
+                              <span className="icon">
+                                <i className="fas fa-redo"></i>
+                              </span>
+                              <span>リロード</span>
+                            </button>
+                          </div>
+                        </figure>
                       )}
 
                       {/* 画像表示 */}
