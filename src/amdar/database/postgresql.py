@@ -169,10 +169,12 @@ def _execute_schema(conn: PgConnection) -> None:
 
     with conn.cursor() as cur:
         # スキーマファイル内の各ステートメントを実行
-        # コメント行を除いてセミコロンで分割
         for raw_statement in schema_sql.split(";"):
-            statement = raw_statement.strip()
-            if statement and not statement.startswith("--"):
+            # コメント行を除去してから処理
+            lines = raw_statement.split("\n")
+            non_comment_lines = [line for line in lines if not line.strip().startswith("--")]
+            statement = "\n".join(non_comment_lines).strip()
+            if statement:
                 cur.execute(statement)
 
 
