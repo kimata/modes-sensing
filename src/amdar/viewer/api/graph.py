@@ -163,7 +163,9 @@ class ProcessPoolManager:
     """シングルトンパターンでプロセスプールを管理"""
 
     _instance = None
-    _lock = multiprocessing.Lock()
+    # NOTE: シングルトンの同期にはthreading.Lockを使用
+    # multiprocessing.Lockはfork時にIPCプリミティブの問題を起こす可能性がある
+    _lock = threading.Lock()
 
     def __new__(cls):
         if cls._instance is None:
