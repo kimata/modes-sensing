@@ -35,43 +35,14 @@ WHERE distance <= 100 AND temperature > -100;
 -- 大量の時系列データでの範囲検索で効果的、メモリ使用量が少ない
 CREATE INDEX IF NOT EXISTS idx_time_brin ON meteorological_data USING BRIN (time);
 
--- マテリアライズドビュー: 1時間×500m高度帯からの代表点サンプリング
--- 7日〜30日の期間表示に使用
+-- マテリアライズドビュー: 30分×250m高度帯からの代表点サンプリング
+-- 14日〜90日の期間表示に使用
 -- 平均ではなく実際のデータ点を保持することで描画品質を維持
-CREATE MATERIALIZED VIEW IF NOT EXISTS hourly_altitude_grid AS
-SELECT DISTINCT ON (time_bucket, altitude_bin)
-    date_trunc('hour', time) AS time_bucket,
-    (floor(altitude / 500) * 500)::int AS altitude_bin,
-    time,
-    altitude,
-    temperature,
-    wind_x,
-    wind_y,
-    wind_speed,
-    wind_angle
-FROM meteorological_data
-WHERE distance <= 100
-  AND temperature > -100
-  AND altitude IS NOT NULL
-  AND altitude >= 0
-  AND altitude <= 13000
-ORDER BY time_bucket, altitude_bin, time DESC;
-
--- 1時間集約ビューのインデックス
-CREATE INDEX IF NOT EXISTS idx_hourly_grid_time
-ON hourly_altitude_grid (time_bucket);
-
-CREATE INDEX IF NOT EXISTS idx_hourly_grid_time_alt
-ON hourly_altitude_grid (time_bucket, altitude_bin);
-
--- マテリアライズドビュー: 6時間×500m高度帯からの代表点サンプリング
--- 30日以上の長期間表示に使用
--- 平均ではなく実際のデータ点を保持することで描画品質を維持
-CREATE MATERIALIZED VIEW IF NOT EXISTS sixhour_altitude_grid AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS halfhourly_altitude_grid AS
 SELECT DISTINCT ON (time_bucket, altitude_bin)
     date_trunc('hour', time)
-        - (EXTRACT(hour FROM time)::int % 6) * interval '1 hour' AS time_bucket,
-    (floor(altitude / 500) * 500)::int AS altitude_bin,
+        + (floor(EXTRACT(minute FROM time) / 30) * interval '30 minutes') AS time_bucket,
+    (floor(altitude / 250) * 250)::int AS altitude_bin,
     time,
     altitude,
     temperature,
@@ -87,9 +58,47 @@ WHERE distance <= 100
   AND altitude <= 13000
 ORDER BY time_bucket, altitude_bin, time DESC;
 
--- 6時間集約ビューのインデックス
-CREATE INDEX IF NOT EXISTS idx_sixhour_grid_time
-ON sixhour_altitude_grid (time_bucket);
+-- 30分集約ビューのインデックス
+CREATE INDEX IF NOT EXISTS idx_halfhourly_grid_time
+ON halfhourly_altitude_grid (time_bucket);
 
-CREATE INDEX IF NOT EXISTS idx_sixhour_grid_time_alt
-ON sixhour_altitude_grid (time_bucket, altitude_bin);
+CREATE INDEX IF NOT EXISTS idx_halfhourly_grid_time_alt
+ON halfhourly_altitude_grid (time_bucket, altitude_bin);
+
+-- CONCURRENT リフレッシュ用のユニークインデックス
+CREATE UNIQUE INDEX IF NOT EXISTS idx_halfhourly_grid_unique
+ON halfhourly_altitude_grid (time_bucket, altitude_bin);
+
+-- マテリアライズドビュー: 3時間×250m高度帯からの代表点サンプリング
+-- 90日以上の長期間表示に使用
+-- 平均ではなく実際のデータ点を保持することで描画品質を維持
+CREATE MATERIALIZED VIEW IF NOT EXISTS threehour_altitude_grid AS
+SELECT DISTINCT ON (time_bucket, altitude_bin)
+    date_trunc('hour', time)
+        - (EXTRACT(hour FROM time)::int % 3) * interval '1 hour' AS time_bucket,
+    (floor(altitude / 250) * 250)::int AS altitude_bin,
+    time,
+    altitude,
+    temperature,
+    wind_x,
+    wind_y,
+    wind_speed,
+    wind_angle
+FROM meteorological_data
+WHERE distance <= 100
+  AND temperature > -100
+  AND altitude IS NOT NULL
+  AND altitude >= 0
+  AND altitude <= 13000
+ORDER BY time_bucket, altitude_bin, time DESC;
+
+-- 3時間集約ビューのインデックス
+CREATE INDEX IF NOT EXISTS idx_threehour_grid_time
+ON threehour_altitude_grid (time_bucket);
+
+CREATE INDEX IF NOT EXISTS idx_threehour_grid_time_alt
+ON threehour_altitude_grid (time_bucket, altitude_bin);
+
+-- CONCURRENT リフレッシュ用のユニークインデックス
+CREATE UNIQUE INDEX IF NOT EXISTS idx_threehour_grid_unique
+ON threehour_altitude_grid (time_bucket, altitude_bin);

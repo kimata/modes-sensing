@@ -1884,8 +1884,8 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
     include_wind = graph_name == "wind_direction"
 
     # 高速版NumPyフェッチ関数を使用
-    # 期間が7日を超える場合は集約データを使用（パフォーマンス最適化）
-    if period_days > 7:
+    # 期間が14日を超える場合は集約データを使用（パフォーマンス最適化）
+    if period_days > 14:
         # 集約データを使用（期間に応じて自動的に適切なレベルを選択）
         numpy_data = amdar.database.postgresql.fetch_aggregated_numpy(
             conn,
@@ -1895,7 +1895,7 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
             include_wind=include_wind,
         )
     else:
-        # 7日以内は生データを使用
+        # 14日以内は生データを使用
         numpy_data = amdar.database.postgresql.fetch_by_time_numpy(
             conn,
             extended_time_start,
@@ -2417,7 +2417,7 @@ def debug_date_parse():
         result["views_exist"] = view_exists
 
         # データ取得テスト（最初の10件のみ）
-        if period_days > 7:
+        if period_days > 14:
             raw_data = amdar.database.postgresql.fetch_aggregated_by_time(
                 conn, time_start, time_end, max_altitude=None
             )
