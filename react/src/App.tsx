@@ -145,13 +145,6 @@ function App() {
 
   // 期間変更ハンドラ（クイック選択・カスタム両対応）
   const handlePeriodChange = useCallback((period: PeriodType, start: Date, end: Date) => {
-    const periodDays = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
-    console.log(`[App] handlePeriodChange called:`, {
-      period,
-      periodDays: periodDays.toFixed(2),
-      start: start.toISOString(),
-      end: end.toISOString()
-    })
     setDateRange({ start, end })
     setSelectedPeriod(period)
     // URL を更新
