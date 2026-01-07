@@ -132,3 +132,29 @@ def browser_context_args(browser_context_args, request, worker_id):
         args["ignore_https_errors"] = True
 
     return args
+
+
+# === pytest-xdist 並列数制限 ===
+def pytest_configure(config):
+    """
+    E2E テストの並列実行数を制限する。
+
+    【制限理由】
+    E2E テストでは各テストがページアクセス時に 8 枚のグラフ生成をトリガーする。
+    pytest-xdist のデフォルト（auto）では CPU コア数に応じて 10 以上のワーカーが
+    起動し、全テストが同時に実行される。これにより：
+
+    - 10 ワーカー × 8 グラフ = 最大 80 の同時グラフ生成ジョブ
+    - サーバーのメモリ制限（2Gi）を超過して OOMKilled が発生
+    - 画像生成が完了せずテストがタイムアウト
+
+    2 並列に制限することで、同時グラフ生成を最大 16 ジョブに抑え、
+    サーバーの安定動作を確保する。
+    """
+    # ワーカープロセスでは設定変更しない（メインプロセスのみ）
+    if hasattr(config, "workerinput"):
+        return
+
+    # pytest-xdist が有効な場合のみ並列数を制限
+    if hasattr(config.option, "numprocesses") and config.option.numprocesses != 0:
+        config.option.numprocesses = 2
