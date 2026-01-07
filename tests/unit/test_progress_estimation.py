@@ -42,12 +42,12 @@ class TestGetDefaultGenerationTime:
     def test_known_graph(self):
         """既知のグラフタイプ"""
         time = progress_estimation._get_default_generation_time("scatter_2d", 24, False)
-        assert time == 3.7
+        assert time == 3.0
 
     def test_limit_altitude(self):
         """高度制限あり"""
         time = progress_estimation._get_default_generation_time("scatter_2d", 24, True)
-        assert time == 2.3
+        assert time == 2.0
 
     def test_unknown_graph(self):
         """未知のグラフタイプ"""
@@ -79,7 +79,7 @@ class TestGenerationTimeHistory:
             history._history.clear()
 
         time = history.get_estimated_time("scatter_2d", 24, False)
-        assert time == 3.7
+        assert time == 3.0
 
     def test_record_and_get(self, tmp_path):
         """記録と取得"""
