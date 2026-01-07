@@ -35,6 +35,7 @@ export interface GraphJob {
     startTime: number | null; // ジョブ開始時刻（Date.now()）
     retryCount: number; // リトライ回数（0: 未リトライ、1: 1回リトライ済み）
     isRetrying: boolean; // 自動リトライ中かどうか
+    pollingFailureCount: number; // ポーリング連続失敗回数
 }
 
 interface UseGraphJobsOptions {
@@ -51,6 +52,9 @@ interface UseGraphJobsResult {
     reloadJob: (graphName: string) => Promise<void>;
     reloadAll: () => Promise<void>;
 }
+
+// ポーリング失敗の閾値（この回数連続失敗で自動リトライ）
+const POLLING_FAILURE_THRESHOLD = 5;
 
 export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
     const { dateRange, limitAltitude, graphs, pollingInterval = 1000, enabled = true } = options;
@@ -70,6 +74,45 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
         }
     }, []);
 
+    // ポーリング失敗時の処理（502エラー等）
+    const handlePollingFailure = useCallback((errorMessage: string) => {
+        if (!mountedRef.current) return;
+
+        setJobs((prev) => {
+            const updated = { ...prev };
+            const retryTargets: string[] = [];
+
+            // 処理中のジョブの失敗カウントをインクリメント
+            Object.keys(updated).forEach((graphName) => {
+                const job = updated[graphName];
+                if (job.status === "pending" || job.status === "processing") {
+                    const newFailureCount = job.pollingFailureCount + 1;
+                    updated[graphName] = {
+                        ...job,
+                        pollingFailureCount: newFailureCount,
+                    };
+
+                    // 閾値を超えた場合、自動リトライ対象に追加（未リトライの場合のみ）
+                    if (newFailureCount >= POLLING_FAILURE_THRESHOLD && job.retryCount === 0) {
+                        retryTargets.push(graphName);
+                        updated[graphName] = {
+                            ...updated[graphName],
+                            status: "failed",
+                            error: errorMessage,
+                        };
+                    }
+                }
+            });
+
+            // 自動リトライ対象があれば登録
+            if (retryTargets.length > 0) {
+                pendingRetriesRef.current = [...pendingRetriesRef.current, ...retryTargets];
+            }
+
+            return updated;
+        });
+    }, []);
+
     // ステータスをポーリング
     const pollStatus = useCallback(async () => {
         if (jobIdsRef.current.length === 0) return;
@@ -83,6 +126,12 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
 
             if (!response.ok) {
                 console.error("Failed to poll status:", response.status);
+                // 502エラーなどの場合、ポーリング失敗として処理
+                handlePollingFailure(
+                    response.status === 502
+                        ? "サーバーが一時的に利用できません"
+                        : `サーバーエラー (${response.status})`
+                );
                 return;
             }
 
@@ -119,6 +168,7 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
                             error: status.error,
                             elapsedSeconds: status.elapsed_seconds,
                             stage: status.stage || null,
+                            pollingFailureCount: 0, // 成功したのでリセット
                             resultUrl:
                                 status.status === "completed"
                                     ? `/modes-sensing/api/graph/job/${jobId}/result`
@@ -153,8 +203,10 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
             });
         } catch (error) {
             console.error("Failed to poll status:", error);
+            // ネットワークエラーの場合もポーリング失敗として処理
+            handlePollingFailure("ネットワークエラー");
         }
-    }, [stopPolling]);
+    }, [stopPolling, handlePollingFailure]);
 
     // ポーリングを開始
     const startPolling = useCallback(() => {
@@ -213,6 +265,7 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
                     startTime: now,
                     retryCount: 0,
                     isRetrying: false,
+                    pollingFailureCount: 0,
                 };
                 newJobIds.push(job.job_id);
             });
@@ -282,6 +335,7 @@ export function useGraphJobs(options: UseGraphJobsOptions): UseGraphJobsResult {
                                 startTime: Date.now(),
                                 retryCount: isAutoRetry ? (prevJob?.retryCount ?? 0) + 1 : 0,
                                 isRetrying: isAutoRetry,
+                                pollingFailureCount: 0,
                             },
                         };
                     });
