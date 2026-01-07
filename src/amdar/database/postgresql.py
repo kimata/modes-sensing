@@ -103,12 +103,14 @@ class AggregationLevel:
 # 期間に応じたサンプリングレベルの定義
 # 長期間では時間×高度帯から代表点を1つ選ぶことでデータ量を削減しつつ品質を維持
 AGGREGATION_LEVELS: list[AggregationLevel] = [
-    # 7日以内は生データ
-    AggregationLevel(table="meteorological_data", time_interval="raw", altitude_bin=0, max_days=7),
-    # 7-30日は1時間×500m帯から代表点をサンプリング
-    AggregationLevel(table="hourly_altitude_grid", time_interval="1 hour", altitude_bin=500, max_days=30),
-    # 30日以上は6時間×500m帯から代表点をサンプリング
-    AggregationLevel(table="sixhour_altitude_grid", time_interval="6 hours", altitude_bin=500, max_days=9999),
+    # 14日以内は生データ（高精度分析用）
+    AggregationLevel(table="meteorological_data", time_interval="raw", altitude_bin=0, max_days=14),
+    # 14-90日は30分×250m帯から代表点をサンプリング（中期分析用）
+    AggregationLevel(table="halfhourly_altitude_grid", time_interval="30 min", altitude_bin=250, max_days=90),
+    # 90日以上は3時間×250m帯から代表点をサンプリング（長期トレンド用）
+    AggregationLevel(
+        table="threehour_altitude_grid", time_interval="3 hours", altitude_bin=250, max_days=9999
+    ),
 ]
 
 
@@ -160,6 +162,9 @@ def open(host: str, port: int, database: str, user: str, password: str) -> PgCon
 
 def _execute_schema(conn: PgConnection) -> None:
     """外部スキーマファイルを読み込んで実行"""
+    # マイグレーション: 旧ビューを削除して新ビューを作成
+    _migrate_materialized_views(conn)
+
     schema_sql = _SCHEMA_FILE.read_text(encoding="utf-8")
 
     with conn.cursor() as cur:
@@ -169,6 +174,48 @@ def _execute_schema(conn: PgConnection) -> None:
             statement = raw_statement.strip()
             if statement and not statement.startswith("--"):
                 cur.execute(statement)
+
+
+def _migrate_materialized_views(conn: PgConnection) -> None:
+    """
+    マテリアライズドビューのマイグレーション（一時的な自動マイグレーション）
+
+    旧ビュー（hourly_altitude_grid, sixhour_altitude_grid）を削除し、
+    新ビュー（halfhourly_altitude_grid, threehour_altitude_grid）の作成を可能にする。
+
+    NOTE: このマイグレーションコードは一度実行されたら削除して構いません。
+    """
+    old_views = ["hourly_altitude_grid", "sixhour_altitude_grid"]
+    new_views = ["halfhourly_altitude_grid", "threehour_altitude_grid"]
+
+    with conn.cursor() as cur:
+        # 新ビューが存在するかチェック
+        cur.execute(
+            "SELECT COUNT(*) FROM pg_matviews WHERE matviewname IN %s",
+            (tuple(new_views),),
+        )
+        row = cur.fetchone()
+        new_views_count = row[0] if row else 0
+
+        if new_views_count == len(new_views):
+            # 新ビューが全て存在する場合、マイグレーション不要
+            return
+
+        # 旧ビューが存在するかチェック
+        cur.execute(
+            "SELECT matviewname FROM pg_matviews WHERE matviewname IN %s",
+            (tuple(old_views),),
+        )
+        existing_old_views = [row[0] for row in cur.fetchall()]
+
+        if existing_old_views:
+            logging.info(
+                "[MIGRATION] Dropping old materialized views: %s",
+                ", ".join(existing_old_views),
+            )
+            for view in existing_old_views:
+                cur.execute(f"DROP MATERIALIZED VIEW IF EXISTS {view} CASCADE")
+            logging.info("[MIGRATION] Old views dropped successfully")
 
 
 def _insert(conn: PgConnection, data: MeasurementData) -> None:
@@ -1134,7 +1181,7 @@ def refresh_materialized_views(conn: PgConnection) -> dict[str, float]:
         各ビューの更新にかかった時間（秒）
 
     """
-    views = ["hourly_altitude_grid", "sixhour_altitude_grid"]
+    views = ["halfhourly_altitude_grid", "threehour_altitude_grid"]
     timings: dict[str, float] = {}
 
     for view in views:
@@ -1172,7 +1219,7 @@ def check_materialized_views_exist(conn: PgConnection) -> dict[str, bool]:
         各ビューの存在フラグ
 
     """
-    views = ["hourly_altitude_grid", "sixhour_altitude_grid"]
+    views = ["halfhourly_altitude_grid", "threehour_altitude_grid"]
     result: dict[str, bool] = {}
 
     with conn.cursor() as cur:
@@ -1199,7 +1246,7 @@ def get_materialized_view_stats(conn: PgConnection) -> dict[str, dict[str, Any]]
         各ビューの統計情報
 
     """
-    views = ["hourly_altitude_grid", "sixhour_altitude_grid"]
+    views = ["halfhourly_altitude_grid", "threehour_altitude_grid"]
     stats: dict[str, dict[str, Any]] = {}
 
     for view in views:
