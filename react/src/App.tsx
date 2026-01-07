@@ -3,7 +3,7 @@ import DateSelector from './components/DateSelector'
 import GraphDisplay from './components/GraphDisplay'
 import Modal from './components/Modal'
 import Footer from './components/Footer'
-import { parseUrlParams, updateUrl, resetUrl } from './hooks/useUrlParams'
+import { parseUrlParams, updateUrl, resetUrl, PERIOD_DAYS, type PeriodType } from './hooks/useUrlParams'
 
 interface DataRange {
   earliest: string | null
@@ -15,29 +15,41 @@ function App() {
   // URL パラメータを解析
   const urlParams = parseUrlParams()
 
+  // 初期期間タイプを決定
+  const getInitialPeriod = (): PeriodType => {
+    if (urlParams.hasUrlParams && urlParams.period) {
+      return urlParams.period
+    }
+    return '7days' // デフォルト
+  }
+
+  // 初期日付範囲を決定
   const getInitialDate = () => {
-    // URL パラメータがあればそれを使用
-    if (urlParams.hasUrlParams && urlParams.start && urlParams.end) {
+    // カスタム期間でstart/endが指定されている場合
+    if (urlParams.hasUrlParams && urlParams.period === 'custom' && urlParams.start && urlParams.end) {
       return { start: urlParams.start, end: urlParams.end }
     }
 
-    // デフォルト: 7日間
+    // 期間タイプから計算（URL パラメータまたはデフォルト）
+    const period = getInitialPeriod()
+    const days = period === 'custom' ? 7 : PERIOD_DAYS[period]
+
     const end = new Date()
-    end.setSeconds(0, 0) // 秒とミリ秒を0に設定
-    const start = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) // 7 days ago
-    start.setSeconds(0, 0) // 秒とミリ秒を0に設定
+    end.setSeconds(0, 0)
+    const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+    start.setSeconds(0, 0)
     return { start, end }
   }
 
   const getInitialLimitAltitude = () => {
-    // URL パラメータがあればそれを使用
     if (urlParams.hasUrlParams) {
       return urlParams.limitAltitude
     }
-    return false // デフォルトでは高度制限なし
+    return false
   }
 
   const [dateRange, setDateRange] = useState(getInitialDate())
+  const [selectedPeriod, setSelectedPeriod] = useState<PeriodType>(getInitialPeriod())
   // URL パラメータがある場合は、data-range による調整をスキップ
   const [isInitialDateRangeSet, setIsInitialDateRangeSet] = useState(urlParams.hasUrlParams)
   const [modalImage, setModalImage] = useState<string | null>(null)
@@ -128,25 +140,29 @@ function App() {
     }
 
     fetchDataRange()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isInitialDateRangeSet])
 
-  const handleDateChange = useCallback((start: Date, end: Date) => {
+  // 期間変更ハンドラ（クイック選択・カスタム両対応）
+  const handlePeriodChange = useCallback((period: PeriodType, start: Date, end: Date) => {
     const periodDays = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
-    console.log(`[App] handleDateChange called:`, {
+    console.log(`[App] handlePeriodChange called:`, {
+      period,
       periodDays: periodDays.toFixed(2),
       start: start.toISOString(),
       end: end.toISOString()
     })
     setDateRange({ start, end })
-    // URL を更新（デフォルト状態でなければパラメータを付与）
-    updateUrl(start, end, limitAltitude)
+    setSelectedPeriod(period)
+    // URL を更新
+    updateUrl(period, start, end, limitAltitude)
   }, [limitAltitude])
 
   const handleAltitudeChange = useCallback((limited: boolean) => {
     setLimitAltitude(limited)
     // URL を更新
-    updateUrl(dateRange.start, dateRange.end, limited)
-  }, [dateRange])
+    updateUrl(selectedPeriod, dateRange.start, dateRange.end, limited)
+  }, [selectedPeriod, dateRange])
 
   // タイトルクリック: デフォルト状態にリセット
   const handleTitleClick = useCallback(() => {
@@ -156,6 +172,7 @@ function App() {
     start.setSeconds(0, 0)
 
     setDateRange({ start, end })
+    setSelectedPeriod('7days')
     setLimitAltitude(false)
     resetUrl()
   }, [])
@@ -256,7 +273,8 @@ function App() {
           <DateSelector
             startDate={dateRange.start}
             endDate={dateRange.end}
-            onDateChange={handleDateChange}
+            initialPeriod={urlParams.hasUrlParams ? urlParams.period : null}
+            onPeriodChange={handlePeriodChange}
             dataRange={dataRange}
             limitAltitude={limitAltitude}
             onAltitudeChange={handleAltitudeChange}
