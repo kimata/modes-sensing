@@ -162,9 +162,6 @@ def open(host: str, port: int, database: str, user: str, password: str) -> PgCon
 
 def _execute_schema(conn: PgConnection) -> None:
     """外部スキーマファイルを読み込んで実行"""
-    # マイグレーション: 旧ビューを削除して新ビューを作成
-    _migrate_materialized_views(conn)
-
     schema_sql = _SCHEMA_FILE.read_text(encoding="utf-8")
 
     with conn.cursor() as cur:
@@ -176,48 +173,6 @@ def _execute_schema(conn: PgConnection) -> None:
             statement = "\n".join(non_comment_lines).strip()
             if statement:
                 cur.execute(statement)
-
-
-def _migrate_materialized_views(conn: PgConnection) -> None:
-    """
-    マテリアライズドビューのマイグレーション（一時的な自動マイグレーション）
-
-    旧ビュー（hourly_altitude_grid, sixhour_altitude_grid）を削除し、
-    新ビュー（halfhourly_altitude_grid, threehour_altitude_grid）の作成を可能にする。
-
-    NOTE: このマイグレーションコードは一度実行されたら削除して構いません。
-    """
-    old_views = ["hourly_altitude_grid", "sixhour_altitude_grid"]
-    new_views = ["halfhourly_altitude_grid", "threehour_altitude_grid"]
-
-    with conn.cursor() as cur:
-        # 新ビューが存在するかチェック
-        cur.execute(
-            "SELECT COUNT(*) FROM pg_matviews WHERE matviewname IN %s",
-            (tuple(new_views),),
-        )
-        row = cur.fetchone()
-        new_views_count = row[0] if row else 0
-
-        if new_views_count == len(new_views):
-            # 新ビューが全て存在する場合、マイグレーション不要
-            return
-
-        # 旧ビューが存在するかチェック
-        cur.execute(
-            "SELECT matviewname FROM pg_matviews WHERE matviewname IN %s",
-            (tuple(old_views),),
-        )
-        existing_old_views = [row[0] for row in cur.fetchall()]
-
-        if existing_old_views:
-            logging.info(
-                "[MIGRATION] Dropping old materialized views: %s",
-                ", ".join(existing_old_views),
-            )
-            for view in existing_old_views:
-                cur.execute(f"DROP MATERIALIZED VIEW IF EXISTS {view} CASCADE")
-            logging.info("[MIGRATION] Old views dropped successfully")
 
 
 def _insert(conn: PgConnection, data: MeasurementData) -> None:
