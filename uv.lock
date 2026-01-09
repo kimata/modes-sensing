@@ -1370,7 +1370,7 @@ requires-dist = [
     { name = "flask", specifier = ">=3.1.1" },
     { name = "flask-cors", specifier = ">=6.0.1" },
     { name = "matplotlib", specifier = ">=3.10.5" },
-    { name = "my-lib", git = "https://github.com/kimata/my-py-lib?rev=b27d7b8c6e79713e8aba845598c735391bdc02d5" },
+    { name = "my-lib", git = "https://github.com/kimata/my-py-lib?rev=f4a657f3f75c30b93ee702896931598a5c6b8e8b" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "pandas", specifier = ">=2.3.1" },
     { name = "psycopg2-binary", specifier = ">=2.9.0" },
@@ -1483,7 +1483,7 @@ wheels = [
 [[package]]
 name = "my-lib"
 version = "0.2.0"
-source = { git = "https://github.com/kimata/my-py-lib?rev=b27d7b8c6e79713e8aba845598c735391bdc02d5#b27d7b8c6e79713e8aba845598c735391bdc02d5" }
+source = { git = "https://github.com/kimata/my-py-lib?rev=f4a657f3f75c30b93ee702896931598a5c6b8e8b#f4a657f3f75c30b93ee702896931598a5c6b8e8b" }
 dependencies = [
     { name = "coloredlogs" },
     { name = "docopt-ng" },
