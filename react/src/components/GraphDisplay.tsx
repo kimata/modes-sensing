@@ -1,4 +1,5 @@
 import { useRef, useLayoutEffect, useEffect, useState } from 'react'
+import { ChartBarIcon, LinkIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 import styles from './GraphDisplay.module.css'
 import { useGraphJobs } from '../hooks/useGraphJobs'
 
@@ -184,34 +185,27 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
 
   return (
     <>
-      <div className="box" id="graph">
+      <div className="bg-white rounded-md shadow-md p-5 mb-5" id="graph">
         <div className={styles.sectionHeader}>
-          <h2 className="title is-4">
-            <span className="icon" style={{ marginRight: '0.5em' }}>
-              <i className="fas fa-chart-line"></i>
-            </span>
-            <span style={{ whiteSpace: 'nowrap' }}>グラフ</span>
-            <span className="subtitle is-6 ml-2" style={{
-              display: 'flex',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: '0.25rem'
-            }}>
+          <h2 className="text-2xl font-semibold">
+            <ChartBarIcon className="w-6 h-6 inline-block mr-2" />
+            <span className="whitespace-nowrap">グラフ</span>
+            <span className="text-base text-gray-600 ml-2 inline-flex items-center flex-wrap gap-1">
               <span>(</span>
-              <span style={{ whiteSpace: 'nowrap' }}>{formatDateForDisplay(dateRange.start)}</span>
-              <span style={{ whiteSpace: 'nowrap' }}>～</span>
-              <span style={{ whiteSpace: 'nowrap' }}>{formatDateForDisplay(dateRange.end)}</span>
+              <span className="whitespace-nowrap">{formatDateForDisplay(dateRange.start)}</span>
+              <span className="whitespace-nowrap">～</span>
+              <span className="whitespace-nowrap">{formatDateForDisplay(dateRange.end)}</span>
               <span>)</span>
             </span>
-            <i
-              className={`fas fa-link ${styles.permalinkIcon}`}
+            <LinkIcon
+              className={`w-4 h-4 inline-block ${styles.permalinkIcon}`}
               onClick={() => copyPermalink('graph')}
               title="パーマリンクをコピー"
             />
           </h2>
         </div>
 
-        <div className="columns is-multiline">
+        <div className="flex flex-wrap -mx-3">
           {graphs.map(graph => {
             const job = jobs[graph.name]
             const is3D = graph.name.includes('3d')
@@ -239,16 +233,11 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
             return (
               <div
                 key={graph.endpoint}
-                className={is3D ? 'column is-full' : 'column is-half'}
+                className={`px-3 mb-6 ${is3D ? 'w-full' : 'w-full md:w-1/2'}`}
                 ref={(el) => { containerRefs.current[graph.endpoint] = el }}
               >
-                <div className="card" style={{ height: `${cardHeight}px` }}>
-                  <div className="card-content" style={{
-                    padding: '0.5rem',
-                    height: '100%',
-                    display: 'flex',
-                    flexDirection: 'column'
-                  }}>
+                <div className="bg-white rounded-md shadow-md overflow-hidden" style={{ height: `${cardHeight}px` }}>
+                  <div className="p-2 h-full flex flex-col">
                     <div className="image-container" style={{
                       height: `${containerHeight}px`,
                       display: 'flex',
@@ -260,8 +249,8 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
                     }}>
                       {/* ローディング表示（進捗バー付き） */}
                       {isJobLoading && (
-                        <div className={`has-text-centered ${styles.loadingContainer}`} style={{ width: '80%' }}>
-                          <p className="is-size-6 has-text-weight-semibold mb-2">
+                        <div className={`text-center ${styles.loadingContainer}`} style={{ width: '80%' }}>
+                          <p className="text-base font-semibold mb-2">
                             {graph.title}
                           </p>
                           <div className={styles.loaderWrapper}>
@@ -281,11 +270,11 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
                             )
                             return (
                               <>
-                                <p className={`mt-1 is-size-7 has-text-weight-medium ${styles.pulsingText}`}>
+                                <p className={`mt-1 text-sm font-medium ${styles.pulsingText}`}>
                                   {progressInfo.main}
                                 </p>
                                 {progressInfo.sub && (
-                                  <p className="is-size-7 has-text-grey">
+                                  <p className="text-sm text-gray-500">
                                     {progressInfo.sub}
                                   </p>
                                 )}
@@ -297,8 +286,8 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
 
                       {/* リトライ中表示 */}
                       {job?.isRetrying && (
-                        <div className={`has-text-centered ${styles.loadingContainer}`} style={{ width: '80%' }}>
-                          <p className="is-size-6 has-text-weight-semibold mb-2">
+                        <div className={`text-center ${styles.loadingContainer}`} style={{ width: '80%' }}>
+                          <p className="text-base font-semibold mb-2">
                             {graph.title}
                           </p>
                           <div className={styles.loaderWrapper}>
@@ -309,10 +298,10 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
                             value={progress}
                             max="100"
                           />
-                          <p className={`mt-1 is-size-7 has-text-weight-medium ${styles.pulsingText}`}>
-                            🔄 リトライ中...
+                          <p className={`mt-1 text-sm font-medium ${styles.pulsingText}`}>
+                            リトライ中...
                           </p>
-                          <p className="is-size-7 has-text-grey">
+                          <p className="text-sm text-gray-500">
                             接続を再試行しています
                           </p>
                         </div>
@@ -321,33 +310,24 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
                       {/* エラー表示（リトライ後も失敗した場合） */}
                       {hasError && !job?.isRetrying && (
                         <figure
-                          className="image"
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            height: '100%',
-                            margin: 0
-                          }}
+                          className="block flex items-center justify-center h-full m-0"
                         >
                           {/* E2Eテスト用: alt属性を持つimg要素（1x1透明画像） */}
                           <img
                             src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
                             alt={graph.title}
-                            style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }}
+                            className="absolute w-px h-px opacity-0"
                           />
-                          <div className="notification is-danger is-light" style={{ textAlign: 'center', width: '80%' }}>
-                            <p className="is-size-5 mb-2">❌ エラー</p>
-                            <p className="is-size-7 has-text-grey mb-3">
+                          <div className="bg-red-50 text-red-700 rounded p-4 text-center" style={{ width: '80%' }}>
+                            <p className="text-xl mb-2">エラー</p>
+                            <p className="text-sm text-gray-500 mb-3">
                               {job?.error || 'グラフの生成に失敗しました'}
                             </p>
                             <button
-                              className="button is-small is-danger"
+                              className="btn btn-sm btn-danger"
                               onClick={() => reloadJob(graph.name)}
                             >
-                              <span className="icon">
-                                <i className="fas fa-redo"></i>
-                              </span>
+                              <ArrowPathIcon className="w-4 h-4 mr-1" />
                               <span>リロード</span>
                             </button>
                           </div>
@@ -356,26 +336,12 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
 
                       {/* 画像表示 */}
                       {job?.status === 'completed' && job.resultUrl && (
-                        <figure
-                          className="image"
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            height: '100%',
-                            margin: 0
-                          }}
-                        >
+                        <figure className="block flex items-center justify-center h-full m-0">
                           <img
                             key={job.resultUrl}
                             src={job.resultUrl}
                             alt={graph.title}
-                            style={{
-                              width: '100%',
-                              height: '100%',
-                              objectFit: 'contain',
-                              cursor: 'pointer'
-                            }}
+                            className="w-full h-full object-contain cursor-pointer"
                             onClick={() => onImageClick(job.resultUrl!)}
                             onError={() => reloadJob(graph.name)}
                             loading="eager"

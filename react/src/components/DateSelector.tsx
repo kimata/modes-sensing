@@ -1,6 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
+import { CalendarDaysIcon, LinkIcon, ArrowPathIcon, CheckIcon } from '@heroicons/react/24/outline'
 import styles from './GraphDisplay.module.css'
 import type { PeriodType } from '../hooks/useUrlParams'
+
+// 山アイコン（Heroicons にないためカスタム SVG）
+const MountainIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3 19.5l6.75-9 4.5 6 3-4.5L21 19.5H3z" />
+  </svg>
+)
 
 interface DataRange {
   earliest: string | null
@@ -357,195 +365,158 @@ const DateSelector: React.FC<DateSelectorProps> = ({
 
   return (
     <>
-      <div className="box" id="date-selector">
+      <div className="bg-white rounded-md shadow-md p-5 mb-5" id="date-selector">
         <div className={styles.sectionHeader}>
-          <h2 className="title is-4" style={{ whiteSpace: 'nowrap' }}>  {/* 見出しの改行防止 */}
-            <span className="icon" style={{ marginRight: '0.5em' }}>
-              <i className="fas fa-calendar-alt"></i>
-            </span>
+          <h2 className="text-2xl font-semibold whitespace-nowrap">
+            <CalendarDaysIcon className="w-6 h-6 inline-block mr-2" />
             期間選択
-            <i
-              className={`fas fa-link ${styles.permalinkIcon}`}
+            <LinkIcon
+              className={`w-4 h-4 inline-block ${styles.permalinkIcon}`}
               onClick={() => copyPermalink('date-selector')}
               title="パーマリンクをコピー"
             />
           </h2>
         </div>
 
-      <div className="field">
-        <label className="label">クイック選択</label>
-        <div className="field is-grouped is-grouped-multiline">
-          <div className="control">
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-1">クイック選択</label>
+        <div className="flex flex-wrap gap-2">
             <button
-              className={`button is-small ${selectedPeriod === '1day' ? 'is-primary' : 'is-light'}`}
+              className={`btn btn-sm whitespace-nowrap ${selectedPeriod === '1day' ? 'btn-primary' : 'btn-light'}`}
               onClick={() => handleQuickSelect(1, '1day')}
-              style={{ whiteSpace: 'nowrap' }}  /* ボタンテキストの改行防止 */
             >
               過去24時間
             </button>
-          </div>
-          <div className="control">
             <button
-              className={`button is-small ${selectedPeriod === '7days' ? 'is-primary' : 'is-light'}`}
+              className={`btn btn-sm whitespace-nowrap ${selectedPeriod === '7days' ? 'btn-primary' : 'btn-light'}`}
               onClick={() => handleQuickSelect(7, '7days')}
-              style={{ whiteSpace: 'nowrap' }}  /* ボタンテキストの改行防止 */
             >
               過去7日間
             </button>
-          </div>
-          <div className="control">
             <button
-              className={`button is-small ${selectedPeriod === '30days' ? 'is-primary' : 'is-light'}`}
+              className={`btn btn-sm whitespace-nowrap ${selectedPeriod === '30days' ? 'btn-primary' : 'btn-light'}`}
               onClick={() => handleQuickSelect(30, '30days')}
-              style={{ whiteSpace: 'nowrap' }}  /* ボタンテキストの改行防止 */
             >
               過去1ヶ月間
             </button>
-          </div>
-          <div className="control">
             <button
-              className={`button is-small ${selectedPeriod === '180days' ? 'is-primary' : 'is-light'}`}
+              className={`btn btn-sm whitespace-nowrap ${selectedPeriod === '180days' ? 'btn-primary' : 'btn-light'}`}
               onClick={() => handleQuickSelect(180, '180days')}
-              style={{ whiteSpace: 'nowrap' }}  /* ボタンテキストの改行防止 */
             >
               過去半年
             </button>
-          </div>
-          <div className="control">
             <button
-              className={`button is-small ${selectedPeriod === '365days' ? 'is-primary' : 'is-light'}`}
+              className={`btn btn-sm whitespace-nowrap ${selectedPeriod === '365days' ? 'btn-primary' : 'btn-light'}`}
               onClick={() => handleQuickSelect(365, '365days')}
-              style={{ whiteSpace: 'nowrap' }}  /* ボタンテキストの改行防止 */
             >
               過去1年
             </button>
-          </div>
-          <div className="control">
             <button
-              className={`button is-small ${selectedPeriod === 'custom' ? 'is-primary' : 'is-light'}`}
+              className={`btn btn-sm whitespace-nowrap ${selectedPeriod === 'custom' ? 'btn-primary' : 'btn-light'}`}
               onClick={handleCustomButtonClick}
-              style={{ whiteSpace: 'nowrap' }}  /* ボタンテキストの改行防止 */
             >
               カスタム
             </button>
-          </div>
         </div>
       </div>
 
       {selectedPeriod === 'custom' && (
         <>
-          <div className="columns">
-            <div className="column">
-              <div className="field">
-                <label className="label">開始日時</label>
-                <div className="control">
-                  <input
-                    className={`input ${focusedField === 'start' ? 'is-focused' : ''}`}
-                    type="datetime-local"
-                    value={customStart}
-                    min={inputLimits.min}
-                    max={inputLimits.max}
-                    onChange={(e) => setCustomStart(e.target.value)}
-                    onKeyPress={handleKeyPress}
-                    onFocus={() => handleInputFocus('start')}
-                    onBlur={handleInputBlur}
-                    title={inputLimits.min && inputLimits.max ? `利用可能な期間: ${inputLimits.min} ～ ${inputLimits.max}` : undefined}
-                    style={{
-                      transition: 'all 0.3s ease-in-out',
-                      transform: focusedField === 'start' ? 'scale(1.02)' : 'scale(1)',
-                      boxShadow: focusedField === 'start' ? '0 4px 12px rgba(0,123,255,0.3)' : 'none'
-                    }}
-                  />
-                </div>
+          <div className="flex flex-wrap -mx-3">
+            <div className="px-3 flex-1 min-w-0">
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">開始日時</label>
+                <input
+                  className="input"
+                  type="datetime-local"
+                  value={customStart}
+                  min={inputLimits.min}
+                  max={inputLimits.max}
+                  onChange={(e) => setCustomStart(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  onFocus={() => handleInputFocus('start')}
+                  onBlur={handleInputBlur}
+                  title={inputLimits.min && inputLimits.max ? `利用可能な期間: ${inputLimits.min} ～ ${inputLimits.max}` : undefined}
+                  style={{
+                    transition: 'all 0.3s ease-in-out',
+                    transform: focusedField === 'start' ? 'scale(1.02)' : 'scale(1)',
+                    boxShadow: focusedField === 'start' ? '0 4px 12px rgba(0,209,178,0.3)' : 'none'
+                  }}
+                />
               </div>
             </div>
-            <div className="column">
-              <div className="field">
-                <label className="label">終了日時</label>
-                <div className="control">
-                  <input
-                    className={`input ${focusedField === 'end' ? 'is-focused' : ''}`}
-                    type="datetime-local"
-                    value={customEnd}
-                    min={inputLimits.min}
-                    max={inputLimits.max}
-                    onChange={(e) => setCustomEnd(e.target.value)}
-                    onKeyPress={handleKeyPress}
-                    onFocus={() => handleInputFocus('end')}
-                    onBlur={handleInputBlur}
-                    title={inputLimits.min && inputLimits.max ? `利用可能な期間: ${inputLimits.min} ～ ${inputLimits.max}` : undefined}
-                    style={{
-                      transition: 'all 0.3s ease-in-out',
-                      transform: focusedField === 'end' ? 'scale(1.02)' : 'scale(1)',
-                      boxShadow: focusedField === 'end' ? '0 4px 12px rgba(0,123,255,0.3)' : 'none'
-                    }}
-                  />
-                </div>
+            <div className="px-3 flex-1 min-w-0">
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">終了日時</label>
+                <input
+                  className="input"
+                  type="datetime-local"
+                  value={customEnd}
+                  min={inputLimits.min}
+                  max={inputLimits.max}
+                  onChange={(e) => setCustomEnd(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  onFocus={() => handleInputFocus('end')}
+                  onBlur={handleInputBlur}
+                  title={inputLimits.min && inputLimits.max ? `利用可能な期間: ${inputLimits.min} ～ ${inputLimits.max}` : undefined}
+                  style={{
+                    transition: 'all 0.3s ease-in-out',
+                    transform: focusedField === 'end' ? 'scale(1.02)' : 'scale(1)',
+                    boxShadow: focusedField === 'end' ? '0 4px 12px rgba(0,209,178,0.3)' : 'none'
+                  }}
+                />
               </div>
             </div>
           </div>
 
-          <div className="field">
-            <div className="control">
-              <button
-                className={`button is-fullwidth ${hasChanges ? 'is-primary' : 'is-light'}`}
-                onClick={handleCustomDateChange}
-                disabled={!hasChanges}
-                style={{
-                  transition: 'all 0.8s ease-in-out',
-                  backgroundColor: hasChanges ? undefined : '#f5f5f5',
-                  borderColor: hasChanges ? undefined : '#dbdbdb',
-                  color: hasChanges ? undefined : '#7a7a7a',
-                  transform: hasChanges ? 'scale(1)' : 'scale(0.98)',
-                  opacity: hasChanges ? 1 : 0.7
-                }}
-              >
-                <span className="icon" style={{ transition: 'transform 0.3s ease-in-out' }}>
-                  <i
-                    className={`fas ${hasChanges ? 'fa-sync-alt' : 'fa-check'}`}
-                    style={{
-                      transition: 'all 0.5s ease-in-out',
-                      transform: hasChanges ? 'rotate(0deg)' : 'rotate(360deg)'
-                    }}
-                  ></i>
-                </span>
-                <span style={{ transition: 'all 0.5s ease-in-out' }}>
-                  {hasChanges ? '期間を確定して更新' : '変更なし'}
-                </span>
-              </button>
-            </div>
+          <div className="mb-4">
+            <button
+              className={`btn w-full ${hasChanges ? 'btn-primary' : 'btn-light'}`}
+              onClick={handleCustomDateChange}
+              disabled={!hasChanges}
+              style={{
+                transition: 'all 0.8s ease-in-out',
+                transform: hasChanges ? 'scale(1)' : 'scale(0.98)',
+                opacity: hasChanges ? 1 : 0.7
+              }}
+            >
+              {hasChanges ? (
+                <ArrowPathIcon className="w-5 h-5 mr-2 transition-transform duration-500" />
+              ) : (
+                <CheckIcon className="w-5 h-5 mr-2 transition-transform duration-500" />
+              )}
+              <span className="transition-all duration-500">
+                {hasChanges ? '期間を確定して更新' : '変更なし'}
+              </span>
+            </button>
           </div>
         </>
       )}
       </div>
 
-      <div className="box" id="altitude-selector">
+      <div className="bg-white rounded-md shadow-md p-5 mb-5" id="altitude-selector">
         <div className={styles.sectionHeader}>
-          <h2 className="title is-4" style={{ whiteSpace: 'nowrap' }}>
-            <span className="icon" style={{ marginRight: '0.5em' }}>
-              <i className="fas fa-mountain"></i>
-            </span>
+          <h2 className="text-2xl font-semibold whitespace-nowrap">
+            <MountainIcon className="w-6 h-6 inline-block mr-2" />
             高度選択
-            <i
-              className={`fas fa-link ${styles.permalinkIcon}`}
+            <LinkIcon
+              className={`w-4 h-4 inline-block ${styles.permalinkIcon}`}
               onClick={() => copyPermalink('altitude-selector')}
               title="パーマリンクをコピー"
             />
           </h2>
         </div>
 
-        <div className="field">
-          <div className="control">
-            <label className="checkbox" style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={limitAltitude}
-                onChange={(e) => onAltitudeChange(e.target.checked)}
-                style={{ marginRight: '0.5rem' }}
-              />
-              <span>高度2,000m以下のみ表示</span>
-            </label>
-          </div>
+        <div className="mb-4">
+          <label className="flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={limitAltitude}
+              onChange={(e) => onAltitudeChange(e.target.checked)}
+              className="mr-2"
+            />
+            <span>高度2,000m以下のみ表示</span>
+          </label>
         </div>
       </div>
 

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { PaperAirplaneIcon } from '@heroicons/react/24/solid'
 import DateSelector from './components/DateSelector'
 import GraphDisplay from './components/GraphDisplay'
 import Modal from './components/Modal'
@@ -179,44 +180,26 @@ function App() {
   }
 
   return (
-    <div className="container">
-      <section className="section">
-        <div className="container">
-          <h1 className="title is-2 has-text-centered">
+    <div className="max-w-screen-xl mx-auto px-4">
+      <section className="py-12 px-6">
+        <div className="max-w-screen-xl mx-auto">
+          <h1 className="text-4xl font-semibold text-center mb-4">
             <a
               href={window.location.pathname}
               onClick={(e) => {
                 e.preventDefault()
                 handleTitleClick()
               }}
-              className="title-link"
-              style={{
-                color: 'inherit',
-                textDecoration: 'none',
-                cursor: 'pointer',
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.opacity = '0.7'}
-              onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+              className="text-inherit no-underline cursor-pointer transition-opacity hover:opacity-70"
               title="クリックでデフォルト表示に戻る"
             >
-              <span className="icon is-large" style={{ marginRight: '0.5em' }}>
-                <i className="fas fa-plane"></i>
-              </span>
+              <PaperAirplaneIcon className="w-10 h-10 mr-2 inline-block -rotate-45" />
               航空機の気象データ
             </a>
           </h1>
 
           {dataRangeSubtitle && (
-            <p className="subtitle is-6 has-text-centered" style={{
-              marginTop: '0.5rem',
-              marginBottom: '2rem',
-              display: 'flex',
-              flexWrap: 'wrap',
-              justifyContent: 'center',
-              gap: '0.25rem',
-              alignItems: 'baseline'
-            }}>
+            <p className="text-base text-gray-600 text-center mt-2 mb-8 flex flex-wrap justify-center gap-1 items-baseline">
               {/* 複数の改行ポイントで文字列を分割 */}
               {(() => {
                 // 「、」と「が」で分割して改行可能なセグメントを作成
@@ -280,9 +263,9 @@ function App() {
               onImageClick={handleImageClick}
             />
           ) : (
-            <div className="box">
-              <div className="has-text-centered">
-                <div className="loader"></div>
+            <div className="bg-white rounded-md shadow-md p-5 mb-5">
+              <div className="text-center">
+                <div className="loader mx-auto"></div>
                 <p className="mt-2">データ範囲を確認中...</p>
               </div>
             </div>

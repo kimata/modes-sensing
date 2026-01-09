@@ -18,34 +18,33 @@ const Modal: React.FC<ModalProps> = ({ imageUrl, onClose }) => {
   }, [onClose])
 
   return (
-    <div className="modal is-active">
-      <div className="modal-background" onClick={onClose}></div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose}></div>
       <div
-        className="modal-content"
+        className="relative z-10 mx-auto"
         style={{
-          width: '95vw',      // 画面幅の95%
-          maxWidth: 'none',   // Bulmaのデフォルト制限を解除
-          margin: '0 auto'    // 中央配置
+          width: '95vw',
+          maxWidth: 'none',
+          margin: '0 auto'
         }}
       >
-        <p className="image">
+        <div className="block">
           <img
             src={imageUrl}
             alt="拡大表示"
-            style={{
-              width: '100%',      // コンテナ幅に合わせる
-              height: 'auto',     // アスペクト比を保持
-              maxHeight: '90vh',  // 画面高さの90%まで
-              objectFit: 'contain'
-            }}
+            className="w-full h-auto max-h-[90vh] object-contain"
           />
-        </p>
+        </div>
       </div>
       <button
-        className="modal-close is-large"
+        className="absolute top-4 right-4 w-10 h-10 rounded-full bg-black/30 text-white flex items-center justify-center hover:bg-black/50 transition-colors cursor-pointer"
         aria-label="close"
         onClick={onClose}
-      ></button>
+      >
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
     </div>
   )
 }
