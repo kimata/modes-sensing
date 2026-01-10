@@ -185,7 +185,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
 
   return (
     <>
-      <div className="bg-white rounded-md shadow-md p-5 mb-5" id="graph">
+      <div className="mb-5" id="graph">
         <div className={styles.sectionHeader}>
           <h2 className="text-2xl font-semibold">
             <ChartBarIcon className="w-6 h-6 inline-block mr-2" />

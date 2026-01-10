@@ -365,7 +365,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({
 
   return (
     <>
-      <div className="bg-white rounded-md shadow-md p-5 mb-5" id="date-selector">
+      <div className="mb-5" id="date-selector">
         <div className={styles.sectionHeader}>
           <h2 className="text-2xl font-semibold whitespace-nowrap">
             <CalendarDaysIcon className="w-6 h-6 inline-block mr-2" />
@@ -494,7 +494,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({
       )}
       </div>
 
-      <div className="bg-white rounded-md shadow-md p-5 mb-5" id="altitude-selector">
+      <div className="mb-5" id="altitude-selector">
         <div className={styles.sectionHeader}>
           <h2 className="text-2xl font-semibold whitespace-nowrap">
             <MountainIcon className="w-6 h-6 inline-block mr-2" />

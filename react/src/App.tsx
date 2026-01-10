@@ -263,7 +263,7 @@ function App() {
               onImageClick={handleImageClick}
             />
           ) : (
-            <div className="bg-white rounded-md shadow-md p-5 mb-5">
+            <div className="mb-5">
               <div className="text-center">
                 <div className="loader mx-auto"></div>
                 <p className="mt-2">データ範囲を確認中...</p>
