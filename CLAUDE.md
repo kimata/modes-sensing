@@ -21,11 +21,10 @@
 
 ```
 src/
-├── collect_combined.py         # Mode S + VDL2 統合収集
 ├── collect_vdl2.py             # VDL2 のみ収集（デバッグ用）
 └── amdar/
-    ├── __main__.py             # amdar コマンド (Mode S 収集)
-    ├── cli_collect.py          # amdar エントリポイント実装
+    ├── __main__.py             # amdar コマンド
+    ├── cli_collect.py          # amdar エントリポイント実装 (Mode S + VDL2 統合収集)
     ├── cli_webui.py            # amdar-webui (Flask Web サーバー)
     ├── cli_healthz.py          # amdar-healthz (ヘルスチェック)
     ├── config.py               # 設定管理（dataclass ベース）
