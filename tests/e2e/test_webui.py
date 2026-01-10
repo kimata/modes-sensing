@@ -585,14 +585,14 @@ def test_period_selection_buttons(page_init, host, port):
         # Playwrightのlocatorを使用した方が安定する
         button_element = page.locator(button_selector)
 
-        # ボタンがis-primaryクラスを持つまで待機
+        # ボタンがbtn-primaryクラスを持つまで待機
         try:
             button_element.wait_for(state="visible", timeout=5000)
             # クラス属性を確認
             max_attempts = 10
             for attempt in range(max_attempts):
                 class_attribute = button_element.get_attribute("class")
-                if "is-primary" in class_attribute:
+                if "btn-primary" in class_attribute:
                     break
                 if attempt < max_attempts - 1:
                     time.sleep(0.5)
@@ -602,7 +602,7 @@ def test_period_selection_buttons(page_init, host, port):
 
             # 最終確認
             class_attribute = button_element.get_attribute("class")
-            if "is-primary" not in class_attribute:
+            if "btn-primary" not in class_attribute:
                 msg = f"Button did not become active after {max_attempts} attempts"
                 raise AssertionError(msg)
             logging.info("%s button became active", period_name)
@@ -617,7 +617,7 @@ def test_period_selection_buttons(page_init, host, port):
                         found: true,
                         text: button.textContent,
                         classes: button.className,
-                        hasPrimary: button.classList.contains('is-primary'),
+                        hasPrimary: button.classList.contains('btn-primary'),
                         allButtons: buttons.map(btn => ({{
                             text: btn.textContent,
                             classes: btn.className
@@ -657,7 +657,7 @@ def _debug_button_state(page):
                 found: !!customButton,
                 text: customButton ? customButton.textContent : null,
                 classes: customButton ? customButton.className : null,
-                isActive: customButton ? customButton.classList.contains('is-primary') : false,
+                isActive: customButton ? customButton.classList.contains('btn-primary') : false,
                 allButtons: buttons.map(btn => ({
                     text: btn.textContent.trim(),
                     classes: btn.className
@@ -677,7 +677,7 @@ def _debug_post_click_state(page):
                 .find(btn => btn.textContent.includes('カスタム'));
             const inputFields = document.querySelectorAll('input[type="datetime-local"]');
             return {
-                customButtonActive: customButton ? customButton.classList.contains('is-primary') : false,
+                customButtonActive: customButton ? customButton.classList.contains('btn-primary') : false,
                 inputFieldsCount: inputFields.length,
                 inputFieldsVisible: Array.from(inputFields).map(field => ({
                     visible: field.offsetParent !== null,
@@ -805,7 +805,7 @@ def test_custom_date_range(page_init, host, port):
                 .find(btn => btn.textContent.includes('カスタム'));
             if (customButton) {
                 return {
-                    hasActivePrimaryClass: customButton.classList.contains('is-primary'),
+                    hasActivePrimaryClass: customButton.classList.contains('btn-primary'),
                     classes: Array.from(customButton.classList),
                     textContent: customButton.textContent.trim()
                 };
@@ -843,7 +843,7 @@ def test_custom_date_range(page_init, host, port):
     page.wait_for_function(
         """
         () => {
-            const button = document.querySelector('button.is-fullwidth');
+            const button = document.querySelector('button.w-full');
             if (!button) return false;
 
             // ボタンが無効でなく、期間確定のテキストを含む場合
@@ -857,7 +857,7 @@ def test_custom_date_range(page_init, host, port):
     )
 
     # 更新ボタンをクリック
-    update_button = page.locator("button.is-fullwidth")
+    update_button = page.locator("button.w-full")
     expect(update_button).to_be_enabled()
     update_button.click()
 
@@ -878,7 +878,7 @@ def test_custom_date_range(page_init, host, port):
     # カスタムボタンがアクティブになることを確認
     custom_button = page.locator("button >> text='カスタム'")
     class_attribute = custom_button.get_attribute("class")
-    assert "is-primary" in class_attribute, "カスタムボタンがアクティブになっていません"  # noqa: S101
+    assert "btn-primary" in class_attribute, "カスタムボタンがアクティブになっていません"  # noqa: S101
 
     # 画像の読み込み完了まで待機（非同期API対応）
     time.sleep(5)
@@ -983,8 +983,8 @@ def test_image_modal_functionality(page_init, host, port):
     expect(first_image).to_be_visible(timeout=5000)
     first_image.click()
 
-    # モーダルが表示されることを確認
-    modal = page.locator(".modal")
+    # モーダルが表示されることを確認（Tailwind CSSクラス使用）
+    modal = page.locator("div.fixed.z-50")
     expect(modal).to_be_visible()
 
     # モーダル内に画像が表示されることを確認
@@ -1028,7 +1028,7 @@ def test_altitude_checkbox_default_state(page_init, host, port):
         expect(altitude_checkbox).not_to_be_checked()
 
     # ラベルテキストの確認
-    checkbox_label = page.locator("label.checkbox")
+    checkbox_label = page.locator("#altitude-selector label")
     expect(checkbox_label).to_contain_text("高度2,000m以下のみ表示")
 
     logging.info("Altitude checkbox default state test passed")
