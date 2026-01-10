@@ -54,7 +54,7 @@ function Footer() {
         <p className="text-gray-500 mb-0 text-sm">
           React バージョン: {reactVersion}
         </p>
-        <p>
+        <p className="flex justify-end">
           <a
             href="https://github.com/kimata/modes-sensing"
             className="text-gray-400 hover:text-gray-500 transition-colors"
