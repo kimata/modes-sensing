@@ -128,6 +128,11 @@ def open(host: str, port: int, database: str, user: str, password: str) -> PgCon
         "database": database,
         "user": user,
         "password": password,
+        # TCPキープアライブ設定（プロキシのアイドルタイムアウト対策）
+        "keepalives": 1,  # キープアライブを有効化
+        "keepalives_idle": 30,  # 30秒アイドル後にキープアライブ送信開始
+        "keepalives_interval": 10,  # 10秒間隔でキープアライブ送信
+        "keepalives_count": 3,  # 3回応答がなければ切断
     }
 
     try:
