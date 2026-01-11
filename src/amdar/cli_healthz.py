@@ -104,13 +104,15 @@ def main() -> None:
         )
 
         # vdl2 receiver liveness (設定されている場合のみ)
+        # VDL2はデータ受信頻度が低いため、長めのタイムアウト（10分）を設定
         vdl2_file = config["liveness"]["file"]["receiver"].get("vdl2")
         if vdl2_file:
+            vdl2_timeout = max(timeout, 600)  # 最低10分
             targets.append(
                 HealthzTarget(
                     name="vdl2",
                     liveness_file=pathlib.Path(vdl2_file),
-                    interval=timeout,
+                    interval=vdl2_timeout,
                 )
             )
 
