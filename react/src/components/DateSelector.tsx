@@ -494,7 +494,7 @@ const DateSelector: React.FC<DateSelectorProps> = ({
       )}
       </div>
 
-      <div className="mb-5" id="altitude-selector">
+      <div className="mt-8 mb-5" id="altitude-selector">
         <div className={styles.sectionHeader}>
           <h2 className="text-2xl font-semibold whitespace-nowrap">
             <MountainIcon className="w-6 h-6 inline-block mr-2" />
