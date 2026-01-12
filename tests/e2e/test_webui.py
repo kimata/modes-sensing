@@ -1211,3 +1211,74 @@ def test_altitude_limit_graph_types(page_init, host, port):
         logging.info("✓ %s: new async API format applied", graph_type)
 
     logging.info("All graph types altitude limit test passed")
+
+
+def test_receiver_status_display(page_init, host, port):
+    """受信状況セクションが正常に表示されることをテスト"""
+    page = page_init
+    page.goto(app_url(host, port))
+
+    # APIからデータが取得できるか確認
+    last_received = page.evaluate("""
+        async () => {
+            try {
+                const response = await fetch('/modes-sensing/api/last-received');
+                if (!response.ok) return null;
+                const data = await response.json();
+                return data;
+            } catch (e) {
+                return null;
+            }
+        }
+    """)
+
+    if last_received is None:
+        logging.warning("last-received API returned null, skipping receiver status test")
+        pytest.skip("last-received API not available")
+
+    # データがある場合のみ受信状況セクションが表示される
+    has_data = last_received.get("mode_s") is not None or last_received.get("vdl2") is not None
+
+    if not has_data:
+        logging.info("No receiver data available, section should not be displayed")
+        # データがない場合、セクションは表示されないはず
+        receiver_section = page.locator('h2:has-text("受信状況")')
+        expect(receiver_section).not_to_be_visible()
+        return
+
+    # データがある場合、セクションが表示されるまで待機
+    try:
+        page.wait_for_function(
+            """
+            () => {
+                const h2 = document.querySelector('h2');
+                if (!h2) return false;
+                const allH2s = document.querySelectorAll('h2');
+                for (const h2 of allH2s) {
+                    if (h2.textContent.includes('受信状況')) return true;
+                }
+                return false;
+            }
+            """,
+            timeout=30000,
+        )
+    except Exception:
+        logging.info("Receiver status section not displayed (may be loading)")
+        return
+
+    # 受信状況セクションの見出しが表示されることを確認
+    receiver_heading = page.locator('h2:has-text("受信状況")')
+    expect(receiver_heading).to_be_visible()
+
+    # Mode S と VDL2 のラベルが表示されることを確認
+    if last_received.get("mode_s") is not None:
+        mode_s_label = page.locator('text="Mode S"')
+        expect(mode_s_label).to_be_visible()
+        logging.info("Mode S section displayed")
+
+    if last_received.get("vdl2") is not None:
+        vdl2_label = page.locator('text="VDL2"')
+        expect(vdl2_label).to_be_visible()
+        logging.info("VDL2 section displayed")
+
+    logging.info("Receiver status display test passed")

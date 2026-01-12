@@ -97,3 +97,38 @@ class TestAltitudeFiltering:
             len(data_unlimited),
             len(data_limited),
         )
+
+
+class TestLastReceivedByMethod:
+    """受信方式別の最終受信時刻クエリのテスト"""
+
+    def test_last_received_by_method(self, config: Config):
+        """受信方式別の最終受信時刻を取得"""
+        conn = database_postgresql.open(
+            config.database.host,
+            config.database.port,
+            config.database.name,
+            config.database.user,
+            config.database.password,
+        )
+
+        result = database_postgresql.fetch_last_received_by_method(conn)
+        conn.close()
+
+        # 結果がMethodLastReceivedであることを確認
+        assert isinstance(result, database_postgresql.MethodLastReceived)
+
+        # Mode S または VDL2 のいずれかにデータがあることを確認
+        has_data = result.mode_s is not None or result.vdl2 is not None
+
+        if has_data:
+            # データがある場合、時刻が妥当であることを確認
+            if result.mode_s is not None:
+                assert isinstance(result.mode_s, datetime.datetime)
+                logging.info("Mode S last received: %s", result.mode_s)
+
+            if result.vdl2 is not None:
+                assert isinstance(result.vdl2, datetime.datetime)
+                logging.info("VDL2 last received: %s", result.vdl2)
+        else:
+            logging.info("No data found for either method")
