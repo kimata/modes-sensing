@@ -57,8 +57,9 @@ function ReceiverStatus() {
     }
   }
 
-  if (error) {
-    return null // エラー時は何も表示しない
+  // エラー時またはデータ未取得時は何も表示しない
+  if (error || !lastReceived) {
+    return null
   }
 
   return (
