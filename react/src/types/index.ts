@@ -12,3 +12,8 @@ export interface SysInfo {
     process_count: number;
     cpu_temperature?: number;
 }
+
+export interface LastReceived {
+    mode_s: string | null;
+    vdl2: string | null;
+}

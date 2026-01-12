@@ -4,6 +4,7 @@ import DateSelector from './components/DateSelector'
 import GraphDisplay from './components/GraphDisplay'
 import Modal from './components/Modal'
 import Footer from './components/Footer'
+import ReceiverStatus from './components/ReceiverStatus'
 import { parseUrlParams, updateUrl, resetUrl, PERIOD_DAYS, type PeriodType } from './hooks/useUrlParams'
 
 interface DataRange {
@@ -245,6 +246,8 @@ function App() {
               })()}
             </p>
           )}
+
+          <ReceiverStatus />
 
           <DateSelector
             startDate={dateRange.start}
