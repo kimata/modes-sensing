@@ -91,6 +91,14 @@ class DataRangeResult:
 
 
 @dataclass(frozen=True)
+class MethodLastReceived:
+    """受信方式別の最終受信時刻"""
+
+    mode_s: datetime.datetime | None
+    vdl2: datetime.datetime | None
+
+
+@dataclass(frozen=True)
 class AggregationLevel:
     """集約レベルの設定"""
 
@@ -947,6 +955,48 @@ def fetch_data_range(conn: PgConnection) -> DataRangeResult:
     else:
         # データがない場合
         return DataRangeResult(earliest=None, latest=None, count=0)
+
+
+def fetch_last_received_by_method(conn: PgConnection) -> MethodLastReceived:
+    """
+    受信方式（Mode S / VDL2）別の最終受信時刻を取得する
+
+    Args:
+        conn: データベース接続
+
+    Returns:
+        MethodLastReceived: mode_s, vdl2 の最終受信時刻
+
+    """
+    query = """
+    SELECT
+        method,
+        MAX(time) as last_received
+    FROM meteorological_data
+    WHERE method IN ('mode-s', 'vdl2')
+    GROUP BY method
+    """
+
+    start = time.perf_counter()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(query)
+        results = cur.fetchall()
+
+    logging.info(
+        "Elapsed time: %.2f sec (last received by method query)",
+        time.perf_counter() - start,
+    )
+
+    mode_s_time = None
+    vdl2_time = None
+
+    for row in results:
+        if row["method"] == "mode-s":
+            mode_s_time = row["last_received"]
+        elif row["method"] == "vdl2":
+            vdl2_time = row["last_received"]
+
+    return MethodLastReceived(mode_s=mode_s_time, vdl2=vdl2_time)
 
 
 def get_aggregation_level(days: float) -> AggregationLevel:

@@ -2205,6 +2205,36 @@ def data_range():
         return flask.jsonify({"error": "データ範囲の取得に失敗しました", "details": str(e)}), 500
 
 
+@blueprint.route("/api/last-received", methods=["GET"])
+def last_received():
+    """受信方式別の最終受信時刻を返すAPI"""
+    try:
+        config = flask.current_app.config["CONFIG"]
+        conn = _connect_database(config)
+
+        result = amdar.database.postgresql.fetch_last_received_by_method(conn)
+        conn.close()
+
+        def format_datetime(dt: datetime.datetime | None) -> str | None:
+            if dt is None:
+                return None
+            # タイムゾーン情報がない場合はJSTとして扱う
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=my_lib.time.get_zoneinfo())
+            return dt.isoformat()
+
+        response_data = {
+            "mode_s": format_datetime(result.mode_s),
+            "vdl2": format_datetime(result.vdl2),
+        }
+
+        return flask.jsonify(response_data)
+
+    except Exception as e:
+        logging.exception("Error fetching last received times")
+        return flask.jsonify({"error": "最終受信時刻の取得に失敗しました", "details": str(e)}), 500
+
+
 @blueprint.route("/api/graph/<path:graph_name>", methods=["GET"])
 def graph(graph_name):
     # デフォルト値を設定
