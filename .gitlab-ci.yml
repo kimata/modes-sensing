@@ -195,7 +195,7 @@ test-playwright:
 
         # E2Eテストは単一サーバーに対して実行するため、並列数を制限
         - >
-            uv run pytest tests/e2e/test_webui.py --no-cov -n 5
+            uv run pytest tests/e2e/test_webui.py --no-cov -n 4
             --junit-xml=reports/playwright-junit.xml
 
     cache:
@@ -308,7 +308,7 @@ test-playwright-docker:
         # Playwrightテストを実行（ホストからポート経由で接続）
         # E2Eテストは単一サーバーに対して実行するため、並列数を制限
         - >
-            uv run pytest tests/e2e/test_webui.py --no-cov -n 5
+            uv run pytest tests/e2e/test_webui.py --no-cov -n 4
             --junit-xml=reports/playwright-docker-junit.xml
             --host ${APP_HOST} --port ${APP_PORT}
 
