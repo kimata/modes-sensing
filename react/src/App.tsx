@@ -247,8 +247,6 @@ function App() {
             </p>
           )}
 
-          <ReceiverStatus />
-
           <DateSelector
             startDate={dateRange.start}
             endDate={dateRange.end}
@@ -260,11 +258,14 @@ function App() {
           />
 
           {isInitialDateRangeSet ? (
-            <GraphDisplay
-              dateRange={dateRange}
-              limitAltitude={limitAltitude}
-              onImageClick={handleImageClick}
-            />
+            <>
+              <GraphDisplay
+                dateRange={dateRange}
+                limitAltitude={limitAltitude}
+                onImageClick={handleImageClick}
+              />
+              <ReceiverStatus />
+            </>
           ) : (
             <div className="mb-5">
               <div className="text-center">

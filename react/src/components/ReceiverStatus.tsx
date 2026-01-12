@@ -62,11 +62,11 @@ function ReceiverStatus() {
   }
 
   return (
-    <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-      <h3 className="text-lg font-medium mb-3 flex items-center">
-        <SignalIcon className="w-5 h-5 mr-2" />
+    <div className="mt-8 mb-5">
+      <h2 className="text-2xl font-semibold whitespace-nowrap mb-4">
+        <SignalIcon className="w-6 h-6 inline-block mr-2" />
         受信状況
-      </h3>
+      </h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {(['mode_s', 'vdl2'] as const).map((key) => {
           const config = RECEIVER_CONFIG[key]
