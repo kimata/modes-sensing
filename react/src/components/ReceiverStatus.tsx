@@ -63,7 +63,7 @@ function ReceiverStatus() {
   }
 
   return (
-    <div className="mt-12 mb-2">
+    <div className="mt-12 mb-0">
       <h2 className="text-2xl font-semibold whitespace-nowrap mb-4">
         <SignalIcon className="w-6 h-6 inline-block mr-2" />
         受信状況

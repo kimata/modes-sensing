@@ -40,7 +40,7 @@ function Footer() {
   }
 
   return (
-    <div className="ml-auto text-right p-2 mt-4" data-testid="footer">
+    <div className="ml-auto text-right p-2 mt-2" data-testid="footer">
       <div className="text-base">
         <p className="text-gray-500 mb-0 text-sm">
           更新日時: {updateTime} (commit: {commitHash})
