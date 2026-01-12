@@ -16,15 +16,14 @@ const RECEIVER_CONFIG = {
   mode_s: {
     label: 'Mode S',
     description: 'ADS-B (1090MHz)',
+    staleThresholdMinutes: 30, // 30分以上更新がない場合は警告
   },
   vdl2: {
     label: 'VDL2',
     description: 'VHF Data Link Mode 2',
+    staleThresholdMinutes: 360, // 6時間以上更新がない場合は警告
   },
 } as const
-
-// 30分以上更新がない場合は警告表示
-const STALE_THRESHOLD_MINUTES = 30
 
 function ReceiverStatus() {
   const [now, setNow] = useState(dayjs())
@@ -41,14 +40,14 @@ function ReceiverStatus() {
     return () => clearInterval(interval)
   }, [])
 
-  const formatTime = (isoString: string | null) => {
+  const formatTime = (isoString: string | null, staleThresholdMinutes: number) => {
     if (!isoString) {
       return { relative: '受信なし', absolute: '', isStale: true, isNever: true }
     }
 
     const time = dayjs(isoString)
     const diffMinutes = now.diff(time, 'minute')
-    const isStale = diffMinutes >= STALE_THRESHOLD_MINUTES
+    const isStale = diffMinutes >= staleThresholdMinutes
 
     return {
       relative: time.fromNow(),
@@ -71,7 +70,7 @@ function ReceiverStatus() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {(['mode_s', 'vdl2'] as const).map((key) => {
           const config = RECEIVER_CONFIG[key]
-          const time = formatTime(lastReceived?.[key] ?? null)
+          const time = formatTime(lastReceived?.[key] ?? null, config.staleThresholdMinutes)
 
           return (
             <div
