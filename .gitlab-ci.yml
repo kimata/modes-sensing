@@ -174,8 +174,7 @@ test-playwright:
         - mv private_font/* font
 
         # Flaskを起動（エラー出力も記録、明示的にポート指定）
-        # TEST=true でマルチプロセス互換モードを有効化（test-playwright-docker と一致させる）
-        - TEST=true uv run amdar-webui -p 5000 > flask_log.txt 2>&1 &
+        - uv run amdar-webui -p 5000 > flask_log.txt 2>&1 &
         - "sleep 10"
 
         - uv run playwright install --with-deps chromium
@@ -275,7 +274,7 @@ test-playwright-docker:
         - >
             docker run --rm --detach=true
             --name ${CI_JOB_NAME}-${CI_JOB_ID} --label job=${CI_PROJECT_NAME}-${CI_JOB_NAME}
-            --network ${DOCKER_NETWORK} --publish :5000 --env TEST=true
+            --network ${DOCKER_NETWORK} --publish :5000
             ${CI_REGISTRY_IMAGE}:${TAG}
             python -m amdar.cli_webui
 
