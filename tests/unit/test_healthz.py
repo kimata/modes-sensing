@@ -1,5 +1,5 @@
 # ruff: noqa: S101
-"""cli_healthz.py のユニットテスト"""
+"""cli/healthz.py のユニットテスト"""
 
 import pathlib
 import tempfile
@@ -9,7 +9,7 @@ import unittest.mock
 import my_lib.footprint
 from my_lib.healthz import HealthzTarget
 
-import amdar.cli_healthz as healthz
+import amdar.cli.healthz as healthz
 
 
 class TestCheckLiveness:
@@ -17,8 +17,9 @@ class TestCheckLiveness:
 
     def test_empty_targets_returns_true(self):
         """ターゲットが空の場合は True を返す"""
-        result = healthz.check_liveness([])
-        assert result is True
+        success, failed_target = healthz.check_liveness([])
+        assert success is True
+        assert failed_target is None
 
     def test_single_target_liveness_ok(self):
         """単一ターゲットが生存している場合"""
@@ -33,8 +34,9 @@ class TestCheckLiveness:
                 interval=3600,  # 1時間
             )
 
-            result = healthz.check_liveness([target])
-            assert result is True
+            success, failed_target = healthz.check_liveness([target])
+            assert success is True
+            assert failed_target is None
 
     def test_single_target_liveness_expired(self):
         """単一ターゲットの liveness が期限切れの場合"""
@@ -50,8 +52,9 @@ class TestCheckLiveness:
                 interval=3600,  # 1時間
             )
 
-            result = healthz.check_liveness([target])
-            assert result is False
+            success, failed_target = healthz.check_liveness([target])
+            assert success is False
+            assert failed_target == "test"
 
     def test_single_target_file_not_exists(self):
         """Liveness ファイルが存在しない場合"""
@@ -61,8 +64,9 @@ class TestCheckLiveness:
             interval=3600,
         )
 
-        result = healthz.check_liveness([target])
-        assert result is False
+        success, failed_target = healthz.check_liveness([target])
+        assert success is False
+        assert failed_target == "test"
 
     def test_multiple_targets_all_ok(self):
         """複数ターゲットが全て生存している場合"""
@@ -77,8 +81,9 @@ class TestCheckLiveness:
                 HealthzTarget(name="receiver", liveness_file=liveness_file2, interval=3600),
             ]
 
-            result = healthz.check_liveness(targets)
-            assert result is True
+            success, failed_target = healthz.check_liveness(targets)
+            assert success is True
+            assert failed_target is None
 
     def test_multiple_targets_one_failed(self):
         """複数ターゲットのうち1つが失敗している場合"""
@@ -95,8 +100,9 @@ class TestCheckLiveness:
                 ),
             ]
 
-            result = healthz.check_liveness(targets)
-            assert result is False
+            success, failed_target = healthz.check_liveness(targets)
+            assert success is False
+            assert failed_target == "receiver"
 
     def test_with_port_check_success(self):
         """ポートチェックが成功する場合"""
@@ -111,8 +117,9 @@ class TestCheckLiveness:
                     interval=3600,
                 )
 
-                result = healthz.check_liveness([target], port=5000)
-                assert result is True
+                success, failed_target = healthz.check_liveness([target], port=5000)
+                assert success is True
+                assert failed_target is None
 
     def test_with_port_check_failure(self):
         """ポートチェックが失敗する場合"""
@@ -127,8 +134,9 @@ class TestCheckLiveness:
                     interval=3600,
                 )
 
-                result = healthz.check_liveness([target], port=5000)
-                assert result is False
+                success, failed_target = healthz.check_liveness([target], port=5000)
+                assert success is False
+                assert failed_target == "http_port"
 
     def test_liveness_ok_but_port_check_failure(self):
         """Liveness は OK だがポートチェックが失敗する場合"""
@@ -143,8 +151,9 @@ class TestCheckLiveness:
                     interval=3600,
                 )
 
-                result = healthz.check_liveness([target], port=8080)
-                assert result is False
+                success, failed_target = healthz.check_liveness([target], port=8080)
+                assert success is False
+                assert failed_target == "http_port"
 
 
 class TestHealthzIntegration:

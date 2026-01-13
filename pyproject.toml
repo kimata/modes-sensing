@@ -25,8 +25,8 @@ dependencies = [
 
 [project.scripts]
 amdar = "amdar.__main__:main"
-amdar-webui = "amdar.cli_webui:main"
-amdar-healthz = "amdar.cli_healthz:main"
+amdar-webui = "amdar.cli.webui:main"
+amdar-healthz = "amdar.cli.healthz:main"
 
 [dependency-groups]
 dev = [

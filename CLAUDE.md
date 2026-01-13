@@ -24,9 +24,10 @@ src/
 ├── collect_vdl2.py             # VDL2 のみ収集（デバッグ用）
 └── amdar/
     ├── __main__.py             # amdar コマンド
-    ├── cli_collect.py          # amdar エントリポイント実装 (Mode S + VDL2 統合収集)
-    ├── cli_webui.py            # amdar-webui (Flask Web サーバー)
-    ├── cli_healthz.py          # amdar-healthz (ヘルスチェック)
+    ├── cli/
+    │   ├── collect.py          # amdar エントリポイント実装 (Mode S + VDL2 統合収集)
+    │   ├── webui.py            # amdar-webui (Flask Web サーバー)
+    │   └── healthz.py          # amdar-healthz (ヘルスチェック + Slack 通知)
     ├── config.py               # 設定管理（dataclass ベース）
     ├── sources/
     │   ├── modes/receiver.py   # Mode S 受信・デコード

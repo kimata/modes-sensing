@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # ruff: noqa: S101
 """
-cli_webui.py のテスト
+cli/webui.py のテスト
 """
 
 import signal
@@ -9,7 +9,7 @@ import unittest.mock
 
 import pytest
 
-import amdar.cli_webui as webui
+import amdar.cli.webui as webui
 
 
 class TestCreateApp:
