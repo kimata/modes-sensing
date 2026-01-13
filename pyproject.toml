@@ -13,7 +13,7 @@ dependencies = [
     # NOTE: これがないと pyModeS が古い pyzmq をインストールしようとして、Python 12 以降でエラーになる
     "pyzmq>=27.0.0",
     "pymodes @ git+https://github.com/junzis/pyModeS@v2.21.1",
-    "my-lib @ git+https://github.com/kimata/my-py-lib@524bede63abb4fe859e69f14630937ad83aa8a37",
+    "my-lib @ git+https://github.com/kimata/my-py-lib@c341c8c04e0ee34c1a2cfbd0ef60b064b089fa50",
     "psycopg2-binary>=2.9.0",
     "numpy>=1.24.0",
     "scikit-learn>=1.3.0",
@@ -46,6 +46,7 @@ dev = [
     "types-pytz>=2025.2.0",
     "types-paramiko>=4.0.0",
     "types-pyyaml>=6.0.12",
+    "types-requests>=2.32.0",
 ]
 
 [tool.uv]
