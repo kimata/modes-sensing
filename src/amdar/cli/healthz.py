@@ -12,7 +12,6 @@ Options:
   -D                : デバッグモードで動作します。
 """
 
-import collections
 import logging
 import pathlib
 from datetime import datetime
@@ -26,7 +25,6 @@ import amdar.config
 
 _SCHEMA_CONFIG = "config.schema"
 _CONTAINER_STARTUP_GRACE_PERIOD = 120  # コンテナ起動後の猶予期間（秒）
-_LOG_TAIL_LINES = 50  # エラー通知に含めるログの行数
 
 
 def _get_timeout_for_now(schedule: amdar.config.LivenessScheduleConfig) -> int:
@@ -47,45 +45,15 @@ def _get_timeout_for_now(schedule: amdar.config.LivenessScheduleConfig) -> int:
     return schedule.nighttime_timeout_sec
 
 
-def _get_recent_logs(log_file: pathlib.Path, lines: int = _LOG_TAIL_LINES) -> str:
-    """ログファイルから最新の指定行数を取得する.
-
-    Args:
-        log_file: ログファイルのパス
-        lines: 取得する行数
-
-    Returns:
-        ログの内容。ファイルが存在しない場合は空文字列。
-
-    """
-    if not log_file.exists():
-        return "(log file not found)"
-
-    try:
-        with log_file.open(encoding="utf-8", errors="replace") as f:
-            recent_lines = collections.deque(f, maxlen=lines)
-            return "".join(recent_lines)
-    except Exception:
-        logging.exception("Failed to read log file")
-        return "(failed to read log file)"
-
-
 def _notify_error(
     slack_config: my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.SlackEmptyConfig,
     message: str,
-    log_file: pathlib.Path | None = None,
 ) -> None:
     """Slack でエラー通知を送信する."""
-    if log_file is not None:
-        recent_logs = _get_recent_logs(log_file)
-        full_message = f"{message}\n\n*Recent logs:*\n```\n{recent_logs}\n```"
-    else:
-        full_message = message
-
     my_lib.notify.slack.error(
         slack_config,
         "modes-sensing Liveness Check Failed",
-        full_message,
+        message,
     )
 
 
