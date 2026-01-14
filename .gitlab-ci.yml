@@ -86,50 +86,10 @@ build-image:
     # after_script:
     #     - docker buildx rm ${BUILDER} || true
 
-test-prepare:
-    stage: build
-
-    needs: []
-
-    script:
-        - uv sync --locked --no-editable
-
-        - |
-            now=$(date +%s)
-            threshold=$((60*60*24))  # 24時間
-
-            for net in $(docker network ls --format '{{.Name}}'); do
-                if [[ "$net" == "bridge" || "$net" == "host" || "$net" == "none" ]]; then
-                    continue
-                fi
-
-                attached=$(docker network inspect "$net" --format '{{json .Containers}}')
-                if [[ "$attached" != "{}" ]]; then
-                    continue
-                fi
-
-                created=$(docker network inspect "$net" --format '{{.Created}}')
-                created_fixed=$(echo "$created" | sed -E 's/\.[0-9]+//; s/ [A-Z]+$//')
-                created_ts=$(date --date="$created_fixed" +%s)
-
-                if [[ -n "$created_ts" && $((now - created_ts)) -gt $threshold ]]; then
-                    echo "Removing unused network: $net (created at $created)"
-                    docker network rm "$net" || true
-                fi
-            done
-
-    cache:
-        - key:
-              files:
-                  - uv.lock
-          paths:
-              - ${UV_CACHE_DIR}
-
 test-typecheck:
     stage: test
 
-    needs:
-        - test-prepare
+    needs: []
 
     script:
         - uv run python -m pyright
@@ -145,8 +105,7 @@ test-typecheck:
 test-walk-through:
     stage: test
 
-    needs:
-        - test-prepare
+    needs: []
 
     script:
         - uv run pytest --numprocesses=auto --junit-xml=reports/junit-report.xml tests/unit
@@ -168,7 +127,6 @@ test-playwright:
 
     needs:
         - build-react
-        - test-prepare
 
     script:
         - git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.green-rabbit.net/kimata/sense-config.git
@@ -220,7 +178,6 @@ test-docker:
     needs:
         - generate-tag
         - build-image
-        - test-prepare
 
     script:
         # クリーンアップ: 古いコンテナを停止
@@ -252,7 +209,6 @@ test-playwright-docker:
     needs:
         - generate-tag
         - build-image
-        - test-prepare
 
     script:
         # クリーンアップ: 古いコンテナを停止
