@@ -25,7 +25,7 @@ import amdar.config
 
 _SCHEMA_CONFIG = "config.schema"
 _CONTAINER_STARTUP_GRACE_PERIOD = 120  # コンテナ起動後の猶予期間（秒）
-_VDL2_STARTUP_GRACE_PERIOD = 2 * 60 * 60  # VDL2 用の猶予期間（2時間）
+_VDL2_STARTUP_GRACE_PERIOD = 10 * 60 * 60  # VDL2 用の猶予期間（10時間）
 
 
 def _get_timeout_for_now(schedule: amdar.config.LivenessScheduleConfig) -> int:

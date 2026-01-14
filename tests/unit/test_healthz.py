@@ -193,8 +193,8 @@ class TestGracePeriod:
     """Grace period のテスト"""
 
     def test_vdl2_uses_longer_grace_period(self):
-        """VDL2 は 2時間の grace period を使用する"""
-        assert healthz._VDL2_STARTUP_GRACE_PERIOD == 2 * 60 * 60  # 2時間
+        """VDL2 は 10時間の grace period を使用する"""
+        assert healthz._VDL2_STARTUP_GRACE_PERIOD == 10 * 60 * 60  # 10時間
 
     def test_default_grace_period(self):
         """デフォルトの grace period は 120秒"""
@@ -202,7 +202,7 @@ class TestGracePeriod:
 
     def test_vdl2_failure_within_grace_period_no_notification(self, config: Any):
         """VDL2 が grace period 内に失敗しても通知しない"""
-        # uptime (1時間) < VDL2 grace period (2時間) なので通知されない
+        # uptime (1時間) < VDL2 grace period (10時間) なので通知されない
         with (
             unittest.mock.patch.object(healthz, "check_liveness", return_value=(False, "vdl2")),
             unittest.mock.patch("my_lib.container_util.get_uptime", return_value=3600.0),  # 1時間
@@ -220,10 +220,10 @@ class TestGracePeriod:
 
     def test_vdl2_failure_after_grace_period_sends_notification(self, config: Any):
         """VDL2 が grace period を超えて失敗したら通知する"""
-        # uptime (3時間) > VDL2 grace period (2時間) なので通知される
+        # uptime (11時間) > VDL2 grace period (10時間) なので通知される
         with (
             unittest.mock.patch.object(healthz, "check_liveness", return_value=(False, "vdl2")),
-            unittest.mock.patch("my_lib.container_util.get_uptime", return_value=3 * 60 * 60),  # 3時間
+            unittest.mock.patch("my_lib.container_util.get_uptime", return_value=11 * 60 * 60),  # 11時間
             unittest.mock.patch.object(healthz, "_notify_error") as mock_notify,
             unittest.mock.patch("sys.exit"),
             unittest.mock.patch(
