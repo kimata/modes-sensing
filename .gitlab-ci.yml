@@ -91,6 +91,9 @@ test-typecheck:
 
     needs: []
 
+    before_script:
+        - uv sync --locked --no-editable
+
     script:
         - uv run python -m pyright
         - uv run mypy src/
@@ -107,6 +110,9 @@ test-walk-through:
     stage: test
 
     needs: []
+
+    before_script:
+        - uv sync --locked --no-editable
 
     script:
         - uv run pytest --numprocesses=auto --junit-xml=reports/junit-report.xml tests/unit
@@ -128,6 +134,9 @@ test-playwright:
 
     needs:
         - build-react
+
+    before_script:
+        - uv sync --locked --no-editable
 
     script:
         - git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.green-rabbit.net/kimata/sense-config.git
