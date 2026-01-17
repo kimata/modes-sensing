@@ -198,7 +198,7 @@ src/
 ```
 
 ```
-react/
+frontend/
 └── src/
     ├── App.tsx                    # メインアプリ
     ├── components/
@@ -229,7 +229,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 
 # React 環境
-cd react && npm ci
+cd frontend && npm ci
 ```
 
 ### 2. デコーダの準備
@@ -319,7 +319,7 @@ liveness:
             timeout_sec: 3600 # 夜間: 1時間タイムアウト
 
 webapp:
-    static_dir_path: react/dist
+    static_dir_path: frontend/dist
     cache_dir_path: cache
 
 slack: # オプション

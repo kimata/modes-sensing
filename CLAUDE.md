@@ -39,7 +39,7 @@ src/
         ├── graph.py            # グラフ生成 API
         └── job_manager.py      # 非同期ジョブ管理
 
-react/                          # React フロントエンド
+frontend/                          # React フロントエンド
 ├── src/
 │   ├── App.tsx                 # メインアプリケーション
 │   ├── components/             # UI コンポーネント
