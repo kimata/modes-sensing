@@ -5,19 +5,37 @@ dumpvdl2 の JSON 出力から気象データを抽出し、WeatherObservation �
 
 from __future__ import annotations
 
+import datetime
 import json
-import math
 import pathlib
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import amdar.sources.modes.receiver
 
+import my_lib.time
+
+import amdar.constants
+import amdar.core.geo
 import amdar.database.postgresql
 from amdar.core.types import WeatherObservation
+
+
+@dataclass
+class ParsedWeatherData:
+    """パーサー関数の共通戻り値型
+
+    各フォーマットのパーサー関数が返す解析結果を統一的に扱う。
+    """
+
+    latitude: float | None = None
+    longitude: float | None = None
+    altitude_ft: int | None = None
+    temperature_c: float | None = None
+    wind_dir_deg: int | None = None
+    wind_speed_kt: int | None = None
 
 
 @dataclass
@@ -26,7 +44,7 @@ class AcarsWeatherData:
 
     flight: str
     reg: str | None
-    timestamp: datetime | None
+    timestamp: datetime.datetime | None
     latitude: float | None  # 度
     longitude: float | None  # 度
     altitude_ft: int | None  # フィート
@@ -40,13 +58,13 @@ class XidLocationData:
     """XID メッセージから抽出した位置・高度データ"""
 
     icao: str  # 航空機アドレス
-    timestamp: datetime | None
+    timestamp: datetime.datetime | None
     latitude: float | None  # 度
     longitude: float | None  # 度
     altitude_ft: int | None  # フィート
 
 
-def _parse_wn_line(msg_text: str) -> dict[str, Any] | None:
+def _parse_wn_line(msg_text: str) -> ParsedWeatherData | None:
     """WN形式の位置報告から気象データを抽出する
 
     フォーマット例:
@@ -124,17 +142,17 @@ def _parse_wn_line(msg_text: str) -> dict[str, Any] | None:
     wind_dir = int(pattern.group(7))
     wind_speed = int(pattern.group(8))
 
-    return {
-        "latitude": lat,
-        "longitude": lon,
-        "altitude_ft": altitude,
-        "temperature_c": temperature,
-        "wind_dir_deg": wind_dir,
-        "wind_speed_kt": wind_speed,
-    }
+    return ParsedWeatherData(
+        latitude=lat,
+        longitude=lon,
+        altitude_ft=altitude,
+        temperature_c=temperature,
+        wind_dir_deg=wind_dir,
+        wind_speed_kt=wind_speed,
+    )
 
 
-def _parse_pntaf_format(msg_text: str) -> dict[str, Any] | None:
+def _parse_pntaf_format(msg_text: str) -> ParsedWeatherData | None:
     """PNTAF形式（JAL等で使用）から気象データを抽出する
 
     フォーマット例:
@@ -199,17 +217,17 @@ def _parse_pntaf_format(msg_text: str) -> dict[str, Any] | None:
     wind_dir = int(pattern.group(9))
     wind_speed = int(pattern.group(10))
 
-    return {
-        "altitude_ft": altitude,
-        "temperature_c": temperature,
-        "wind_dir_deg": wind_dir,
-        "wind_speed_kt": wind_speed,
-        "latitude": lat,
-        "longitude": lon,
-    }
+    return ParsedWeatherData(
+        latitude=lat,
+        longitude=lon,
+        altitude_ft=altitude,
+        temperature_c=temperature,
+        wind_dir_deg=wind_dir,
+        wind_speed_kt=wind_speed,
+    )
 
 
-def _parse_wx_format(msg_text: str) -> dict[str, Any] | None:
+def _parse_wx_format(msg_text: str) -> ParsedWeatherData | None:
     """WX形式（ANA等で使用）から気象データを抽出する
 
     フォーマット例:
@@ -257,17 +275,17 @@ def _parse_wx_format(msg_text: str) -> dict[str, Any] | None:
     # 高度の解析
     altitude = int(pattern.group(7))
 
-    return {
-        "altitude_ft": altitude,
-        "temperature_c": temperature,
-        "wind_dir_deg": None,  # WX形式では風向の解析が複雑
-        "wind_speed_kt": None,
-        "latitude": lat,
-        "longitude": lon,
-    }
+    return ParsedWeatherData(
+        latitude=lat,
+        longitude=lon,
+        altitude_ft=altitude,
+        temperature_c=temperature,
+        wind_dir_deg=None,  # WX形式では風向の解析が複雑
+        wind_speed_kt=None,
+    )
 
 
-def _parse_fl_format(msg_text: str) -> dict[str, Any] | None:
+def _parse_fl_format(msg_text: str) -> ParsedWeatherData | None:
     """FL形式（Flight Level）から高度と温度を抽出する"""
     # FL350 = 35000ft
     fl_match = re.search(r"FL(\d{3})", msg_text)
@@ -285,12 +303,12 @@ def _parse_fl_format(msg_text: str) -> dict[str, Any] | None:
         temp_value = int(temp_match.group(2))
         temperature = -temp_value if temp_sign in ("M", "-") else temp_value
 
-    return {
-        "altitude_ft": altitude,
-        "temperature_c": temperature,
-        "wind_dir_deg": None,
-        "wind_speed_kt": None,
-    }
+    return ParsedWeatherData(
+        altitude_ft=altitude,
+        temperature_c=temperature,
+        wind_dir_deg=None,
+        wind_speed_kt=None,
+    )
 
 
 def parse_acars_weather(json_line: str | bytes) -> AcarsWeatherData | None:
@@ -323,7 +341,7 @@ def parse_acars_weather(json_line: str | bytes) -> AcarsWeatherData | None:
     usec = vdl2.get("t", {}).get("usec", 0)
     timestamp = None
     if sec:
-        timestamp = datetime.fromtimestamp(sec + usec / 1e6, tz=UTC)
+        timestamp = datetime.datetime.fromtimestamp(sec + usec / 1e6, tz=datetime.UTC)
 
     # WN形式を優先的に試す（最も情報量が多い）
     result = _parse_wn_line(msg_text)
@@ -332,12 +350,12 @@ def parse_acars_weather(json_line: str | bytes) -> AcarsWeatherData | None:
             flight=flight,
             reg=reg,
             timestamp=timestamp,
-            latitude=result.get("latitude"),
-            longitude=result.get("longitude"),
-            altitude_ft=result.get("altitude_ft"),
-            temperature_c=result.get("temperature_c"),
-            wind_dir_deg=result.get("wind_dir_deg"),
-            wind_speed_kt=result.get("wind_speed_kt"),
+            latitude=result.latitude,
+            longitude=result.longitude,
+            altitude_ft=result.altitude_ft,
+            temperature_c=result.temperature_c,
+            wind_dir_deg=result.wind_dir_deg,
+            wind_speed_kt=result.wind_speed_kt,
         )
 
     # PNTAF形式を試す（JAL等で使用）
@@ -347,12 +365,12 @@ def parse_acars_weather(json_line: str | bytes) -> AcarsWeatherData | None:
             flight=flight,
             reg=reg,
             timestamp=timestamp,
-            latitude=result.get("latitude"),
-            longitude=result.get("longitude"),
-            altitude_ft=result.get("altitude_ft"),
-            temperature_c=result.get("temperature_c"),
-            wind_dir_deg=result.get("wind_dir_deg"),
-            wind_speed_kt=result.get("wind_speed_kt"),
+            latitude=result.latitude,
+            longitude=result.longitude,
+            altitude_ft=result.altitude_ft,
+            temperature_c=result.temperature_c,
+            wind_dir_deg=result.wind_dir_deg,
+            wind_speed_kt=result.wind_speed_kt,
         )
 
     # WX形式を試す（ANA等で使用）
@@ -364,27 +382,27 @@ def parse_acars_weather(json_line: str | bytes) -> AcarsWeatherData | None:
     #         flight=flight,
     #         reg=reg,
     #         timestamp=timestamp,
-    #         latitude=result.get("latitude"),
-    #         longitude=result.get("longitude"),
-    #         altitude_ft=result.get("altitude_ft"),
-    #         temperature_c=result.get("temperature_c"),
-    #         wind_dir_deg=result.get("wind_dir_deg"),
-    #         wind_speed_kt=result.get("wind_speed_kt"),
+    #         latitude=result.latitude,
+    #         longitude=result.longitude,
+    #         altitude_ft=result.altitude_ft,
+    #         temperature_c=result.temperature_c,
+    #         wind_dir_deg=result.wind_dir_deg,
+    #         wind_speed_kt=result.wind_speed_kt,
     #     )
 
     # FL形式を試す
     result = _parse_fl_format(msg_text)
-    if result and result["altitude_ft"]:
+    if result and result.altitude_ft:
         return AcarsWeatherData(
             flight=flight,
             reg=reg,
             timestamp=timestamp,
             latitude=None,
             longitude=None,
-            altitude_ft=result.get("altitude_ft"),
-            temperature_c=result.get("temperature_c"),
-            wind_dir_deg=result.get("wind_dir_deg"),
-            wind_speed_kt=result.get("wind_speed_kt"),
+            altitude_ft=result.altitude_ft,
+            temperature_c=result.temperature_c,
+            wind_dir_deg=result.wind_dir_deg,
+            wind_speed_kt=result.wind_speed_kt,
         )
 
     return None
@@ -394,7 +412,7 @@ def convert_to_measurement_data(
     acars: AcarsWeatherData,
     ref_lat: float,
     ref_lon: float,
-    received_at: datetime | None = None,
+    received_at: datetime.datetime | None = None,
 ) -> amdar.database.postgresql.MeasurementData | None:
     """AcarsWeatherData を MeasurementData に変換する
 
@@ -415,18 +433,12 @@ def convert_to_measurement_data(
         return None
 
     # 受信時刻（VDL2 データ内のタイムスタンプは無視し、受信タイミングを使用）
-    timestamp = received_at if received_at is not None else datetime.now(UTC)
+    timestamp = received_at if received_at is not None else my_lib.time.now()
 
     # 距離計算
     distance = 0.0
     if acars.latitude is not None and acars.longitude is not None:
-        # 簡易的な距離計算（度からの概算）
-        lat_diff = acars.latitude - ref_lat
-        lon_diff = acars.longitude - ref_lon
-        # 緯度1度 ≈ 111km, 経度1度 ≈ 111km * cos(lat)
-        lat_dist = lat_diff * 111.0
-        lon_dist = lon_diff * 111.0 * math.cos(math.radians(ref_lat))
-        distance = math.sqrt(lat_dist**2 + lon_dist**2)
+        distance = amdar.core.geo.simple_distance(acars.latitude, acars.longitude, ref_lat, ref_lon)
 
     # WeatherObservation.from_imperial() を使用して変換
     observation = WeatherObservation.from_imperial(
@@ -439,7 +451,7 @@ def convert_to_measurement_data(
         wind_speed_kt=float(acars.wind_speed_kt) if acars.wind_speed_kt is not None else None,
         wind_direction_deg=float(acars.wind_dir_deg) if acars.wind_dir_deg is not None else None,
         distance=distance,
-        method="vdl2",
+        method=amdar.constants.VDL2_METHOD,
         data_source="acars",
     )
 
@@ -451,7 +463,7 @@ def convert_to_weather_observation(
     acars: AcarsWeatherData,
     ref_lat: float,
     ref_lon: float,
-    received_at: datetime | None = None,
+    received_at: datetime.datetime | None = None,
 ) -> WeatherObservation | None:
     """AcarsWeatherData を WeatherObservation に変換する
 
@@ -471,16 +483,12 @@ def convert_to_weather_observation(
         return None
 
     # 受信時刻（VDL2 データ内のタイムスタンプは無視し、受信タイミングを使用）
-    timestamp = received_at if received_at is not None else datetime.now(UTC)
+    timestamp = received_at if received_at is not None else my_lib.time.now()
 
     # 距離計算
     distance = 0.0
     if acars.latitude is not None and acars.longitude is not None:
-        lat_diff = acars.latitude - ref_lat
-        lon_diff = acars.longitude - ref_lon
-        lat_dist = lat_diff * 111.0
-        lon_dist = lon_diff * 111.0 * math.cos(math.radians(ref_lat))
-        distance = math.sqrt(lat_dist**2 + lon_dist**2)
+        distance = amdar.core.geo.simple_distance(acars.latitude, acars.longitude, ref_lat, ref_lon)
 
     return WeatherObservation.from_imperial(
         timestamp=timestamp,
@@ -492,7 +500,7 @@ def convert_to_weather_observation(
         wind_speed_kt=float(acars.wind_speed_kt) if acars.wind_speed_kt is not None else None,
         wind_direction_deg=float(acars.wind_dir_deg) if acars.wind_dir_deg is not None else None,
         distance=distance,
-        method="vdl2",
+        method=amdar.constants.VDL2_METHOD,
         data_source="acars",
         altitude_source="acars",
     )
@@ -557,7 +565,7 @@ def parse_xid_location(json_line: str | bytes) -> XidLocationData | None:
     usec = t.get("usec", 0)
     timestamp = None
     if sec:
-        timestamp = datetime.fromtimestamp(sec + usec / 1e6, tz=UTC)
+        timestamp = datetime.datetime.fromtimestamp(sec + usec / 1e6, tz=datetime.UTC)
 
     return XidLocationData(
         icao=icao,

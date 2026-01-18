@@ -19,7 +19,14 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import TypedDict
+
+from amdar.constants import (
+    JOB_CLEANUP_INTERVAL_SECONDS,
+    JOB_EXPIRY_SECONDS,
+    JOB_TIMEOUT_SECONDS,
+    GraphName,
+)
 
 
 class JobStatus(Enum):
@@ -32,12 +39,24 @@ class JobStatus(Enum):
     TIMEOUT = "timeout"  # タイムアウト
 
 
+class JobStatusDict(TypedDict):
+    """API レスポンス用ジョブステータス"""
+
+    job_id: str
+    status: str
+    progress: int
+    graph_name: str
+    error: str | None
+    elapsed_seconds: float | None
+    stage: str | None
+
+
 @dataclass
 class Job:
     """ジョブ情報"""
 
     job_id: str
-    graph_name: str
+    graph_name: GraphName
     time_start: datetime.datetime
     time_end: datetime.datetime
     limit_altitude: bool
@@ -70,11 +89,6 @@ class JobManager:
     _jobs_lock: threading.RLock
     _cleanup_started: bool
 
-    # 設定
-    JOB_EXPIRY_SECONDS = 1800  # 30分後に結果を削除（長時間ジョブ対応）
-    CLEANUP_INTERVAL = 60  # 1分ごとにクリーンアップ
-    JOB_TIMEOUT_SECONDS = 1200  # 20分でジョブをタイムアウトとみなす（半年分のグラフ対応）
-
     def __new__(cls) -> JobManager:
         if cls._instance is None:
             with cls._lock:
@@ -96,7 +110,7 @@ class JobManager:
 
     def create_job(
         self,
-        graph_name: str,
+        graph_name: GraphName,
         time_start: datetime.datetime,
         time_end: datetime.datetime,
         limit_altitude: bool,
@@ -200,7 +214,7 @@ class JobManager:
                     job.stage,
                 )
 
-    def get_job_status_dict(self, job_id: str) -> dict[str, Any] | None:
+    def get_job_status_dict(self, job_id: str) -> JobStatusDict | None:
         """
         ジョブステータスを辞書形式で取得（API用）
 
@@ -238,7 +252,7 @@ class JobManager:
             for job in self._jobs.values():
                 if job.status in (JobStatus.PENDING, JobStatus.PROCESSING):
                     elapsed = current_time - job.created_at
-                    if elapsed > self.JOB_TIMEOUT_SECONDS:
+                    if elapsed > JOB_TIMEOUT_SECONDS:
                         job.status = JobStatus.TIMEOUT
                         job.completed_at = current_time
                         job.error = f"Job timed out after {elapsed:.0f} seconds"
@@ -253,7 +267,7 @@ class JobManager:
             expired_ids = [
                 job_id
                 for job_id, job in self._jobs.items()
-                if job.completed_at and (current_time - job.completed_at) > self.JOB_EXPIRY_SECONDS
+                if job.completed_at and (current_time - job.completed_at) > JOB_EXPIRY_SECONDS
             ]
             for job_id in expired_ids:
                 del self._jobs[job_id]
@@ -266,7 +280,7 @@ class JobManager:
 
         def cleanup_loop() -> None:
             while True:
-                time.sleep(self.CLEANUP_INTERVAL)
+                time.sleep(JOB_CLEANUP_INTERVAL_SECONDS)
                 try:
                     self._cleanup_old_jobs()
                 except Exception:

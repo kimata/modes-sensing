@@ -11,7 +11,9 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING
+
+from amdar.constants import GraphName
 
 if TYPE_CHECKING:
     import pathlib
@@ -129,7 +131,7 @@ def _get_duration_bucket(hours: float) -> int:
     return 8760
 
 
-def _get_default_generation_time(graph_name: str, duration_hours: float, limit_altitude: bool) -> float:
+def _get_default_generation_time(graph_name: GraphName, duration_hours: float, limit_altitude: bool) -> float:
     """デフォルトの推定生成時間を取得"""
     bucket = _get_duration_bucket(duration_hours)
     key = (graph_name, bucket, limit_altitude)
@@ -152,7 +154,7 @@ class GenerationTimeHistory:
     _cache_file: pathlib.Path | None
     _initialized: bool
 
-    def __new__(cls) -> Self:
+    def __new__(cls) -> GenerationTimeHistory:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -162,7 +164,8 @@ class GenerationTimeHistory:
                     instance._cache_file = None
                     instance._initialized = False
                     cls._instance = instance
-        return cls._instance  # type: ignore[return-value]
+        assert cls._instance is not None  # noqa: S101 (シングルトンパターン)
+        return cls._instance
 
     def initialize(self, cache_dir: pathlib.Path) -> None:
         """キャッシュディレクトリを設定し、履歴を読み込む"""
@@ -178,7 +181,7 @@ class GenerationTimeHistory:
             self._initialized = True
             logging.info("GenerationTimeHistory initialized: %s", self._cache_file)
 
-    def _make_key(self, graph_name: str, duration_hours: float, limit_altitude: bool) -> str:
+    def _make_key(self, graph_name: GraphName, duration_hours: float, limit_altitude: bool) -> str:
         """履歴キーを生成"""
         bucket = _get_duration_bucket(duration_hours)
         return f"{graph_name}|{bucket}|{str(limit_altitude).lower()}"
@@ -208,7 +211,7 @@ class GenerationTimeHistory:
         except Exception as e:
             logging.warning("Failed to save generation time history: %s", e)
 
-    def get_estimated_time(self, graph_name: str, duration_hours: float, limit_altitude: bool) -> float:
+    def get_estimated_time(self, graph_name: GraphName, duration_hours: float, limit_altitude: bool) -> float:
         """推定生成時間を取得
 
         履歴があればその値を、なければデフォルト値を返す。
@@ -221,7 +224,9 @@ class GenerationTimeHistory:
 
         return _get_default_generation_time(graph_name, duration_hours, limit_altitude)
 
-    def record(self, graph_name: str, duration_hours: float, limit_altitude: bool, elapsed: float) -> None:
+    def record(
+        self, graph_name: GraphName, duration_hours: float, limit_altitude: bool, elapsed: float
+    ) -> None:
         """生成時間を記録"""
         if elapsed <= 0:
             return

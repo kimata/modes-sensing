@@ -10,6 +10,7 @@ import time
 import pytest
 
 import amdar.viewer.api.job_manager as job_manager
+from amdar.constants import JOB_EXPIRY_SECONDS, JOB_TIMEOUT_SECONDS
 
 
 class TestJobStatus:
@@ -254,7 +255,7 @@ class TestJobManager:
         manager.update_status(job_id, job_manager.JobStatus.COMPLETED)
         job = manager.get_job(job_id)
         # 時間を過去に設定
-        job.completed_at = time.time() - manager.JOB_EXPIRY_SECONDS - 1
+        job.completed_at = time.time() - JOB_EXPIRY_SECONDS - 1
 
         manager._cleanup_old_jobs()
 
@@ -272,7 +273,7 @@ class TestJobManager:
 
         # 作成時間を過去に設定
         job = manager.get_job(job_id)
-        job.created_at = time.time() - manager.JOB_TIMEOUT_SECONDS - 1
+        job.created_at = time.time() - JOB_TIMEOUT_SECONDS - 1
 
         manager._cleanup_old_jobs()
 

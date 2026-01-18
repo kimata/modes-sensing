@@ -33,12 +33,12 @@ class TestParseWnLine:
         result = _parse_wn_line(msg)
 
         assert result is not None
-        assert result["latitude"] == pytest.approx(35.123, abs=0.001)
-        assert result["longitude"] == pytest.approx(136.555, abs=0.001)
-        assert result["altitude_ft"] == 24008
-        assert result["temperature_c"] == -33
-        assert result["wind_dir_deg"] == 260
-        assert result["wind_speed_kt"] == 81
+        assert result.latitude == pytest.approx(35.123, abs=0.001)
+        assert result.longitude == pytest.approx(136.555, abs=0.001)
+        assert result.altitude_ft == 24008
+        assert result.temperature_c == -33
+        assert result.wind_dir_deg == 260
+        assert result.wind_speed_kt == 81
 
     def test_parse_wn_pattern2(self) -> None:
         """パターン2（スペース区切り風速）のパース"""
@@ -47,12 +47,12 @@ class TestParseWnLine:
         result = _parse_wn_line(msg)
 
         assert result is not None
-        assert result["latitude"] == pytest.approx(34.514, abs=0.001)
-        assert result["longitude"] == pytest.approx(137.290, abs=0.001)
-        assert result["altitude_ft"] == 39998
-        assert result["temperature_c"] == -48
-        assert result["wind_dir_deg"] == 258
-        assert result["wind_speed_kt"] == 119
+        assert result.latitude == pytest.approx(34.514, abs=0.001)
+        assert result.longitude == pytest.approx(137.290, abs=0.001)
+        assert result.altitude_ft == 39998
+        assert result.temperature_c == -48
+        assert result.wind_dir_deg == 258
+        assert result.wind_speed_kt == 119
 
     def test_parse_wn_no_match(self) -> None:
         """WN形式でないメッセージ"""
@@ -67,12 +67,12 @@ class TestParseWnLine:
         result = _parse_wn_line(msg)
 
         assert result is not None
-        assert result["latitude"] == pytest.approx(35.050, abs=0.001)
-        assert result["longitude"] == pytest.approx(136.551, abs=0.001)
-        assert result["altitude_ft"] == 18002
-        assert result["temperature_c"] == -24
-        assert result["wind_dir_deg"] == 291
-        assert result["wind_speed_kt"] == 44
+        assert result.latitude == pytest.approx(35.050, abs=0.001)
+        assert result.longitude == pytest.approx(136.551, abs=0.001)
+        assert result.altitude_ft == 18002
+        assert result.temperature_c == -24
+        assert result.wind_dir_deg == 291
+        assert result.wind_speed_kt == 44
 
 
 class TestParsePntafFormat:
@@ -84,11 +84,11 @@ class TestParsePntafFormat:
         result = _parse_pntaf_format(msg)
 
         assert result is not None
-        assert result["latitude"] == pytest.approx(34.571, abs=0.001)
-        assert result["longitude"] == pytest.approx(137.256, abs=0.001)
-        assert result["temperature_c"] == -34
-        assert result["wind_dir_deg"] == 258
-        assert result["wind_speed_kt"] == 69
+        assert result.latitude == pytest.approx(34.571, abs=0.001)
+        assert result.longitude == pytest.approx(137.256, abs=0.001)
+        assert result.temperature_c == -34
+        assert result.wind_dir_deg == 258
+        assert result.wind_speed_kt == 69
 
     def test_parse_pntaf_pattern2(self) -> None:
         """パターン2（連続形式）のパース"""
@@ -96,9 +96,9 @@ class TestParsePntafFormat:
         result = _parse_pntaf_format(msg)
 
         assert result is not None
-        assert result["latitude"] == pytest.approx(35.053, abs=0.001)
-        assert result["longitude"] == pytest.approx(137.022, abs=0.001)
-        assert result["altitude_ft"] == 41000  # FL410
+        assert result.latitude == pytest.approx(35.053, abs=0.001)
+        assert result.longitude == pytest.approx(137.022, abs=0.001)
+        assert result.altitude_ft == 41000  # FL410
 
     def test_parse_pntaf_no_match(self) -> None:
         """PNTAF形式でないメッセージ"""
@@ -116,10 +116,10 @@ class TestParseWxFormat:
         result = _parse_wx_format(msg)
 
         assert result is not None
-        assert result["latitude"] == pytest.approx(35.302, abs=0.001)
-        assert result["longitude"] == pytest.approx(136.306, abs=0.001)
-        assert result["temperature_c"] == -43
-        assert result["altitude_ft"] == 24003
+        assert result.latitude == pytest.approx(35.302, abs=0.001)
+        assert result.longitude == pytest.approx(136.306, abs=0.001)
+        assert result.temperature_c == -43
+        assert result.altitude_ft == 24003
 
     def test_parse_wx_no_match(self) -> None:
         """WX形式でないメッセージ"""
@@ -137,8 +137,8 @@ class TestParseFlFormat:
         result = _parse_fl_format(msg)
 
         assert result is not None
-        assert result["altitude_ft"] == 35000
-        assert result["temperature_c"] == -45
+        assert result.altitude_ft == 35000
+        assert result.temperature_c == -45
 
     def test_parse_fl_slash_temp(self) -> None:
         """スラッシュ区切り温度のパース"""
@@ -146,8 +146,8 @@ class TestParseFlFormat:
         result = _parse_fl_format(msg)
 
         assert result is not None
-        assert result["altitude_ft"] == 35000
-        assert result["temperature_c"] == -45
+        assert result.altitude_ft == 35000
+        assert result.temperature_c == -45
 
     def test_parse_fl_no_temp(self) -> None:
         """温度なしFL形式のパース"""
@@ -155,8 +155,8 @@ class TestParseFlFormat:
         result = _parse_fl_format(msg)
 
         assert result is not None
-        assert result["altitude_ft"] == 35000
-        assert result["temperature_c"] is None
+        assert result.altitude_ft == 35000
+        assert result.temperature_c is None
 
     def test_parse_fl_no_match(self) -> None:
         """FL形式でないメッセージ"""

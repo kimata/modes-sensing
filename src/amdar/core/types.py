@@ -5,10 +5,19 @@
 
 from __future__ import annotations
 
+import datetime
 import math
 from dataclasses import dataclass
-from datetime import datetime
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Literal, Self
+
+import amdar.constants
+from amdar.constants import MethodType
+
+# 再エクスポート: amdar.core.types.MethodType として使用可能にする
+__all__ = ["AltitudeSourceType", "DataSourceType", "MethodType", "WeatherObservation", "WindData"]
+
+DataSourceType = Literal["bds44", "bds50_60", "acars_wn", "acars_wx", "acars_fl", "acars_pntaf", "acars", ""]
+AltitudeSourceType = Literal["adsb", "acars", "xid", "interpolated", ""]
 
 if TYPE_CHECKING:
     import amdar.database.postgresql
@@ -61,7 +70,7 @@ class WindData:
         Returns:
             WindData インスタンス
         """
-        speed_ms = speed_kt * 0.514444
+        speed_ms = speed_kt * amdar.constants.KNOTS_TO_MS
         return cls.from_polar(speed_ms, direction_deg)
 
 
@@ -93,7 +102,7 @@ class WeatherObservation:
     """
 
     # 時刻（任意 - ファイル解析時は None の場合あり）
-    timestamp: datetime | None = None
+    timestamp: datetime.datetime | None = None
 
     # 識別子（少なくとも1つは必須）
     icao: str | None = None
@@ -110,9 +119,9 @@ class WeatherObservation:
     wind: WindData | None = None
 
     # メタ情報
-    method: str = "mode-s"
-    data_source: str = ""
-    altitude_source: str = ""
+    method: MethodType = amdar.constants.MODE_S_METHOD
+    data_source: DataSourceType = ""
+    altitude_source: AltitudeSourceType = ""
 
     def is_valid(self) -> bool:
         """有効な観測データかどうか
@@ -154,7 +163,7 @@ class WeatherObservation:
         Returns:
             WeatherObservation インスタンス
         """
-        altitude_m = altitude_ft * 0.3048
+        altitude_m = altitude_ft * amdar.constants.FEET_TO_METERS
 
         wind = None
         if wind_speed_kt is not None and wind_direction_deg is not None:
@@ -180,15 +189,7 @@ class WeatherObservation:
         import amdar.database.postgresql as db
 
         # WindData の変換（None の場合はゼロ値）
-        if self.wind is not None:
-            wind = db.WindData(
-                x=self.wind.x,
-                y=self.wind.y,
-                angle=self.wind.angle,
-                speed=self.wind.speed,
-            )
-        else:
-            wind = db.WindData(x=0.0, y=0.0, angle=0.0, speed=0.0)
+        wind = self.wind if self.wind is not None else WindData(x=0.0, y=0.0, angle=0.0, speed=0.0)
 
         return db.MeasurementData(
             callsign=self.callsign or self.icao or "",

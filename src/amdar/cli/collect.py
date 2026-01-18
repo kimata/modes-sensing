@@ -29,15 +29,14 @@ if TYPE_CHECKING:
     from types import FrameType
 
 
+import amdar.constants
 import amdar.database.postgresql as database_postgresql
 import amdar.sources.modes.receiver as modes_receiver
 import amdar.sources.outlier
 import amdar.sources.vdl2.receiver as vdl2_receiver
-from amdar.config import Config
-from amdar.database.postgresql import DBConfig, MeasurementData
+from amdar.config import Config, DatabaseConfig
+from amdar.database.postgresql import MeasurementData
 from amdar.sources.aggregator import IntegratedBuffer
-
-_SCHEMA_CONFIG = "config.schema"
 
 
 def _sig_handler(num: int, _: FrameType | None) -> None:
@@ -161,7 +160,7 @@ def execute(
         )
         transfer_thread.start()
 
-    db_config = DBConfig(
+    db_config = DatabaseConfig(
         host=config.database.host,
         port=config.database.port,
         name=config.database.name,
@@ -201,10 +200,9 @@ def execute(
 def main() -> None:
     """CLI エントリポイント"""
     import docopt
-    import my_lib.config
     import my_lib.logger
 
-    from amdar.config import load_from_dict
+    import amdar.config
 
     if __doc__ is None:
         raise RuntimeError("__doc__ is not set")
@@ -217,8 +215,7 @@ def main() -> None:
 
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
-    config_dict = my_lib.config.load(config_file, pathlib.Path(_SCHEMA_CONFIG))
-    config = load_from_dict(config_dict, pathlib.Path.cwd())
+    config = amdar.config.load_config(config_file)
 
     execute(config, config.liveness.file.collector, count)
 

@@ -34,13 +34,12 @@ if TYPE_CHECKING:
     from amdar.config import Area, Config
     from amdar.sources.aggregator import IntegratedBuffer
 
+import amdar.constants
+import amdar.core.geo
 import amdar.sources.outlier
 from amdar.core.types import WeatherObservation
 from amdar.core.types import WindData as CoreWindData
-from amdar.database.postgresql import MeasurementData
-
-# receiver.py内ではMeteorologicalDataという名前で使用
-MeteorologicalData = MeasurementData
+from amdar.database.postgresql import MeasurementData as MeteorologicalData
 
 
 class MessageFragment(TypedDict, total=False):
@@ -49,8 +48,8 @@ class MessageFragment(TypedDict, total=False):
     icao: str
     adsb_pos: tuple[float, float | None, float | None]
     adsb_sign: tuple[str]
-    bsd50: tuple[float | None, float | None, float | None]
-    bsd60: tuple[float | None, float | None, float | None]
+    bds50: tuple[float | None, float | None, float | None]
+    bds60: tuple[float | None, float | None, float | None]
     # BDS44: (temperature, wind_speed, wind_direction)
     # 温度(℃), 風速(kt), 風向(度, 真北基準)
     bds44: tuple[float, float, float]
@@ -58,23 +57,15 @@ class MessageFragment(TypedDict, total=False):
 
 _FRAGMENT_BUF_SIZE: int = 100
 
-# 再接続設定
-_RECONNECT_MAX_RETRIES: int = 10
-_RECONNECT_BASE_DELAY: float = 2.0
-_RECONNECT_MAX_DELAY: float = 60.0
-_SOCKET_TIMEOUT: float = 30.0
-
 _fragment_list: list[MessageFragment] = []
 
 _should_terminate = threading.Event()
 
 # receiver専用Livenessファイルパス（start()で設定される）
-_receiver_liveness_file: pathlib.Path = pathlib.Path()
+_receiver_liveness_file: pathlib.Path | None = None
 
-# Slack通知設定
-_slack_config: my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.SlackEmptyConfig = (
-    my_lib.notify.slack.SlackEmptyConfig()
-)
+# Slack通知設定（start()で設定される）
+_slack_config: my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.SlackEmptyConfig | None = None
 
 # 共有 IntegratedBuffer（VDL2 との高度補完用）
 _shared_buffer: IntegratedBuffer | None = None
@@ -128,8 +119,8 @@ class _FileParseFragment:
 
 def parse_weather_records_from_file(
     file_path: pathlib.Path,
-    ref_lat: float = 35.682677,
-    ref_lon: float = 139.762230,
+    ref_lat: float = amdar.constants.DEFAULT_REFERENCE_LATITUDE,
+    ref_lon: float = amdar.constants.DEFAULT_REFERENCE_LONGITUDE,
 ) -> list[WeatherRecord]:
     """Mode S メッセージファイルからペアリングされた気象レコードを抽出する
 
@@ -257,18 +248,18 @@ def parse_weather_records_from_file(
                         mach_f = float(mach)  # type: ignore[arg-type]
 
                         # 気温と風を計算（既存の関数を使用）
-                        temperature_c = _calc_temperature(trueair_f * 0.514, mach_f)
+                        temperature_c = _calc_temperature(trueair_f * amdar.constants.KNOTS_TO_MS, mach_f)
                         wind = _calc_wind(
                             frag.latitude,
                             frag.longitude,
                             trackangle_f,
-                            groundspeed_f * 0.514,
+                            groundspeed_f * amdar.constants.KNOTS_TO_MS,
                             heading_f,
-                            trueair_f * 0.514,
+                            trueair_f * amdar.constants.KNOTS_TO_MS,
                         )
 
                         # 異常値チェック
-                        if temperature_c >= -100:
+                        if temperature_c >= amdar.constants.GRAPH_TEMPERATURE_THRESHOLD:
                             record = WeatherRecord(
                                 icao=icao,
                                 altitude_ft=frag.altitude_ft,
@@ -276,7 +267,7 @@ def parse_weather_records_from_file(
                                 latitude=frag.latitude,
                                 longitude=frag.longitude,
                                 temperature_c=temperature_c,
-                                wind_speed_kt=wind.speed / 0.514,  # m/s -> kt
+                                wind_speed_kt=wind.speed / amdar.constants.KNOTS_TO_MS,  # m/s -> kt
                                 wind_direction_deg=wind.angle,
                                 data_source="bds50_60",
                             )
@@ -378,14 +369,14 @@ def _calc_meteorological_data(
     mach: float,
     distance: float,
 ) -> WeatherObservation:
-    altitude_m = altitude * 0.3048  # 単位換算: feet → meter
-    groundspeed_ms = groundspeed * 0.514  # 単位換算: knot → m/s
-    trueair_ms = trueair * 0.514
+    altitude_m = altitude * amdar.constants.FEET_TO_METERS  # 単位換算: feet → meter
+    groundspeed_ms = groundspeed * amdar.constants.KNOTS_TO_MS  # 単位換算: knot → m/s
+    trueair_ms = trueair * amdar.constants.KNOTS_TO_MS
 
     temperature = _calc_temperature(trueair_ms, mach)
     wind = _calc_wind(latitude, longitude, trackangle, groundspeed_ms, heading, trueair_ms)
 
-    if temperature < -100:
+    if temperature < amdar.constants.GRAPH_TEMPERATURE_THRESHOLD:
         logging.warning(
             "温度が異常なので捨てます．(callsign: %s, temperature: %.1f, "
             "altitude: %s, trueair: %s, mach: %s)",
@@ -403,7 +394,7 @@ def _calc_meteorological_data(
         temperature=temperature,
         wind=wind,
         distance=distance,
-        method="mode-s",
+        method=amdar.constants.MODE_S_METHOD,
         data_source="bds50_60",
     )
 
@@ -444,40 +435,23 @@ def _calc_meteorological_data_from_bds44(
         wind_speed_kt=wind_speed,
         wind_direction_deg=wind_direction,
         distance=distance,
-        method="mode-s",
+        method=amdar.constants.MODE_S_METHOD,
         data_source="bds44",
     )
 
 
-def _calc_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    R = 6371.0
-
-    lat1 = math.radians(lat1)
-    lon1 = math.radians(lon1)
-    lat2 = math.radians(lat2)
-    lon2 = math.radians(lon2)
-
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-
-    # NOTE: ハバースインの公式
-    a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    c = 2 * math.asin(math.sqrt(a))
-
-    return R * c
-
-
 def _round_floats(obj: Any, ndigits: int = 1) -> Any:
-    if isinstance(obj, float):
-        return round(obj, ndigits)
-    elif isinstance(obj, dict):
-        return {k: _round_floats(v, ndigits) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [_round_floats(elem, ndigits) for elem in obj]
-    elif isinstance(obj, tuple):
-        return tuple(_round_floats(elem, ndigits) for elem in obj)
-    else:
-        return obj
+    match obj:
+        case float():
+            return round(obj, ndigits)
+        case dict():
+            return {k: _round_floats(v, ndigits) for k, v in obj.items()}
+        case list():
+            return [_round_floats(elem, ndigits) for elem in obj]
+        case tuple():
+            return tuple(_round_floats(elem, ndigits) for elem in obj)
+        case _:
+            return obj
 
 
 def _is_fragment_complete(fragment: MessageFragment) -> tuple[bool, str]:
@@ -498,7 +472,7 @@ def _is_fragment_complete(fragment: MessageFragment) -> tuple[bool, str]:
         return True, "bds44"
 
     # BDS50/BDS60 ルート: 従来の計算方式
-    if "bsd50" in fragment and "bsd60" in fragment:
+    if "bds50" in fragment and "bds60" in fragment:
         return True, "bds50_60"
 
     return False, ""
@@ -529,7 +503,7 @@ def _process_complete_fragment(
     if adsb_pos[1] is None or adsb_pos[2] is None:
         return
 
-    distance = _calc_distance(
+    distance = amdar.core.geo.haversine_distance(
         area_config.lat.ref,
         area_config.lon.ref,
         adsb_pos[1],
@@ -554,20 +528,20 @@ def _process_complete_fragment(
             distance=distance,
         )
     else:  # bds50_60
-        bsd50 = fragment.get("bsd50")
-        bsd60 = fragment.get("bsd60")
+        bds50 = fragment.get("bds50")
+        bds60 = fragment.get("bds60")
 
-        if bsd50 is None or bsd60 is None:
+        if bds50 is None or bds60 is None:
             return
-        if any(v is None for v in bsd50) or any(v is None for v in bsd60):
+        if any(v is None for v in bds50) or any(v is None for v in bds60):
             return
 
         # NOTE: 上記の None チェック後でもタプル要素の型は絞り込まれないため type: ignore が必要
         meteorological_data = _calc_meteorological_data(
             *adsb_sign,
             *adsb_pos,  # type: ignore[arg-type]
-            *bsd50,  # type: ignore[arg-type]
-            *bsd60,  # type: ignore[arg-type]
+            *bds50,  # type: ignore[arg-type]
+            *bds60,  # type: ignore[arg-type]
             distance,
         )
 
@@ -580,7 +554,7 @@ def _process_complete_fragment(
         return
 
     # 温度異常値は外れ値検出の対象外
-    if observation.temperature < -100:
+    if observation.temperature < amdar.constants.GRAPH_TEMPERATURE_THRESHOLD:
         logging.debug("温度異常値のため外れ値検出をスキップ")
         return
 
@@ -661,9 +635,9 @@ def _process_adsb_position(
 
     # 共有バッファに ADS-B 位置情報をフィード（VDL2 高度補完用）
     if _shared_buffer is not None and altitude > 0:
-        from datetime import UTC, datetime
+        import my_lib.time
 
-        altitude_m = float(altitude) * 0.3048
+        altitude_m = float(altitude) * amdar.constants.FEET_TO_METERS
         # フラグメントからコールサインを取得
         callsign = None
         for frag in _fragment_list:
@@ -673,7 +647,7 @@ def _process_adsb_position(
         _shared_buffer.add_adsb_position(
             icao=icao,
             callsign=callsign,
-            timestamp=datetime.now(UTC),
+            timestamp=my_lib.time.now(),
             altitude_m=altitude_m,
             lat=latitude,
             lon=longitude,
@@ -724,14 +698,14 @@ def _process_commb_message(
         trackangle = pyModeS.commb.trk50(message)
         groundspeed = pyModeS.commb.gs50(message)
         trueair = pyModeS.commb.tas50(message)
-        _message_pairing(icao, "bsd50", (trackangle, groundspeed, trueair), data_queue, area_config)
+        _message_pairing(icao, "bds50", (trackangle, groundspeed, trueair), data_queue, area_config)
 
     elif pyModeS.bds.bds60.is60(message):
         logging.debug("receive BDS60")
         heading = pyModeS.commb.hdg60(message)
         indicatedair = pyModeS.commb.ias60(message)
         mach = pyModeS.commb.mach60(message)
-        _message_pairing(icao, "bsd60", (heading, indicatedair, mach), data_queue, area_config)
+        _message_pairing(icao, "bds60", (heading, indicatedair, mach), data_queue, area_config)
 
 
 def _process_message(
@@ -763,7 +737,10 @@ def _process_message(
 
 def _calculate_retry_delay(retry_count: int) -> float:
     """指数バックオフで再接続遅延時間を計算する"""
-    return min(_RECONNECT_BASE_DELAY * (2 ** (retry_count - 1)), _RECONNECT_MAX_DELAY)
+    return min(
+        amdar.constants.MODES_RECEIVER_BASE_DELAY * (2 ** (retry_count - 1)),
+        amdar.constants.MODES_RECEIVER_MAX_DELAY,
+    )
 
 
 def _wait_with_interrupt(delay: float) -> None:
@@ -788,7 +765,8 @@ def _process_socket_messages(
             _process_message(line, data_queue, area_config)
 
             # データ受信成功時にLivenessファイル更新
-            my_lib.footprint.update(_receiver_liveness_file)
+            if _receiver_liveness_file is not None:
+                my_lib.footprint.update(_receiver_liveness_file)
 
         except Exception:
             logging.exception("メッセージ処理に失敗しました")
@@ -807,7 +785,7 @@ def _handle_connection(
 
     """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.settimeout(_SOCKET_TIMEOUT)
+        sock.settimeout(amdar.constants.MODES_RECEIVER_SOCKET_TIMEOUT)
         sock.connect((host, port))
         logging.info("%s:%d に接続しました", host, port)
 
@@ -848,21 +826,23 @@ def _worker(
 
         except (OSError, ConnectionError) as e:
             retry_count += 1
-            if retry_count > _RECONNECT_MAX_RETRIES:
-                error_message = f"最大再接続回数（{_RECONNECT_MAX_RETRIES}回）に達しました。処理を終了します"
+            if retry_count > amdar.constants.MODES_RECEIVER_MAX_RETRIES:
+                max_retries = amdar.constants.MODES_RECEIVER_MAX_RETRIES
+                error_message = f"最大再接続回数（{max_retries}回）に達しました。処理を終了します"
                 logging.error(error_message)
-                my_lib.notify.slack.error(
-                    _slack_config,
-                    "Mode-S受信エラー",
-                    f"{error_message}\n接続先: {host}:{port}\n最後のエラー: {e}",
-                )
+                if _slack_config is not None:
+                    my_lib.notify.slack.error(
+                        _slack_config,
+                        "Mode-S受信エラー",
+                        f"{error_message}\n接続先: {host}:{port}\n最後のエラー: {e}",
+                    )
                 break
 
             delay = _calculate_retry_delay(retry_count)
             logging.warning(
                 "接続に失敗しました（%d/%d回目）: %s。%.1f秒後に再試行します...",
                 retry_count,
-                _RECONNECT_MAX_RETRIES,
+                amdar.constants.MODES_RECEIVER_MAX_RETRIES,
                 e,
                 delay,
             )
@@ -927,10 +907,9 @@ def term() -> None:
 
 if __name__ == "__main__":
     import docopt
-    import my_lib.config
     import my_lib.logger
 
-    from amdar.config import load_from_dict
+    import amdar.config
 
     assert __doc__ is not None  # noqa: S101
     args = docopt.docopt(__doc__)
@@ -940,8 +919,7 @@ if __name__ == "__main__":
 
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
-    config_dict = my_lib.config.load(config_file)
-    config = load_from_dict(config_dict, pathlib.Path.cwd())
+    config = amdar.config.load_config(config_file)
 
     measurement_queue: queue.Queue[MeteorologicalData] = queue.Queue()
 

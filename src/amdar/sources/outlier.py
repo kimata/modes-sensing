@@ -19,6 +19,8 @@ import numpy as np
 import numpy.typing as npt
 import sklearn.linear_model
 
+import amdar.constants
+
 if TYPE_CHECKING:
     from amdar.core.types import WeatherObservation
 
@@ -174,8 +176,8 @@ class OutlierDetector:
             if obs.temperature is None:
                 continue
 
-            # 温度異常値（-100°C 未満）は外れ値検出の対象外としてスキップ
-            if obs.temperature < -100:
+            # 温度異常値は外れ値検出の対象外としてスキップ
+            if obs.temperature < amdar.constants.GRAPH_TEMPERATURE_THRESHOLD:
                 logging.debug("温度異常値のため除外: %.1f°C", obs.temperature)
                 continue
 

@@ -13,6 +13,7 @@ import logging
 import my_lib.time
 import PIL.Image
 
+import amdar.constants
 import amdar.database.postgresql as database_postgresql
 import amdar.viewer.api.graph as graph
 from amdar.config import Config
@@ -63,7 +64,7 @@ class TestGraphGeneration:
 
         for graph_name, graph_def in graph.GRAPH_DEF_MAP.items():
             # 直接関数を呼び出してテスト
-            _img, _elapsed = graph_def.func(data, tuple(x / graph.IMAGE_DPI for x in graph_def.size))
+            _img, _elapsed = graph_def.func(data, tuple(x / amdar.constants.GRAPH_IMAGE_DPI for x in graph_def.size))
 
             png_data = graph.plot(config, graph_name, time_start, time_end)
 

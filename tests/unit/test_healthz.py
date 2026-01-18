@@ -13,6 +13,7 @@ import my_lib.footprint
 from my_lib.healthz import HealthzTarget
 
 import amdar.cli.healthz as healthz
+from amdar.constants import CONTAINER_STARTUP_GRACE_PERIOD_SECONDS, VDL2_STARTUP_GRACE_PERIOD_SECONDS
 
 
 class TestCheckLiveness:
@@ -194,11 +195,11 @@ class TestGracePeriod:
 
     def test_vdl2_uses_longer_grace_period(self):
         """VDL2 は 10時間の grace period を使用する"""
-        assert healthz._VDL2_STARTUP_GRACE_PERIOD == 10 * 60 * 60  # 10時間
+        assert VDL2_STARTUP_GRACE_PERIOD_SECONDS == 10 * 60 * 60  # 10時間
 
     def test_default_grace_period(self):
         """デフォルトの grace period は 120秒"""
-        assert healthz._CONTAINER_STARTUP_GRACE_PERIOD == 120
+        assert CONTAINER_STARTUP_GRACE_PERIOD_SECONDS == 120
 
     def test_vdl2_failure_within_grace_period_no_notification(self, config: Any):
         """VDL2 が grace period 内に失敗しても通知しない"""

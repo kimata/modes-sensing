@@ -24,12 +24,11 @@ import logging
 import multiprocessing
 import multiprocessing.pool
 import pathlib
-import subprocess
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any
 
 import flask
 import matplotlib
@@ -40,6 +39,7 @@ import matplotlib.font_manager
 import matplotlib.pyplot
 import matplotlib.ticker
 import mpl_toolkits.mplot3d  # noqa: F401
+import my_lib.git_util
 import my_lib.panel_config
 import my_lib.pil_util
 import my_lib.plot_util
@@ -54,6 +54,29 @@ import scipy.interpolate
 import amdar.config
 import amdar.database.postgresql
 import amdar.viewer.api.progress_estimation
+from amdar.constants import (
+    CACHE_CONTROL_MAX_AGE_RESULT,
+    CACHE_CONTROL_MAX_AGE_STATUS,
+    CACHE_START_TIME_TOLERANCE_SECONDS,
+    CACHE_TTL_SECONDS,
+    DEFAULT_DISTANCE_KM,
+    ETAG_TIME_ROUND_SECONDS,
+    GRAPH_ALT_MAX,
+    GRAPH_ALT_MIN,
+    GRAPH_ALTITUDE_LIMIT,
+    GRAPH_GEN_TIMEOUT_7DAYS_SECONDS,
+    GRAPH_GEN_TIMEOUT_30DAYS_SECONDS,
+    GRAPH_GEN_TIMEOUT_90DAYS_SECONDS,
+    GRAPH_GEN_TIMEOUT_OVER90DAYS_SECONDS,
+    GRAPH_IMAGE_DPI,
+    GRAPH_JOB_TIMEOUT_BUFFER_SECONDS,
+    GRAPH_TEMP_MAX_DEFAULT,
+    GRAPH_TEMP_MAX_LIMITED,
+    GRAPH_TEMP_MIN_DEFAULT,
+    GRAPH_TEMP_MIN_LIMITED,
+    GRAPH_TEMPERATURE_THRESHOLD,
+    GraphName,
+)
 from amdar.viewer.api.job_manager import JobManager, JobStatus
 
 if TYPE_CHECKING:
@@ -107,13 +130,37 @@ class PreparedData:
         return self._dataframe
 
 
-class WindFilteredData(TypedDict):
+@dataclass
+class WindFilteredData:
     """風データフィルタリング結果"""
 
     altitudes: numpy.ndarray
     wind_x: numpy.ndarray
     wind_y: numpy.ndarray
     time_numeric: numpy.ndarray
+
+
+@dataclass
+class GridData:
+    """補間グリッドデータ
+
+    _create_grid 関数から返される、等高線・ヒートマップ描画用のグリッドデータ。
+    """
+
+    time_mesh: numpy.ndarray
+    """時間軸のメッシュグリッド"""
+    alt_mesh: numpy.ndarray
+    """高度軸のメッシュグリッド"""
+    temp_grid: numpy.ndarray
+    """温度の補間グリッド"""
+    time_min: float
+    """時間範囲の最小値"""
+    time_max: float
+    """時間範囲の最大値"""
+    alt_min: float
+    """高度範囲の最小値"""
+    alt_max: float
+    """高度範囲の最大値"""
 
 
 def _get_font_config(font_config: amdar.config.FontConfig) -> my_lib.panel_config.FontConfig:
@@ -124,25 +171,11 @@ def _get_font_config(font_config: amdar.config.FontConfig) -> my_lib.panel_confi
     )
 
 
-IMAGE_DPI = 200.0
-
-_TEMPERATURE_THRESHOLD = -100
-# 動的温度範囲設定用の定数
-_TEMP_MIN_DEFAULT = -80  # limit_altitude=False時
-_TEMP_MAX_DEFAULT = 30
-_TEMP_MIN_LIMITED = -20  # limit_altitude=True時
-_TEMP_MAX_LIMITED = 40
-_ALT_MIN = 0
-_ALT_MAX = 13000
-_ALTITUDE_LIMIT = 2000  # 高度制限時の最大値
-
-
 def get_temperature_range(limit_altitude: bool = False) -> tuple[int, int]:
     """limit_altitudeに応じた温度範囲を取得"""
     if limit_altitude:
-        return _TEMP_MIN_LIMITED, _TEMP_MAX_LIMITED
-    else:
-        return _TEMP_MIN_DEFAULT, _TEMP_MAX_DEFAULT
+        return GRAPH_TEMP_MIN_LIMITED, GRAPH_TEMP_MAX_LIMITED
+    return GRAPH_TEMP_MIN_DEFAULT, GRAPH_TEMP_MAX_DEFAULT
 
 
 _TICK_LABEL_SIZE = 8
@@ -163,17 +196,20 @@ blueprint = flask.Blueprint("modes-sensing-graph", __name__)
 class ProcessPoolManager:
     """シングルトンパターンでプロセスプールを管理"""
 
-    _instance = None
+    _instance: ProcessPoolManager | None = None
     # NOTE: シングルトンの同期にはthreading.Lockを使用
     # multiprocessing.Lockはfork時にIPCプリミティブの問題を起こす可能性がある
     _lock = threading.Lock()
+    pool: multiprocessing.pool.Pool | None
 
-    def __new__(cls):
+    def __new__(cls) -> ProcessPoolManager:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance.pool = None
+                    instance = super().__new__(cls)
+                    instance.pool = None
+                    cls._instance = instance
+        assert cls._instance is not None  # noqa: S101 (シングルトンパターン)
         return cls._instance
 
     def get_pool(self):
@@ -286,7 +322,7 @@ def _estimate_progress_and_stage(job_id: str) -> tuple[int, str]:
 def _check_single_job(
     job_id: str,
     async_result: multiprocessing.pool.AsyncResult,
-    graph_name: str,
+    graph_name: GraphName,
     cache_dir: pathlib.Path,
 ) -> bool:
     """単一のジョブをチェックし、完了していればTrueを返す"""
@@ -296,16 +332,16 @@ def _check_single_job(
             job = _job_manager.get_job(job_id)
             if job and job.started_at:
                 elapsed = time.time() - job.started_at
-                # 期間に応じたタイムアウト（_calculate_timeout と同じロジック + 60秒のバッファ）
+                # 期間に応じたタイムアウト（_calculate_timeout と同じロジック + バッファ）
                 days = (job.time_end - job.time_start).total_seconds() / 86400
                 if days <= 7:
-                    max_timeout = 60 + 60  # 120秒
+                    max_timeout = GRAPH_GEN_TIMEOUT_7DAYS_SECONDS + GRAPH_JOB_TIMEOUT_BUFFER_SECONDS
                 elif days <= 30:
-                    max_timeout = 120 + 60  # 180秒
+                    max_timeout = GRAPH_GEN_TIMEOUT_30DAYS_SECONDS + GRAPH_JOB_TIMEOUT_BUFFER_SECONDS
                 elif days <= 90:
-                    max_timeout = 180 + 60  # 240秒
+                    max_timeout = GRAPH_GEN_TIMEOUT_90DAYS_SECONDS + GRAPH_JOB_TIMEOUT_BUFFER_SECONDS
                 else:
-                    max_timeout = 300 + 60  # 360秒
+                    max_timeout = GRAPH_GEN_TIMEOUT_OVER90DAYS_SECONDS + GRAPH_JOB_TIMEOUT_BUFFER_SECONDS
 
                 if elapsed > max_timeout:
                     logging.warning(
@@ -403,11 +439,11 @@ def _set_temperature_range(ax: Axes, axis: str = "x", limit_altitude: bool = Fal
 
 
 def _set_altitude_range(ax: Axes, axis: str = "x", limit_altitude: bool = False) -> None:
-    alt_max = _ALTITUDE_LIMIT if limit_altitude else _ALT_MAX
+    alt_max = GRAPH_ALTITUDE_LIMIT if limit_altitude else GRAPH_ALT_MAX
     if axis == "x":
-        ax.set_xlim(_ALT_MIN, alt_max)
+        ax.set_xlim(GRAPH_ALT_MIN, alt_max)
     else:
-        ax.set_ylim(_ALT_MIN, alt_max)
+        ax.set_ylim(GRAPH_ALT_MIN, alt_max)
 
 
 def _apply_time_axis_format(ax: Axes, time_range_days: float) -> None:
@@ -517,19 +553,36 @@ def _append_colorbar(scatter, shrink=0.8, pad=0.01, aspect=35, fraction=0.046, l
 
 
 def _create_grid(
-    time_numeric, altitudes, temperatures, grid_points=100, time_range=None, limit_altitude=False
-):
-    """グリッド作成を最適化（データ前処理改善、メモリ効率向上）"""
+    time_numeric: numpy.ndarray,
+    altitudes: numpy.ndarray,
+    temperatures: numpy.ndarray,
+    grid_points: int = 100,
+    time_range: tuple[float, float] | None = None,
+    limit_altitude: bool = False,
+) -> GridData:
+    """グリッド作成を最適化（データ前処理改善、メモリ効率向上）
+
+    Args:
+        time_numeric: 時間データ（matplotlib日付数値）
+        altitudes: 高度データ
+        temperatures: 温度データ
+        grid_points: グリッドポイント数
+        time_range: 時間範囲 (min, max)
+        limit_altitude: 高度制限フラグ
+
+    Returns:
+        GridData: 補間グリッドデータ
+    """
     # データが既にprepare_dataで前処理されているため、追加フィルタリングは最小限
     if len(time_numeric) == 0:
         # 空データの場合
-        time_min, time_max = 0, 1
-        alt_min = _ALT_MIN
+        time_min, time_max = 0.0, 1.0
+        alt_min = float(GRAPH_ALT_MIN)
         if limit_altitude:
-            alt_max = _ALTITUDE_LIMIT
+            alt_max = float(GRAPH_ALTITUDE_LIMIT)
             alt_grid_points = int((alt_max - alt_min) / 50) + 1
         else:
-            alt_max = _ALT_MAX
+            alt_max = float(GRAPH_ALT_MAX)
             alt_grid_points = grid_points
 
         time_grid = numpy.linspace(time_min, time_max, grid_points)
@@ -537,34 +590,34 @@ def _create_grid(
         time_mesh, alt_mesh = numpy.meshgrid(time_grid, alt_grid, indexing="xy")
         temp_grid = numpy.full_like(time_mesh, numpy.nan)
 
-        return {
-            "time_mesh": time_mesh,
-            "alt_mesh": alt_mesh,
-            "temp_grid": temp_grid,
-            "time_min": time_min,
-            "time_max": time_max,
-            "alt_min": alt_min,
-            "alt_max": alt_max,
-        }
+        return GridData(
+            time_mesh=time_mesh,
+            alt_mesh=alt_mesh,
+            temp_grid=temp_grid,
+            time_min=time_min,
+            time_max=time_max,
+            alt_min=alt_min,
+            alt_max=alt_max,
+        )
 
     # グリッド範囲設定
     if time_range is not None:
         time_min, time_max = time_range
         # 実際のデータ範囲に制限
-        actual_time_min, actual_time_max = time_numeric.min(), time_numeric.max()
+        actual_time_min, actual_time_max = float(time_numeric.min()), float(time_numeric.max())
         time_min = max(time_min, actual_time_min)
         time_max = min(time_max, actual_time_max)
     else:
-        time_min, time_max = time_numeric.min(), time_numeric.max()
+        time_min, time_max = float(time_numeric.min()), float(time_numeric.max())
 
     # 高度範囲とグリッド密度をlimit_altitudeに応じて設定
-    alt_min = _ALT_MIN
+    alt_min = float(GRAPH_ALT_MIN)
     if limit_altitude:
-        alt_max = _ALTITUDE_LIMIT  # 2000m
+        alt_max = float(GRAPH_ALTITUDE_LIMIT)  # 2000m
         # 50m刻みにするため、2000m / 50m = 40点の高度グリッド
         alt_grid_points = int((alt_max - alt_min) / 50) + 1
     else:
-        alt_max = _ALT_MAX  # 13000m
+        alt_max = float(GRAPH_ALT_MAX)  # 13000m
         alt_grid_points = grid_points
 
     # 連続メモリ配置でグリッド作成
@@ -599,15 +652,15 @@ def _create_grid(
             points, temp_values, (time_mesh, alt_mesh), method="linear", fill_value=numpy.nan
         )
 
-    return {
-        "time_mesh": time_mesh,
-        "alt_mesh": alt_mesh,
-        "temp_grid": temp_grid,
-        "time_min": time_min,
-        "time_max": time_max,
-        "alt_min": alt_min,
-        "alt_max": alt_max,
-    }
+    return GridData(
+        time_mesh=time_mesh,
+        alt_mesh=alt_mesh,
+        temp_grid=temp_grid,
+        time_min=time_min,
+        time_max=time_max,
+        alt_min=alt_min,
+        alt_max=alt_max,
+    )
 
 
 def _create_figure(figsize=(12, 8)):
@@ -646,7 +699,7 @@ def _set_axis_2d_default(ax, time_range, limit_altitude=False):
 
 def _conver_to_img(fig):
     buf = io.BytesIO()
-    matplotlib.pyplot.savefig(buf, format="png", dpi=IMAGE_DPI, facecolor="white", transparent=False)
+    matplotlib.pyplot.savefig(buf, format="png", dpi=GRAPH_IMAGE_DPI, facecolor="white", transparent=False)
 
     buf.seek(0)
 
@@ -671,7 +724,7 @@ def _create_no_data_image(config, graph_name, text="データがありません"
     img = PIL.Image.new("RGB", size, color="white")
 
     # フォントサイズをDPIに合わせて調整（20pt）
-    font_size = int(_ERROR_SIZE * IMAGE_DPI / 72)
+    font_size = int(_ERROR_SIZE * GRAPH_IMAGE_DPI / 72)
 
     # my_lib.pil_utilを使用してフォントを取得
     font_config = _get_font_config(config.font)
@@ -713,11 +766,11 @@ def _prepare_data(raw_data) -> PreparedData:
 
     # 複合条件による無効データフィルタリング（一度に処理）
     valid_mask = (
-        (temperatures > _TEMPERATURE_THRESHOLD)
+        (temperatures > GRAPH_TEMPERATURE_THRESHOLD)
         & (numpy.isfinite(temperatures))
         & (numpy.isfinite(altitudes))
-        & (altitudes >= _ALT_MIN)
-        & (altitudes <= _ALT_MAX)
+        & (altitudes >= GRAPH_ALT_MIN)
+        & (altitudes <= GRAPH_ALT_MAX)
     )
 
     if not valid_mask.any():
@@ -762,7 +815,7 @@ def _prepare_data(raw_data) -> PreparedData:
     return result
 
 
-def _prepare_data_numpy(numpy_data: dict) -> PreparedData:
+def _prepare_data_numpy(numpy_data: amdar.database.postgresql.NumpyFetchResult) -> PreparedData:
     """NumPy配列形式のデータから描画用データを準備する（高速版）
 
     fetch_by_time_numpy / fetch_aggregated_numpy から返されたデータを
@@ -773,17 +826,7 @@ def _prepare_data_numpy(numpy_data: dict) -> PreparedData:
     - DataFrame は風向グラフでのみ使用するため遅延作成
 
     Args:
-        numpy_data: fetch_by_time_numpy から返された辞書
-            {
-                "time": numpy.ndarray,
-                "altitude": numpy.ndarray,
-                "temperature": numpy.ndarray,
-                "wind_x": numpy.ndarray (オプション),
-                "wind_y": numpy.ndarray (オプション),
-                "wind_speed": numpy.ndarray (オプション),
-                "wind_angle": numpy.ndarray (オプション),
-                "count": int,
-            }
+        numpy_data: fetch_by_time_numpy / fetch_aggregated_numpy から返された NumpyFetchResult
 
     Returns:
         グラフ描画用のPreparedData
@@ -791,7 +834,7 @@ def _prepare_data_numpy(numpy_data: dict) -> PreparedData:
     """
     empty_float_array = numpy.array([], dtype=numpy.float32)
 
-    if numpy_data["count"] == 0:
+    if numpy_data.count == 0:
         return PreparedData(
             count=0,
             times=numpy.array([], dtype="datetime64[us]"),
@@ -800,17 +843,17 @@ def _prepare_data_numpy(numpy_data: dict) -> PreparedData:
             temperatures=empty_float_array,
         )
 
-    times = numpy_data["time"]
-    altitudes = numpy_data["altitude"]
-    temperatures = numpy_data["temperature"]
+    times = numpy_data.time
+    altitudes = numpy_data.altitude
+    temperatures = numpy_data.temperature
 
     # 複合条件による無効データフィルタリング（ベクトル化）
     valid_mask = (
-        (temperatures > _TEMPERATURE_THRESHOLD)
+        (temperatures > GRAPH_TEMPERATURE_THRESHOLD)
         & numpy.isfinite(temperatures)
         & numpy.isfinite(altitudes)
-        & (altitudes >= _ALT_MIN)
-        & (altitudes <= _ALT_MAX)
+        & (altitudes >= GRAPH_ALT_MIN)
+        & (altitudes <= GRAPH_ALT_MAX)
     )
 
     valid_count = numpy.count_nonzero(valid_mask)
@@ -837,11 +880,16 @@ def _prepare_data_numpy(numpy_data: dict) -> PreparedData:
     time_numeric = numpy.ascontiguousarray(time_numeric)
 
     # 風データの処理（float32でメモリ効率化）
-    if "wind_x" in numpy_data:
-        wind_x = numpy.ascontiguousarray(numpy_data["wind_x"][valid_mask], dtype=numpy.float32)
-        wind_y = numpy.ascontiguousarray(numpy_data["wind_y"][valid_mask], dtype=numpy.float32)
-        wind_speed = numpy.ascontiguousarray(numpy_data["wind_speed"][valid_mask], dtype=numpy.float32)
-        wind_angle = numpy.ascontiguousarray(numpy_data["wind_angle"][valid_mask], dtype=numpy.float32)
+    if (
+        numpy_data.wind_x is not None
+        and numpy_data.wind_y is not None
+        and numpy_data.wind_speed is not None
+        and numpy_data.wind_angle is not None
+    ):
+        wind_x = numpy.ascontiguousarray(numpy_data.wind_x[valid_mask], dtype=numpy.float32)
+        wind_y = numpy.ascontiguousarray(numpy_data.wind_y[valid_mask], dtype=numpy.float32)
+        wind_speed = numpy.ascontiguousarray(numpy_data.wind_speed[valid_mask], dtype=numpy.float32)
+        wind_angle = numpy.ascontiguousarray(numpy_data.wind_angle[valid_mask], dtype=numpy.float32)
     else:
         wind_x = empty_float_array
         wind_y = empty_float_array
@@ -886,7 +934,7 @@ def _set_axis_3d(ax, time_numeric, limit_altitude=False):
     _apply_time_axis_format_3d(ax, time_numeric)
 
     # 高度軸の最大値を設定
-    alt_max = _ALTITUDE_LIMIT if limit_altitude else _ALT_MAX
+    alt_max = GRAPH_ALTITUDE_LIMIT if limit_altitude else GRAPH_ALT_MAX
 
     # 高度軸の目盛りを設定（limit_altitude=Trueの場合は200m間隔）
     if limit_altitude:
@@ -898,7 +946,7 @@ def _set_axis_3d(ax, time_numeric, limit_altitude=False):
 
     _set_tick_label_size(ax, is_3d=True)
 
-    ax.set_ylim(_ALT_MIN, alt_max)
+    ax.set_ylim(GRAPH_ALT_MIN, alt_max)
     # 温度軸の範囲設定（limit_altitudeによって変更）
     temp_min, temp_max = get_temperature_range(limit_altitude)
     ax.set_zlim(temp_min, temp_max)
@@ -929,7 +977,7 @@ def _setup_3d_colorbar_and_layout(ax):
 
 
 def _plot_scatter_3d(data, figsize, limit_altitude=False):
-    logging.info("Staring plot scatter 3d (limit_altitude: %s)", limit_altitude)
+    logging.info("Starting plot scatter 3d (limit_altitude: %s)", limit_altitude)
 
     start = time.perf_counter()
 
@@ -959,7 +1007,7 @@ def _plot_scatter_3d(data, figsize, limit_altitude=False):
 
 
 def _plot_density(data, figsize, limit_altitude=False):
-    logging.info("Staring plot density (limit_altitude: %s)", limit_altitude)
+    logging.info("Starting plot density (limit_altitude: %s)", limit_altitude)
 
     start = time.perf_counter()
 
@@ -993,7 +1041,7 @@ def _plot_density(data, figsize, limit_altitude=False):
 
 
 def _plot_contour_2d(data, figsize, plot_time_start=None, plot_time_end=None, limit_altitude=False):
-    logging.info("Staring plot contour (limit_altitude: %s)", limit_altitude)
+    logging.info("Starting plot contour (limit_altitude: %s)", limit_altitude)
 
     start = time.perf_counter()
 
@@ -1034,12 +1082,12 @@ def _plot_contour_2d(data, figsize, plot_time_start=None, plot_time_end=None, li
     else:
         levels = numpy.arange(temp_min, temp_max + 1, 10)
     contour = ax.contour(
-        grid["time_mesh"], grid["alt_mesh"], grid["temp_grid"], levels=levels, colors="black", linewidths=0.5
+        grid.time_mesh, grid.alt_mesh, grid.temp_grid, levels=levels, colors="black", linewidths=0.5
     )
     contourf = ax.contourf(
-        grid["time_mesh"],
-        grid["alt_mesh"],
-        grid["temp_grid"],
+        grid.time_mesh,
+        grid.alt_mesh,
+        grid.temp_grid,
         levels=levels,
         cmap="plasma",
         alpha=0.9,
@@ -1052,8 +1100,8 @@ def _plot_contour_2d(data, figsize, plot_time_start=None, plot_time_end=None, li
         time_range = [plot_time_start, plot_time_end]
     else:
         time_range = [
-            matplotlib.dates.num2date(grid["time_min"]),
-            matplotlib.dates.num2date(grid["time_max"]),
+            matplotlib.dates.num2date(grid.time_min),
+            matplotlib.dates.num2date(grid.time_max),
         ]
 
     _set_axis_2d_default(ax, time_range, limit_altitude)
@@ -1068,7 +1116,7 @@ def _plot_contour_2d(data, figsize, plot_time_start=None, plot_time_end=None, li
 
 
 def _plot_heatmap(data, figsize, plot_time_start=None, plot_time_end=None, limit_altitude=False):
-    logging.info("Staring plot heatmap (limit_altitude: %s)", limit_altitude)
+    logging.info("Starting plot heatmap (limit_altitude: %s)", limit_altitude)
 
     start = time.perf_counter()
 
@@ -1103,8 +1151,8 @@ def _plot_heatmap(data, figsize, plot_time_start=None, plot_time_end=None, limit
     fig, ax = _create_figure(figsize)
 
     im = ax.imshow(
-        grid["temp_grid"],
-        extent=(grid["time_min"], grid["time_max"], grid["alt_min"], grid["alt_max"]),
+        grid.temp_grid,
+        extent=(grid.time_min, grid.time_max, grid.alt_min, grid.alt_max),
         aspect="auto",
         origin="lower",
         cmap="plasma",
@@ -1118,8 +1166,8 @@ def _plot_heatmap(data, figsize, plot_time_start=None, plot_time_end=None, limit
         time_range = [plot_time_start, plot_time_end]
     else:
         time_range = [
-            matplotlib.dates.num2date(grid["time_min"]),
-            matplotlib.dates.num2date(grid["time_max"]),
+            matplotlib.dates.num2date(grid.time_min),
+            matplotlib.dates.num2date(grid.time_max),
         ]
 
     _set_axis_2d_default(ax, time_range, limit_altitude)
@@ -1134,7 +1182,7 @@ def _plot_heatmap(data, figsize, plot_time_start=None, plot_time_end=None, limit
 
 
 def _plot_scatter_2d(data, figsize, limit_altitude=False):
-    logging.info("Staring plot 2d scatter (limit_altitude: %s)", limit_altitude)
+    logging.info("Starting plot 2d scatter (limit_altitude: %s)", limit_altitude)
 
     start = time.perf_counter()
 
@@ -1189,9 +1237,9 @@ def _plot_contour_3d(data, figsize, limit_altitude=False):
 
     # 3Dサーフェスプロットを作成
     surf = ax.plot_surface(
-        grid["time_mesh"],
-        grid["alt_mesh"],
-        grid["temp_grid"],
+        grid.time_mesh,
+        grid.alt_mesh,
+        grid.temp_grid,
         cmap="plasma",
         alpha=0.9,
         antialiased=True,
@@ -1207,9 +1255,9 @@ def _plot_contour_3d(data, figsize, limit_altitude=False):
     temp_min, temp_max = get_temperature_range(limit_altitude)
     levels = numpy.arange(temp_min, temp_max + 1, 10)
     ax.contour(
-        grid["time_mesh"],
-        grid["alt_mesh"],
-        grid["temp_grid"],
+        grid.time_mesh,
+        grid.alt_mesh,
+        grid.temp_grid,
         levels=levels,
         colors="black",
         linewidths=0.5,
@@ -1266,7 +1314,7 @@ def _extract_and_filter_wind_data(df: pandas.DataFrame, limit_altitude: bool = F
 
     # 高度制限の適用
     if limit_altitude:
-        altitude_mask = altitudes <= _ALTITUDE_LIMIT
+        altitude_mask = altitudes <= GRAPH_ALTITUDE_LIMIT
         valid_wind_mask = valid_wind_mask & altitude_mask
 
     if not valid_wind_mask.any():
@@ -1277,12 +1325,12 @@ def _extract_and_filter_wind_data(df: pandas.DataFrame, limit_altitude: bool = F
         )
         raise ValueError("No valid wind vectors after filtering")
 
-    return {
-        "altitudes": altitudes[valid_wind_mask],
-        "wind_x": wind_x[valid_wind_mask],
-        "wind_y": wind_y[valid_wind_mask],
-        "time_numeric": time_numeric[valid_wind_mask],
-    }
+    return WindFilteredData(
+        altitudes=altitudes[valid_wind_mask],
+        wind_x=wind_x[valid_wind_mask],
+        wind_y=wind_y[valid_wind_mask],
+        time_numeric=time_numeric[valid_wind_mask],
+    )
 
 
 def _prepare_wind_data(data, limit_altitude=False):
@@ -1294,14 +1342,14 @@ def _prepare_wind_data(data, limit_altitude=False):
     df = _validate_wind_dataframe(data)
     valid_data = _extract_and_filter_wind_data(df, limit_altitude)
 
-    valid_altitudes = valid_data["altitudes"]
-    valid_time_numeric = valid_data["time_numeric"]
-    valid_wind_x = valid_data["wind_x"]
-    valid_wind_y = valid_data["wind_y"]
+    valid_altitudes = valid_data.altitudes
+    valid_time_numeric = valid_data.time_numeric
+    valid_wind_x = valid_data.wind_x
+    valid_wind_y = valid_data.wind_y
 
     # 高度ビニング（limit_altitudeに応じて範囲と間隔を調整）
     if limit_altitude:
-        altitude_bins = numpy.arange(0, _ALTITUDE_LIMIT + 100, 100)
+        altitude_bins = numpy.arange(0, GRAPH_ALTITUDE_LIMIT + 100, 100)
     else:
         altitude_bins = numpy.arange(0, 13000, 200)
 
@@ -1381,9 +1429,9 @@ def _plot_wind_direction(data, figsize, limit_altitude=False):
     # 軸の範囲を設定してレイアウトを確定
     time_min: float = float(grouped["time_numeric"].min())
     time_max: float = float(grouped["time_numeric"].max())
-    alt_max = _ALTITUDE_LIMIT if limit_altitude else _ALT_MAX
+    alt_max = GRAPH_ALTITUDE_LIMIT if limit_altitude else GRAPH_ALT_MAX
     ax.set_xlim(time_min, time_max)
-    ax.set_ylim(_ALT_MIN, alt_max)
+    ax.set_ylim(GRAPH_ALT_MIN, alt_max)
 
     # レイアウトを確定させてから transform でアスペクト比を計算
     fig.canvas.draw()
@@ -1391,9 +1439,9 @@ def _plot_wind_direction(data, figsize, limit_altitude=False):
     # データ座標系からピクセル座標系への変換を使って正確なアスペクト比を取得
     # (1, 0) と (0, 1) のデータ単位ベクトルがピクセル空間でどう見えるかを計算
     transform = ax.transData
-    origin = transform.transform((time_min, _ALT_MIN))
-    x_unit = transform.transform((time_min + 1, _ALT_MIN))
-    y_unit = transform.transform((time_min, _ALT_MIN + 1))
+    origin = transform.transform((time_min, GRAPH_ALT_MIN))
+    x_unit = transform.transform((time_min + 1, GRAPH_ALT_MIN))
+    y_unit = transform.transform((time_min, GRAPH_ALT_MIN + 1))
 
     # ピクセル/データ単位
     pixels_per_day = numpy.linalg.norm(x_unit - origin)
@@ -1579,22 +1627,15 @@ GRAPH_DEF_MAP: dict[str, GraphDefinition] = {
 # =============================================================================
 # キャッシュ機能
 # =============================================================================
-CACHE_TTL_SECONDS = 30 * 60  # 30分
-_CACHE_START_TIME_TOLERANCE_SECONDS = 30 * 60  # 開始日時の許容差: 30分
+# CACHE_TTL_SECONDS, CACHE_START_TIME_TOLERANCE_SECONDS は constants.py からインポート済み
 
 
 @functools.cache
 def get_git_commit_hash() -> str:
     """現在の git commit ハッシュを取得する（functools.cacheでキャッシュ）"""
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],  # noqa: S607
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-        return result.stdout.strip()[:12] if result.returncode == 0 else "unknown"
+        revision_info = my_lib.git_util.get_revision_info()
+        return revision_info.hash[:12]
     except Exception:
         logging.warning("Failed to get git commit hash")
         return "unknown"
@@ -1605,7 +1646,7 @@ class CacheFileInfo:
     """キャッシュファイルの情報"""
 
     path: pathlib.Path
-    graph_name: str
+    graph_name: GraphName
     period_seconds: int
     limit_altitude: bool
     start_ts: int
@@ -1614,7 +1655,7 @@ class CacheFileInfo:
 
 
 def generate_cache_filename(
-    graph_name: str,
+    graph_name: GraphName,
     time_start: datetime.datetime,
     time_end: datetime.datetime,
     limit_altitude: bool,
@@ -1630,11 +1671,11 @@ def generate_cache_filename(
     return f"{graph_name}_{period_seconds}_{limit_str}_{start_ts}_{git_commit}.png"
 
 
-ETAG_TIME_ROUND_SECONDS = 10 * 60  # 10分
+# ETAG_TIME_ROUND_SECONDS は constants.py からインポート済み
 
 
 def generate_etag_key(
-    graph_name: str,
+    graph_name: GraphName,
     time_start: datetime.datetime,
     time_end: datetime.datetime,
     limit_altitude: bool,
@@ -1653,7 +1694,7 @@ def generate_etag_key(
 
 
 def _generate_stable_job_id(
-    graph_name: str,
+    graph_name: GraphName,
     time_start: datetime.datetime,
     time_end: datetime.datetime,
     limit_altitude: bool,
@@ -1733,7 +1774,7 @@ def cleanup_expired_cache(cache_dir: pathlib.Path) -> int:
 
 def find_matching_cache(
     cache_dir: pathlib.Path,
-    graph_name: str,
+    graph_name: GraphName,
     time_start: datetime.datetime,
     time_end: datetime.datetime,
     limit_altitude: bool,
@@ -1777,7 +1818,7 @@ def find_matching_cache(
 
         # 開始日時の差が30分以内かチェック
         start_time_diff = abs(info.start_ts - request_start_ts)
-        if start_time_diff <= _CACHE_START_TIME_TOLERANCE_SECONDS:
+        if start_time_diff <= CACHE_START_TIME_TOLERANCE_SECONDS:
             logging.info(
                 "[CACHE] HIT: %s (start_diff: %d sec, age: %.0f sec)",
                 cache_file.name,
@@ -1791,7 +1832,7 @@ def find_matching_cache(
 
 def get_cached_image(
     cache_dir: pathlib.Path,
-    graph_name: str,
+    graph_name: GraphName,
     time_start: datetime.datetime,
     time_end: datetime.datetime,
     limit_altitude: bool,
@@ -1824,7 +1865,7 @@ def get_cached_image(
 
 def save_to_cache(
     cache_dir: pathlib.Path,
-    graph_name: str,
+    graph_name: GraphName,
     time_start: datetime.datetime,
     time_end: datetime.datetime,
     limit_altitude: bool,
@@ -1849,7 +1890,14 @@ def save_to_cache(
         return None
 
 
-def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_altitude=False):
+def plot_in_subprocess(
+    config: amdar.config.Config,
+    graph_name: GraphName,
+    time_start: datetime.datetime,
+    time_end: datetime.datetime,
+    figsize: tuple[float, float],
+    limit_altitude: bool = False,
+) -> tuple[bytes, float]:
     """子プロセス内でデータ取得からグラフ描画まで一貫して実行する関数"""
     import matplotlib
 
@@ -1857,10 +1905,10 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
 
     import matplotlib.pyplot
 
-    # デバッグ: 子プロセスに渡された時間範囲を記録
+    # 子プロセスに渡された時間範囲を記録
     period_days = (time_end - time_start).total_seconds() / 86400
-    logging.info(
-        "[DEBUG] plot_in_subprocess() for %s: start=%s, end=%s, period=%.2f days",
+    logging.debug(
+        "plot_in_subprocess() for %s: start=%s, end=%s, period=%.2f days",
         graph_name,
         time_start,
         time_end,
@@ -1891,7 +1939,7 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
             conn,
             extended_time_start,
             extended_time_end,
-            max_altitude=_ALTITUDE_LIMIT if limit_altitude else None,
+            max_altitude=GRAPH_ALTITUDE_LIMIT if limit_altitude else None,
             include_wind=include_wind,
         )
     else:
@@ -1901,20 +1949,20 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
             extended_time_start,
             extended_time_end,
             config.filter.area.distance,
-            max_altitude=_ALTITUDE_LIMIT if limit_altitude else None,
+            max_altitude=GRAPH_ALTITUDE_LIMIT if limit_altitude else None,
             include_wind=include_wind,
         )
     conn.close()
 
     # デバッグ: 取得したデータの時間範囲を確認
-    if numpy_data["count"] > 0:
-        times = numpy_data["time"]
+    if numpy_data.count > 0:
+        times = numpy_data.time
         logging.info(
             "Data range for %s: %s to %s (%d rows)",
             graph_name,
             times.min(),
             times.max(),
-            numpy_data["count"],
+            numpy_data.count,
         )
     else:
         logging.warning("No data fetched for %s", graph_name)
@@ -1977,8 +2025,8 @@ def plot_in_subprocess(config, graph_name, time_start, time_end, figsize, limit_
     result_bytes = bytes_io.getvalue()
 
     image_size = len(result_bytes)
-    logging.info(
-        "[DEBUG] plot_in_subprocess() completed for %s: elapsed=%.2f sec, image_size=%d bytes",
+    logging.debug(
+        "plot_in_subprocess() completed for %s: elapsed=%.2f sec, image_size=%d bytes",
         graph_name,
         elapsed,
         image_size,
@@ -2007,13 +2055,13 @@ def _calculate_timeout(time_start, time_end):
     """
     days = (time_end - time_start).total_seconds() / 86400
     if days <= 7:
-        return 60  # 1週間以内: 60秒
+        return GRAPH_GEN_TIMEOUT_7DAYS_SECONDS
     elif days <= 30:
-        return 120  # 1ヶ月以内: 120秒
+        return GRAPH_GEN_TIMEOUT_30DAYS_SECONDS
     elif days <= 90:
-        return 180  # 3ヶ月以内: 180秒
+        return GRAPH_GEN_TIMEOUT_90DAYS_SECONDS
     else:
-        return 300  # それ以上: 300秒
+        return GRAPH_GEN_TIMEOUT_OVER90DAYS_SECONDS
 
 
 def plot(config, graph_name, time_start, time_end, limit_altitude=False):
@@ -2023,8 +2071,8 @@ def plot(config, graph_name, time_start, time_end, limit_altitude=False):
     period_seconds = int((time_end - time_start).total_seconds())
     start_ts = int(time_start.timestamp())
 
-    logging.info(
-        "[DEBUG] plot() called for %s: start=%s, end=%s, period=%.2f days, limit_altitude=%s",
+    logging.debug(
+        "plot() called for %s: start=%s, end=%s, period=%.2f days, limit_altitude=%s",
         graph_name,
         time_start,
         time_end,
@@ -2061,7 +2109,7 @@ def plot(config, graph_name, time_start, time_end, limit_altitude=False):
     logging.info("[CACHE] MISS: %s (no matching cache found)", graph_name)
 
     # グラフサイズを計算
-    figsize = tuple(x / IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name].size)
+    figsize = tuple(x / GRAPH_IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name].size)
 
     # 期間に応じたタイムアウト値を計算
     timeout_seconds = _calculate_timeout(time_start, time_end)
@@ -2130,8 +2178,8 @@ def refresh_aggregates():
         return flask.jsonify(
             {
                 "status": "success",
-                "refresh_times": timings,
-                "stats": stats,
+                "refresh_times": timings.to_dict(),
+                "stats": stats.to_dict(),
             }
         )
 
@@ -2157,7 +2205,7 @@ def aggregate_stats():
         return flask.jsonify(
             {
                 "exists": exists,
-                "stats": stats,
+                "stats": stats.to_dict(),
             }
         )
 
@@ -2246,9 +2294,9 @@ def graph(graph_name):
     time_start_str = flask.request.args.get("start", None)
     limit_altitude_str = flask.request.args.get("limit_altitude", "false")  # デフォルトでfalse
 
-    # デバッグ: 受信したパラメータを記録
-    logging.info(
-        "[DEBUG] Raw params for %s: start_str=%r, end_str=%r, limit_altitude_str=%r",
+    # 受信したパラメータを記録
+    logging.debug(
+        "Raw params for %s: start_str=%r, end_str=%r, limit_altitude_str=%r",
         graph_name,
         time_start_str,
         time_end_str,
@@ -2259,27 +2307,27 @@ def graph(graph_name):
     if time_end_str:
         try:
             parsed_end = json.loads(time_end_str)
-            logging.info("[DEBUG] Parsed end JSON: %r", parsed_end)
+            logging.debug("Parsed end JSON: %r", parsed_end)
             time_end = datetime.datetime.fromisoformat(parsed_end)
             time_end = time_end.astimezone(my_lib.time.get_zoneinfo())
         except Exception:
-            logging.exception("[DEBUG] Failed to parse end time")
+            logging.debug("Failed to parse end time", exc_info=True)
             time_end = default_time_end
     else:
-        logging.info("[DEBUG] No end param, using default: %s", default_time_end)
+        logging.debug("No end param, using default: %s", default_time_end)
         time_end = default_time_end
 
     if time_start_str:
         try:
             parsed_start = json.loads(time_start_str)
-            logging.info("[DEBUG] Parsed start JSON: %r", parsed_start)
+            logging.debug("Parsed start JSON: %r", parsed_start)
             time_start = datetime.datetime.fromisoformat(parsed_start)
             time_start = time_start.astimezone(my_lib.time.get_zoneinfo())
         except Exception:
-            logging.exception("[DEBUG] Failed to parse start time")
+            logging.debug("Failed to parse start time", exc_info=True)
             time_start = default_time_start
     else:
-        logging.info("[DEBUG] No start param, using default: %s", default_time_start)
+        logging.debug("No start param, using default: %s", default_time_start)
         time_start = default_time_start
 
     # 高度制限パラメータの処理
@@ -2323,7 +2371,7 @@ def graph(graph_name):
         logging.info("Flask response created for %s", graph_name)
 
         # ブラウザキャッシュを有効化（30分）
-        res.headers["Cache-Control"] = "private, max-age=1800"  # 30分
+        res.headers["Cache-Control"] = f"private, max-age={CACHE_CONTROL_MAX_AGE_RESULT}"
         res.headers["ETag"] = etag
         res.headers["X-Content-Type-Options"] = "nosniff"
 
@@ -2349,7 +2397,7 @@ def graph(graph_name):
         ax.axis("off")
 
         buf = io.BytesIO()
-        plt.savefig(buf, format="png", dpi=IMAGE_DPI, bbox_inches="tight", facecolor="white")
+        plt.savefig(buf, format="png", dpi=GRAPH_IMAGE_DPI, bbox_inches="tight", facecolor="white")
         buf.seek(0)
         error_image_bytes = buf.read()
         buf.close()
@@ -2372,8 +2420,6 @@ def graph(graph_name):
 @blueprint.route("/api/debug/date-parse", methods=["GET"])
 def debug_date_parse():
     """デバッグ用：日付パース処理をテストするAPI"""
-    import json
-
     time_end_str = flask.request.args.get("end", None)
     time_start_str = flask.request.args.get("start", None)
 
@@ -2452,7 +2498,9 @@ def debug_date_parse():
                 conn, time_start, time_end, max_altitude=None
             )
         else:
-            raw_data = amdar.database.postgresql.fetch_by_time(conn, time_start, time_end, distance=100)
+            raw_data = amdar.database.postgresql.fetch_by_time(
+                conn, time_start, time_end, distance=DEFAULT_DISTANCE_KM
+            )
 
         conn.close()
 
@@ -2499,9 +2547,9 @@ def _parse_datetime_from_request(date_str: str | None) -> datetime.datetime | No
 
 
 def _start_job_async(
-    config: dict[str, Any],
+    config: amdar.config.Config,
     job_id: str,
-    graph_name: str,
+    graph_name: GraphName,
     time_start: datetime.datetime,
     time_end: datetime.datetime,
     limit_altitude: bool,
@@ -2511,7 +2559,7 @@ def _start_job_async(
     _job_manager.update_status(job_id, JobStatus.PROCESSING, progress=10, stage="開始中...")
 
     pool = _pool_manager.get_pool()
-    figsize = tuple(x / IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name].size)
+    figsize = tuple(x / GRAPH_IMAGE_DPI for x in GRAPH_DEF_MAP[graph_name].size)
 
     # ポーリングスレッドを起動（まだ起動していない場合）
     _start_result_checker_thread()
@@ -2713,7 +2761,7 @@ def get_job_result(job_id: str):
         return flask.jsonify({"error": "No result available"}), 500
 
     res = flask.Response(job.result, mimetype="image/png")
-    res.headers["Cache-Control"] = "private, max-age=600"  # 10分間キャッシュ可能
+    res.headers["Cache-Control"] = f"private, max-age={CACHE_CONTROL_MAX_AGE_STATUS}"
     return res
 
 
@@ -2749,7 +2797,7 @@ if __name__ == "__main__":
         with concurrent.futures.ProcessPoolExecutor(max_workers=5) as executor:
             futures: dict[str, concurrent.futures.Future] = {}
             for graph_name, graph_def in GRAPH_DEF_MAP.items():
-                figsize = tuple(x / IMAGE_DPI for x in graph_def.size)
+                figsize = tuple(x / GRAPH_IMAGE_DPI for x in graph_def.size)
                 futures[graph_name] = executor.submit(graph_def.func, data, figsize)
 
             for graph_name, graph_def in GRAPH_DEF_MAP.items():
@@ -2759,7 +2807,6 @@ if __name__ == "__main__":
                 logging.info("elapsed time: %s = %.3f sec", graph_name, elapsed)
 
     import docopt
-    import my_lib.config
     import my_lib.logger
     import my_lib.time
 
@@ -2774,8 +2821,7 @@ if __name__ == "__main__":
 
     my_lib.logger.init("modes sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
-    config_dict = my_lib.config.load(config_file)
-    config = amdar.config.load_from_dict(config_dict, pathlib.Path.cwd())
+    config = amdar.config.load_config(config_file)
 
     conn = _connect_database(config)
     time_end = my_lib.time.now()

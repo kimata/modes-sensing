@@ -14,23 +14,25 @@ Options:
 from __future__ import annotations
 
 import logging
-import pathlib
 import signal
 import sys
-from typing import TYPE_CHECKING, NoReturn
+from dataclasses import dataclass
+from types import FrameType
+from typing import NoReturn
 
 import flask
 import flask_cors
-import my_lib.config
 import my_lib.logger
 import my_lib.proc_util
 
 import amdar.config
 
-if TYPE_CHECKING:
-    from types import FrameType
 
-_SCHEMA_CONFIG = "config.schema"
+@dataclass
+class _SignalHandlerState:
+    """シグナルハンドラーの再入防止状態"""
+
+    entered: bool = False
 
 
 def _term() -> NoReturn:
@@ -105,8 +107,7 @@ def main() -> None:
 
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
-    config_dict = my_lib.config.load(config_file, pathlib.Path(_SCHEMA_CONFIG))
-    config = amdar.config.load_from_dict(config_dict, pathlib.Path.cwd())
+    config = amdar.config.load_config(config_file)
 
     app = create_app(config)
 
@@ -128,12 +129,12 @@ def main() -> None:
     atexit.register(cleanup_on_exit)
 
     # Enhanced signal handler for process group management
-    _sig_handler_state = {"entered": False}
+    _sig_handler_state = _SignalHandlerState()
 
-    def enhanced_sig_handler(num, frame):
-        if _sig_handler_state["entered"]:
+    def enhanced_sig_handler(num: int, frame: FrameType | None) -> None:
+        if _sig_handler_state.entered:
             return  # 再入を防止
-        _sig_handler_state["entered"] = True
+        _sig_handler_state.entered = True
 
         logging.warning("receive signal %d", num)
 

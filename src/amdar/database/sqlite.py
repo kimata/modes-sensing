@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""
+"""SQLite データベースアクセス（開発・テスト用）
+
+DEPRECATED: 本番環境では postgresql.py を使用してください。
+このファイルは開発・テスト用途のみでサポートされます。
+
 Mode S のメッセージを保管し，条件にマッチしたものを出力します．
 
 Usage:
@@ -22,11 +26,43 @@ from typing import TYPE_CHECKING, Any
 import my_lib.footprint
 import my_lib.notify.slack
 import my_lib.sqlite_util
+import my_lib.time
 
-from amdar.database.postgresql import DataRangeResult, MeasurementData
+from amdar.constants import GRAPH_TEMPERATURE_THRESHOLD, get_db_schema_path, sanitize_columns
+from amdar.database.postgresql import (
+    VALID_METEOROLOGICAL_COLUMNS,
+    DataRangeResult,
+    MeasurementData,
+)
 
-# スキーマファイルのパス（src/amdar/database/ から repository root へ）
-_SCHEMA_FILE = pathlib.Path(__file__).parent.parent.parent.parent / "schema" / "sqlite.schema"
+# スキーマファイルのパス
+_SCHEMA_FILE = get_db_schema_path("sqlite.schema")
+
+
+def _parse_sqlite_timestamp(value: int | str | None) -> datetime.datetime | None:
+    """SQLite のタイムスタンプを datetime に変換する
+
+    SQLite では時刻が UNIX timestamp (int) または ISO 形式文字列 (str) で
+    格納されている。これを JST の datetime に変換する。
+
+    Args:
+        value: UNIX timestamp (int)、ISO 形式文字列 (str)、または None
+
+    Returns:
+        JST タイムゾーン付き datetime、または None
+    """
+    if value is None:
+        return None
+
+    jst = my_lib.time.get_zoneinfo()
+
+    if isinstance(value, int):
+        return datetime.datetime.fromtimestamp(value, tz=jst)
+    if isinstance(value, str):
+        dt = datetime.datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+        return dt.replace(tzinfo=jst)
+    return None
+
 
 if TYPE_CHECKING:
     import sqlite3
@@ -137,27 +173,7 @@ def fetch_by_time(
         columns = ["time", "altitude", "temperature", "distance"]
 
     # カラム名をサニタイズ（SQLインジェクション対策）
-    valid_columns = [
-        "time",
-        "callsign",
-        "distance",
-        "altitude",
-        "latitude",
-        "longitude",
-        "temperature",
-        "wind_x",
-        "wind_y",
-        "wind_angle",
-        "wind_speed",
-        "method",
-    ]
-    sanitized_columns = [col for col in columns if col in valid_columns]
-
-    if not sanitized_columns:
-        msg = "No valid columns specified"
-        raise ValueError(msg)
-
-    columns_str = ", ".join(sanitized_columns)
+    columns_str = sanitize_columns(columns, VALID_METEOROLOGICAL_COLUMNS)
 
     start = time.perf_counter()
 
@@ -178,20 +194,15 @@ def fetch_by_time(
 
     data = [
         {
-            **data,
-            "time": (
-                datetime.datetime.strptime(data["time"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.UTC)
-                + datetime.timedelta(hours=9)
-            )
-            if "time" in data
-            else None,
+            **row,
+            "time": _parse_sqlite_timestamp(row.get("time")) if "time" in row else None,
         }
-        for data in cur.fetchall()
+        for row in cur.fetchall()
     ]
     logging.info(
         "Elapsed time: %.2f sec (selected %d columns, %s rows)",
         time.perf_counter() - start,
-        len(sanitized_columns),
+        columns_str.count(",") + 1,
         f"{len(data):,}",
     )
 
@@ -221,27 +232,7 @@ def fetch_latest(
         columns = ["time", "altitude", "temperature", "distance"]
 
     # カラム名をサニタイズ（SQLインジェクション対策）
-    valid_columns = [
-        "time",
-        "callsign",
-        "distance",
-        "altitude",
-        "latitude",
-        "longitude",
-        "temperature",
-        "wind_x",
-        "wind_y",
-        "wind_angle",
-        "wind_speed",
-        "method",
-    ]
-    sanitized_columns = [col for col in columns if col in valid_columns]
-
-    if not sanitized_columns:
-        msg = "No valid columns specified"
-        raise ValueError(msg)
-
-    columns_str = ", ".join(sanitized_columns)
+    columns_str = sanitize_columns(columns, VALID_METEOROLOGICAL_COLUMNS)
 
     start = time.perf_counter()
     cur = conn.cursor()
@@ -251,7 +242,7 @@ def fetch_latest(
         query = (
             f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
             f"WHERE altitude IS NOT NULL AND temperature IS NOT NULL "
-            f"AND temperature > -100 AND distance <= ? "
+            f"AND temperature > {GRAPH_TEMPERATURE_THRESHOLD} AND distance <= ? "
             f"ORDER BY time DESC LIMIT ?"
         )
         cur.execute(query, (distance, limit))
@@ -259,7 +250,7 @@ def fetch_latest(
         query = (
             f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
             f"WHERE altitude IS NOT NULL AND temperature IS NOT NULL "
-            f"AND temperature > -100 "
+            f"AND temperature > {GRAPH_TEMPERATURE_THRESHOLD} "
             f"ORDER BY time DESC LIMIT ?"
         )
         cur.execute(query, (limit,))
@@ -269,21 +260,13 @@ def fetch_latest(
     for row in cur.fetchall():
         row_data = dict(row)
         if row_data.get("time"):
-            # SQLiteのtimeカラムはUNIX timestampとして格納されている
-            if isinstance(row_data["time"], int):
-                row_data["time"] = datetime.datetime.fromtimestamp(
-                    row_data["time"], tz=datetime.UTC
-                ) + datetime.timedelta(hours=9)
-            elif isinstance(row_data["time"], str):
-                row_data["time"] = datetime.datetime.strptime(row_data["time"], "%Y-%m-%d %H:%M:%S").replace(
-                    tzinfo=datetime.UTC
-                ) + datetime.timedelta(hours=9)
+            row_data["time"] = _parse_sqlite_timestamp(row_data["time"])
         data.append(row_data)
 
     logging.info(
         "Elapsed time: %.2f sec (selected %d columns, %s rows)",
         time.perf_counter() - start,
-        len(sanitized_columns),
+        columns_str.count(",") + 1,
         f"{len(data):,}",
     )
 
@@ -321,24 +304,8 @@ def fetch_data_range(conn: sqlite3.Connection) -> DataRangeResult:
 
     if result and result["earliest"] and result["latest"]:
         # SQLiteの時間データをdatetime型に変換
-        earliest = result["earliest"]
-        latest = result["latest"]
-
-        if isinstance(earliest, int):
-            earliest = datetime.datetime.fromtimestamp(earliest, tz=datetime.UTC) + datetime.timedelta(
-                hours=9
-            )
-        elif isinstance(earliest, str):
-            earliest = datetime.datetime.strptime(earliest, "%Y-%m-%d %H:%M:%S").replace(
-                tzinfo=datetime.UTC
-            ) + datetime.timedelta(hours=9)
-
-        if isinstance(latest, int):
-            latest = datetime.datetime.fromtimestamp(latest, tz=datetime.UTC) + datetime.timedelta(hours=9)
-        elif isinstance(latest, str):
-            latest = datetime.datetime.strptime(latest, "%Y-%m-%d %H:%M:%S").replace(
-                tzinfo=datetime.UTC
-            ) + datetime.timedelta(hours=9)
+        earliest = _parse_sqlite_timestamp(result["earliest"])
+        latest = _parse_sqlite_timestamp(result["latest"])
 
         return DataRangeResult(
             earliest=earliest,
@@ -350,15 +317,14 @@ def fetch_data_range(conn: sqlite3.Connection) -> DataRangeResult:
         return DataRangeResult(earliest=None, latest=None, count=0)
 
 
-_SCHEMA_CONFIG = "config.schema"
-
 if __name__ == "__main__":
     import docopt
     import my_lib.config
     import my_lib.logger
 
+    import amdar.config
+    import amdar.constants
     import amdar.sources.modes.receiver
-    from amdar.config import load_from_dict
 
     assert __doc__ is not None  # noqa: S101
     args = docopt.docopt(__doc__)
@@ -368,8 +334,8 @@ if __name__ == "__main__":
 
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
-    config_dict = my_lib.config.load(config_file, pathlib.Path(_SCHEMA_CONFIG))
-    config = load_from_dict(config_dict, pathlib.Path.cwd())
+    config_dict = my_lib.config.load(config_file, amdar.constants.get_schema_path())
+    config = amdar.config.load_from_dict(config_dict, pathlib.Path.cwd())
 
     measurement_queue: queue.Queue[MeasurementData] = queue.Queue()
 

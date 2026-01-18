@@ -13,19 +13,16 @@ Options:
 """
 
 import logging
-import pathlib
-from datetime import datetime
+from typing import Any
 
 import my_lib.container_util
 import my_lib.healthz
 import my_lib.notify.slack
+import my_lib.time
 from my_lib.healthz import HealthzTarget
 
 import amdar.config
-
-_SCHEMA_CONFIG = "config.schema"
-_CONTAINER_STARTUP_GRACE_PERIOD = 120  # コンテナ起動後の猶予期間（秒）
-_VDL2_STARTUP_GRACE_PERIOD = 10 * 60 * 60  # VDL2 用の猶予期間（10時間）
+import amdar.constants
 
 
 def _get_timeout_for_now(schedule: amdar.config.LivenessScheduleConfig) -> int:
@@ -37,7 +34,7 @@ def _get_timeout_for_now(schedule: amdar.config.LivenessScheduleConfig) -> int:
     Returns:
         タイムアウト秒数
     """
-    current_hour = datetime.now().hour
+    current_hour = my_lib.time.now().hour
     start_hour = schedule.daytime_start_hour
     end_hour = schedule.daytime_end_hour
 
@@ -78,7 +75,6 @@ def main() -> None:
     import sys
 
     import docopt
-    import my_lib.config
     import my_lib.logger
     import my_lib.pretty
 
@@ -94,8 +90,7 @@ def main() -> None:
 
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
-    config_dict = my_lib.config.load(config_file, pathlib.Path(_SCHEMA_CONFIG))
-    config = amdar.config.load_from_dict(config_dict, pathlib.Path.cwd())
+    config = amdar.config.load_config(config_file)
 
     logging.info("Mode: %s", mode)
 
@@ -128,12 +123,11 @@ def main() -> None:
         # VDL2はデータ受信頻度が低いため、長時間受信できない場合のみエラーにする
         vdl2_file = config.liveness.file.receiver.vdl2
         if vdl2_file:
-            vdl2_timeout = 8 * 60 * 60  # 8時間
             targets.append(
                 HealthzTarget(
                     name="vdl2",
                     liveness_file=vdl2_file,
-                    interval=vdl2_timeout,
+                    interval=amdar.constants.VDL2_LIVENESS_TIMEOUT_SECONDS,
                 )
             )
 
@@ -152,9 +146,11 @@ def main() -> None:
     else:
         # コンテナ起動後の猶予期間を過ぎている場合のみ通知
         # VDL2 はデータ受信頻度が低いため、長い猶予期間を設定
-        uptime = my_lib.container_util.get_uptime()  # type: ignore[attr-defined]
+        uptime: Any = my_lib.container_util.get_uptime()
         grace_period = (
-            _VDL2_STARTUP_GRACE_PERIOD if failed_target == "vdl2" else _CONTAINER_STARTUP_GRACE_PERIOD
+            amdar.constants.VDL2_STARTUP_GRACE_PERIOD_SECONDS
+            if failed_target == "vdl2"
+            else amdar.constants.CONTAINER_STARTUP_GRACE_PERIOD_SECONDS
         )
         if uptime > grace_period:
             _notify_error(

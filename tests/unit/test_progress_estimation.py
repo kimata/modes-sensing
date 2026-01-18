@@ -51,7 +51,7 @@ class TestGetDefaultGenerationTime:
 
     def test_unknown_graph(self):
         """未知のグラフタイプ"""
-        time = progress_estimation._get_default_generation_time("unknown_graph", 24, False)
+        time = progress_estimation._get_default_generation_time("unknown_graph", 24, False)  # type: ignore[arg-type]
         assert time == 30.0  # デフォルト値
 
 
@@ -90,10 +90,10 @@ class TestGenerationTimeHistory:
         history._initialized = True
 
         # 記録
-        history.record("test_graph", 24, False, 5.0)
+        history.record("test_graph", 24, False, 5.0)  # type: ignore[arg-type]
 
         # 取得
-        time = history.get_estimated_time("test_graph", 24, False)
+        time = history.get_estimated_time("test_graph", 24, False)  # type: ignore[arg-type]
         assert time == 5.0
 
     def test_record_zero_elapsed(self, tmp_path):
@@ -105,10 +105,10 @@ class TestGenerationTimeHistory:
         history._initialized = True
 
         # 0秒を記録（記録されない）
-        history.record("zero_test", 24, False, 0)
+        history.record("zero_test", 24, False, 0)  # type: ignore[arg-type]
 
         # デフォルト値が返る
-        time = history.get_estimated_time("zero_test", 24, False)
+        time = history.get_estimated_time("zero_test", 24, False)  # type: ignore[arg-type]
         assert time == 30.0  # デフォルト
 
     def test_initialize(self, tmp_path):

@@ -356,6 +356,661 @@ def get_git_commit_hash() -> str:
     return result.stdout.strip()[:12]
 ```
 
+### 時刻取得の統一
+
+現在時刻の取得には `my_lib.time.now()` を使用する。`datetime.now(UTC)` の直接使用は避ける：
+
+```python
+# 推奨
+import my_lib.time
+
+now = my_lib.time.now()
+
+# 非推奨
+from datetime import UTC, datetime
+
+now = datetime.now(UTC)
+```
+
+これにより、テスト時のモック化が容易になり、タイムゾーン管理が一元化される。
+
+### 関数名・変数名の言語
+
+関数名・変数名は**英語**で記述する。日本語は使用しない:
+
+```python
+# 推奨
+def _try_altitude_interpolation_from_buffer():
+    altitude_result = ...
+
+# 非推奨
+def _try_altitude_補完_from_buffer():
+    buffer_補完 = ...
+```
+
+ただし、ログメッセージやコメントは日本語で記述してよい。
+
+### time.time() と my_lib.time.now() の使い分け
+
+| 用途                             | 使用する関数        |
+| -------------------------------- | ------------------- |
+| 観測データのタイムスタンプ       | `my_lib.time.now()` |
+| ログの時刻                       | `my_lib.time.now()` |
+| ジョブ管理（開始時刻、完了時刻） | `time.time()`       |
+| キャッシュ TTL の計算            | `time.time()`       |
+| タイムアウト判定                 | `time.time()`       |
+
+`datetime` が必要な場面では `my_lib.time.now()`、UNIX タイムスタンプ（float）で十分な場面では `time.time()` を使用する。
+
+### pyModeS 等のライブラリ戻り値の型処理
+
+pyModeS のように戻り値が `T | None` のタプルを返すライブラリでは、`all(v is not None for v in ...)` チェック後も型が絞り込まれない。このような場合は `# type: ignore[arg-type]` を許容する:
+
+```python
+if all(v is not None for v in (trackangle, groundspeed, trueair)):
+    # タプルアンパックでは型が絞り込まれないため type: ignore が必要
+    trackangle_f = float(trackangle)  # type: ignore[arg-type]
+```
+
+ただし、CLAUDE.md「pyright エラーへの対処方針」に従い、可能な場合は型アノテーションを追加して type: ignore を回避する。
+
+### ファイルパスと base_dir の扱い
+
+設定ファイルで指定される相対パスは `Config.base_dir` を基準に解決する:
+
+```python
+# 推奨: base_dir を基準に解決
+liveness_file = config.base_dir / config.liveness.file.collector
+
+# 非推奨: 現在の作業ディレクトリを仮定
+liveness_file = pathlib.Path.cwd() / config.liveness.file.collector
+```
+
+`base_dir` は設定読み込み時の作業ディレクトリが自動設定される。アプリケーション起動後に作業ディレクトリが変更されても正しく動作する。
+
+### Literal 型の活用
+
+文字列の列挙型は `Literal` 型を使用して型安全性を確保する：
+
+```python
+from typing import Literal
+
+MethodType = Literal["mode-s", "vdl2"]
+DataSourceType = Literal["bds44", "bds50_60", "acars_wn", "acars_wx", ""]
+
+@dataclass
+class WeatherObservation:
+    method: MethodType = "mode-s"
+    data_source: DataSourceType = ""
+```
+
+### TypedDict と dataclass の使い分け
+
+- **dataclass**: 構造化データ、設定、ドメインオブジェクトに使用
+- **TypedDict**: 外部 API のレスポンスや JSON パース結果など、dict として扱う必要がある場合に使用
+
+パーサー関数の戻り値など、内部で使用するデータ構造には dataclass を優先する：
+
+```python
+# 推奨: パーサーの戻り値は dataclass
+@dataclass
+class ParsedWeatherData:
+    latitude: float | None = None
+    temperature_c: float | None = None
+
+def parse_weather(msg: str) -> ParsedWeatherData | None:
+    ...
+
+# 非推奨: dict を返す
+def parse_weather(msg: str) -> dict[str, Any] | None:
+    ...
+```
+
+### 内部データ構造の型定義
+
+関数間でデータを受け渡す際は、`dict` ではなく dataclass または NamedTuple を使用する：
+
+```python
+# 推奨: dataclass で型を明確に
+@dataclass
+class FetchResult:
+    data: numpy.ndarray
+    count: int
+
+def fetch_data() -> FetchResult:
+    return FetchResult(data=arr, count=len(arr))
+
+# 推奨: 複数値を返す場合は NamedTuple
+from typing import NamedTuple
+
+class AltitudeResult(NamedTuple):
+    altitude_m: float
+    latitude: float | None
+    longitude: float | None
+    source: str
+
+def get_altitude() -> AltitudeResult | None:
+    return AltitudeResult(altitude_m=10000, latitude=35.0, longitude=139.0, source="adsb")
+
+# 非推奨: dict だと型が不明確
+def fetch_data() -> dict[str, Any]:
+    return {"data": arr, "count": len(arr)}
+```
+
+API レスポンスなど外部向けの辞書は TypedDict を使用する：
+
+```python
+from typing import TypedDict
+
+class JobStatusDict(TypedDict):
+    """API レスポンス用ジョブステータス"""
+    job_id: str
+    status: str
+    progress: int
+
+def get_status() -> JobStatusDict:
+    return {"job_id": "xxx", "status": "completed", "progress": 100}
+```
+
+### 後方互換性コードの扱い
+
+本番で使用されなくなったコードは、ファイル先頭の docstring に非推奨マークを追加する：
+
+```python
+"""SQLite データベースアクセス（開発・テスト用）
+
+DEPRECATED: 本番環境では postgresql.py を使用してください。
+このファイルは開発・テスト用途のみでサポートされます。
+"""
+```
+
+### モジュールレベル定数の活用
+
+複数箇所で使用される定数値（特にバリデーション用のリスト等）はモジュールレベルで定義し、重複を排除する:
+
+```python
+# 推奨: モジュールレベルで定数として定義
+VALID_COLUMNS: tuple[str, ...] = ("time", "altitude", "temperature", ...)
+
+def fetch_data(columns: list[str]) -> ...:
+    sanitized = [c for c in columns if c in VALID_COLUMNS]
+
+# 非推奨: 関数内で毎回定義
+def fetch_data(columns: list[str]) -> ...:
+    valid_columns = ["time", "altitude", "temperature", ...]  # 重複
+    sanitized = [c for c in columns if c in valid_columns]
+```
+
+定数名は `UPPER_SNAKE_CASE` で記述する。
+
+### 型定義の再利用
+
+同じ構造の dataclass が複数ファイルに存在する場合、`core/types.py` の定義を再利用する:
+
+```python
+# 推奨: 既存の型定義を再利用
+from amdar.core.types import WindData
+
+# 非推奨: 同じ構造を再定義
+@dataclass
+class WindData:
+    x: float
+    y: float
+    ...
+```
+
+### シングルトンパターンの型安全な実装
+
+シングルトンパターンでは `# type: ignore` を避け、assert で型を絞り込む：
+
+```python
+from typing import ClassVar
+
+# 推奨: assert で型を絞り込む
+class MySingleton:
+    _instance: ClassVar[MySingleton | None] = None
+    _lock: ClassVar[threading.Lock] = threading.Lock()
+
+    def __new__(cls) -> MySingleton:
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        assert cls._instance is not None
+        return cls._instance
+
+# 非推奨: type: ignore で回避
+def __new__(cls) -> Self:
+    ...
+    return cls._instance  # type: ignore[return-value]
+```
+
+注意: 戻り値の型には `Self` ではなく具体的なクラス名を使用する。`Self` はサブクラス化を前提とした型であり、シングルトンでは不適切。
+
+### 共通定数の集約
+
+複数ファイルで使用する定数は `amdar/constants.py` に集約する：
+
+```python
+# 推奨: 共通モジュールで定義
+import amdar.constants
+
+schema_path = amdar.constants.get_schema_path()
+
+# 非推奨: 各ファイルで重複定義
+_SCHEMA_CONFIG = "config.schema"
+```
+
+### 設定読み込みの統一
+
+設定ファイルの読み込みには `amdar.config.load_config()` を使用する：
+
+```python
+# 推奨: ヘルパー関数を使用
+import amdar.config
+
+config = amdar.config.load_config(config_file)
+
+# 非推奨: 個別にロードと変換
+config_dict = my_lib.config.load(config_file, amdar.constants.get_schema_path())
+config = amdar.config.load_from_dict(config_dict, pathlib.Path.cwd())
+```
+
+`load_config()` はスキーマ検証を含み、`base_dir` を現在の作業ディレクトリに設定する。
+`config_dict` を直接使用する必要がある場合（sqlite.py など）のみ、`load_from_dict()` を使用する。
+
+### スキーマファイルパスの管理
+
+データベーススキーマファイルのパスは `constants.py` の関数を使用する：
+
+```python
+# 推奨: constants.py の関数を使用
+from amdar.constants import get_db_schema_path
+
+schema_path = get_db_schema_path("postgres.schema")
+
+# 非推奨: 各ファイルで __file__ からの相対パス計算
+_SCHEMA_FILE = pathlib.Path(__file__).parent.parent.parent.parent / "schema" / "postgres.schema"
+```
+
+### マジックナンバーの constants.py 集約
+
+複数箇所で使用される定数値は `constants.py` に定義する：
+
+```python
+# 推奨: 定数として定義
+from amdar.constants import DEFAULT_DISTANCE_KM
+
+fetch_data(distance=DEFAULT_DISTANCE_KM)
+
+# 非推奨: ハードコード
+fetch_data(distance=100)
+```
+
+### 単位変換定数の使用
+
+単位変換には `constants.py` の定数を使用する：
+
+```python
+# 推奨: constants.py の定数を使用
+import amdar.constants
+
+altitude_m = altitude_ft * amdar.constants.FEET_TO_METERS
+speed_ms = speed_kt * amdar.constants.KNOTS_TO_MS
+
+# 非推奨: マジックナンバー
+altitude_m = altitude_ft * 0.3048
+speed_ms = speed_kt * 0.514444
+```
+
+主な単位変換定数：
+
+| 定数名                   | 値       | 用途                |
+| ------------------------ | -------- | ------------------- |
+| `FEET_TO_METERS`         | 0.3048   | フィート → メートル |
+| `METERS_TO_FEET`         | 3.28084  | メートル → フィート |
+| `KNOTS_TO_MS`            | 0.514444 | ノット → m/s        |
+| `KM_PER_DEGREE_LATITUDE` | 111.0    | 緯度1度あたりのkm   |
+
+### タイムアウト定数の管理
+
+タイムアウトやインターバルなどの時間関連定数は `constants.py` で一元管理する：
+
+```python
+# 推奨: constants.py で定義した値を使用
+from amdar.constants import CACHE_TTL_SECONDS
+
+cache_ttl = CACHE_TTL_SECONDS
+
+# 非推奨: 各ファイルでマジックナンバー
+cache_ttl = 1800
+```
+
+主な定数：
+
+| 定数名                           | 値   | 用途                 |
+| -------------------------------- | ---- | -------------------- |
+| `CACHE_TTL_SECONDS`              | 1800 | キャッシュの有効期限 |
+| `JOB_TIMEOUT_SECONDS`            | 1200 | ジョブタイムアウト   |
+| `JOB_EXPIRY_SECONDS`             | 1800 | ジョブ結果の保持期間 |
+| `PREGENERATION_INTERVAL_SECONDS` | 1500 | 事前生成の間隔       |
+
+### モジュール変数の初期化
+
+未初期化状態を明示するため、`Path()` ではなく `None` を使用する：
+
+```python
+# 推奨: 未初期化を明示
+_liveness_file: pathlib.Path | None = None
+
+def initialize(path: pathlib.Path) -> None:
+    global _liveness_file
+    _liveness_file = path
+
+def update() -> None:
+    if _liveness_file is not None:
+        my_lib.footprint.update(_liveness_file)
+
+# 非推奨: 空パスで初期化
+_liveness_file: pathlib.Path = pathlib.Path()
+```
+
+### Protocol と TypedDict/dataclass の使い分け
+
+Protocol は複数の異なる実装が同じインターフェースを共有する場合にのみ使用する。
+単一の実装に対しては TypedDict または dataclass を優先する：
+
+```python
+# 推奨: 単一実装には dataclass
+@dataclass
+class MessageFragment:
+    icao: str
+    altitude_ft: float | None = None
+
+# 非推奨: 不要な Protocol 抽象化
+class FragmentProtocol(Protocol):
+    icao: str
+    altitude_ft: float | None
+```
+
+### ParsedData と DomainObject の分離
+
+パーサーの戻り値（ParsedData）とドメインオブジェクトは別々に定義する：
+
+```python
+# パーサー戻り値: 解析結果のみ
+@dataclass
+class ParsedWeatherData:
+    temperature_c: float | None = None
+    wind_speed_kt: int | None = None
+
+# ドメインオブジェクト: ビジネスロジックを含む
+@dataclass
+class WeatherObservation:
+    temperature: float | None = None
+    wind: WindData | None = None
+
+    def is_valid(self) -> bool:
+        ...
+```
+
+### Option パターンは使用しない
+
+Python では `| None` パターンが標準。Rust/Scala スタイルの Option 型ラッパーは使用しない：
+
+```python
+# 推奨: Python 標準の None パターン
+value: str | None = None
+if value is not None:
+    process(value)
+
+# 非推奨: Option 型ラッパー
+value: Option[str] = Option(None)
+if value.is_some():
+    process(value.unwrap())
+```
+
+### コード重複の排除
+
+同じロジックが複数箇所に存在する場合は、共通関数に抽出する：
+
+```python
+# 推奨: 共通関数に抽出
+def _convert_rows_to_numpy_arrays(rows, include_wind):
+    # 変換ロジック
+    ...
+
+result1 = _convert_rows_to_numpy_arrays(rows1, include_wind=True)
+result2 = _convert_rows_to_numpy_arrays(rows2, include_wind=False)
+
+# 非推奨: 同じロジックを複数箇所に記述
+for i, row in enumerate(rows1):
+    times[i] = row[0]
+    ...  # 変換ロジック
+
+for i, row in enumerate(rows2):
+    times[i] = row[0]
+    ...  # 同じ変換ロジック（重複）
+```
+
+### naive datetime 変換の統一
+
+PostgreSQL との連携で naive datetime への変換が必要な場合は、`_to_naive_datetime()` ヘルパー関数を使用する：
+
+```python
+# 推奨: 専用関数を使用
+naive_dt = _to_naive_datetime(dt)
+
+# 非推奨: 毎回 replace を呼び出す
+naive_dt = dt.replace(tzinfo=None)
+```
+
+これにより、変換の目的がコードから明確になり、変換ロジック変更時に1箇所で対応できる。
+
+### カラムサニタイズの共通化
+
+SQL カラム名のサニタイズには `amdar.constants.sanitize_columns()` を使用する：
+
+```python
+# 推奨: constants.py の関数を使用
+import amdar.constants
+
+columns_str = amdar.constants.sanitize_columns(columns, VALID_METEOROLOGICAL_COLUMNS)
+
+# 非推奨: 各ファイルで重複実装
+sanitized = [col for col in columns if col in VALID_COLUMNS]
+if not sanitized:
+    raise ValueError("No valid columns")
+columns_str = ", ".join(sanitized)
+```
+
+### my_lib.git_util の活用
+
+Git 情報の取得には `my_lib.git_util` を使用する：
+
+```python
+# 推奨: my_lib.git_util を使用
+import my_lib.git_util
+
+revision = my_lib.git_util.get_revision_info()
+commit_hash = revision.hash[:12]
+
+# 非推奨: subprocess で直接実行
+result = subprocess.run(["git", "rev-parse", "HEAD"], ...)
+```
+
+### 距離計算の共通化
+
+距離計算は `amdar.core.geo` モジュールの共通関数を使用する：
+
+```python
+# 推奨: 共通モジュールを使用
+import amdar.core.geo
+
+# 簡易計算（高速、近距離向け）
+distance = amdar.core.geo.simple_distance(lat, lon, ref_lat, ref_lon)
+
+# Haversine 公式（精密、長距離向け）
+distance = amdar.core.geo.haversine_distance(ref_lat, ref_lon, lat, lon)
+
+# 非推奨: 各ファイルで独自実装
+lat_dist = (lat - ref_lat) * 111.0
+lon_dist = (lon - ref_lon) * 111.0 * math.cos(math.radians(ref_lat))
+distance = math.sqrt(lat_dist**2 + lon_dist**2)
+```
+
+精度が必要な場合は `haversine_distance` を、パフォーマンスを優先する場合は `simple_distance` を使用する。
+
+### 単位変換定数の使用
+
+単位変換には `constants.py` の定数を使用する：
+
+```python
+# 推奨: constants.py の定数を使用
+import amdar.constants
+
+altitude_m = altitude_ft * amdar.constants.FEET_TO_METERS
+speed_ms = speed_kt * amdar.constants.KNOTS_TO_MS
+
+# 非推奨: マジックナンバー
+altitude_m = altitude_ft * 0.3048
+speed_ms = speed_kt * 0.514444
+```
+
+主な単位変換定数：
+
+| 定数名                   | 値       | 用途                |
+| ------------------------ | -------- | ------------------- |
+| `FEET_TO_METERS`         | 0.3048   | フィート → メートル |
+| `METERS_TO_FEET`         | 3.28084  | メートル → フィート |
+| `KNOTS_TO_MS`            | 0.514444 | ノット → m/s        |
+| `KM_PER_DEGREE_LATITUDE` | 111.0    | 緯度1度あたりのkm   |
+
+### タイムアウト定数の管理
+
+タイムアウトやインターバルなどの時間関連定数は `constants.py` で一元管理する：
+
+```python
+# 推奨: constants.py で定義した値を使用
+from amdar.constants import CACHE_TTL_SECONDS
+
+cache_ttl = CACHE_TTL_SECONDS
+
+# 非推奨: 各ファイルでマジックナンバー
+cache_ttl = 1800
+```
+
+主な定数：
+
+| 定数名                           | 値   | 用途                 |
+| -------------------------------- | ---- | -------------------- |
+| `CACHE_TTL_SECONDS`              | 1800 | キャッシュの有効期限 |
+| `JOB_TIMEOUT_SECONDS`            | 1200 | ジョブタイムアウト   |
+| `JOB_EXPIRY_SECONDS`             | 1800 | ジョブ結果の保持期間 |
+| `PREGENERATION_INTERVAL_SECONDS` | 1500 | 事前生成の間隔       |
+
+### singledispatch とパターンマッチングの使用基準
+
+`isinstance` チェックが3つ以上連続する場合のみ、singledispatch やパターンマッチングへの置き換えを検討する。
+2つ以下の場合は、既存の `isinstance` チェックの方が可読性が高い：
+
+```python
+# 2つ以下の isinstance は OK
+if isinstance(value, str):
+    return process_string(value)
+elif isinstance(value, int):
+    return process_int(value)
+return value
+
+# 3つ以上の場合はパターンマッチングを検討
+match value:
+    case str():
+        return process_string(value)
+    case int():
+        return process_int(value)
+    case float():
+        return process_float(value)
+    case _:
+        return value
+```
+
+### ログレベルの使い分け
+
+Python の logging モジュールを適切に使用する。プレフィックスでログレベルを示すのではなく、適切なログレベルを指定する：
+
+```python
+# 推奨: 適切なログレベルを使用
+logging.debug("詳細なデバッグ情報: value=%s", value)
+logging.info("処理開始/完了などの通常情報")
+logging.warning("警告: 問題があるが処理は継続")
+logging.error("エラー: 処理が失敗")
+
+# 例外のスタックトレースを debug レベルで出力
+try:
+    ...
+except Exception:
+    logging.debug("パース失敗", exc_info=True)
+
+# 非推奨: info レベルに [DEBUG] プレフィックスを付ける
+logging.info("[DEBUG] 詳細情報: value=%s", value)
+```
+
+| レベル    | 用途                                               |
+| --------- | -------------------------------------------------- |
+| `DEBUG`   | 開発時のみ必要な詳細情報（パラメータ値、中間結果） |
+| `INFO`    | 処理の開始/完了、重要なマイルストーン              |
+| `WARNING` | 問題はあるが処理は継続できる状況                   |
+| `ERROR`   | 処理が失敗した状況                                 |
+
+### リファクタリング時の検討観点
+
+コードをリファクタリングする際は、以下の観点で改善の余地を検討する。
+ただし、**デメリットがメリットを上回る場合は実施しない**。
+
+1. **型整備**
+    - Protocol の導入は複数の異なる実装が同じインターフェースを共有する場合のみ
+    - `isinstance` チェックが3つ以上連続する場合のみ singledispatch/パターンマッチングを検討
+    - 内部データ構造には dict より dataclass を優先
+
+2. **定数管理**
+    - ローカルでのエイリアス定義は避け、constants.py を直接参照
+    - 後方互換性のためのエイリアスは docstring にその旨を明記
+
+3. **パス解決**
+    - `pathlib.Path.cwd()` より `__file__` ベースのパス解決を優先
+    - 設定ファイルのパスは config.base_dir を使用
+
+4. **my_lib の活用**
+    - time.time() と my_lib.time.now() の使い分けルールを遵守
+    - 新規機能追加時は my_lib に同様の機能がないか確認
+
+### リファクタリング調査時の判断基準
+
+改善候補を検討する際は、工数対効果を評価する。
+
+1. **Protocol 導入の判断**
+    - 複数の異なる実装が同じインターフェースを共有する場合のみ導入
+    - 単一実装や deprecated なモジュール（sqlite.py 等）には不要
+
+2. **TypedDict → dataclass 置き換えの判断**
+    - 外部 API レスポンスや JSON パース結果: TypedDict を維持
+    - 内部ドメインオブジェクト: dataclass を優先
+    - 動的キー設定（dict["key"] = value）が多用される場合は TypedDict を維持
+    - 大規模変更が必要な場合は工数対効果を検討
+
+3. **計算ロジック統合の判断**
+    - 完全に同一のロジックが複数箇所にある場合: 共通モジュールに抽出
+    - 類似しているが微妙に異なる場合: 各コンテキストで維持
+
+4. **定数集約の判断**
+    - 複数ファイルで使用される定数: constants.py に集約
+    - 単一ファイル内でのみ使用: ローカル定数として維持
+
+5. **パス解決の統一**
+    - スキーマファイル等の固定パス: constants.py の関数を使用
+    - 設定ファイルからの相対パス: config.base_dir を使用
+    - 作業ディレクトリ依存のコードは避ける
+
 ## API エンドポイント
 
 ### グラフ生成（非同期）

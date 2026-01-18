@@ -24,11 +24,15 @@ from typing import TYPE_CHECKING, Any
 import my_lib.footprint
 import my_lib.notify.slack
 import my_lib.time
+import numpy as np
 import psycopg2
 import psycopg2.extras
+from numpy.typing import NDArray
 
-# スキーマファイルのパス（src/amdar/database/ から repository root へ）
-_SCHEMA_FILE = pathlib.Path(__file__).parent.parent.parent.parent / "schema" / "postgres.schema"
+import amdar.constants
+from amdar.config import DatabaseConfig
+from amdar.constants import DEFAULT_DISTANCE_KM, get_db_schema_path, sanitize_columns
+from amdar.core.types import MethodType, WindData
 
 if TYPE_CHECKING:
     import datetime
@@ -46,25 +50,8 @@ class TerminationRequestedError(Exception):
     """終了が要求された場合の例外"""
 
 
-@dataclass(frozen=True)
-class DBConfig:
-    """データベース接続設定"""
-
-    host: str
-    port: int
-    name: str
-    user: str
-    password: str
-
-
-@dataclass
-class WindData:
-    """風向・風速データ"""
-
-    x: float
-    y: float
-    angle: float
-    speed: float
+# スキーマファイルのパス
+_SCHEMA_FILE = get_db_schema_path("postgres.schema")
 
 
 @dataclass
@@ -78,7 +65,7 @@ class MeasurementData:
     temperature: float
     wind: WindData
     distance: float
-    method: str = "mode-s"
+    method: MethodType = amdar.constants.MODE_S_METHOD
 
 
 @dataclass(frozen=True)
@@ -108,6 +95,175 @@ class AggregationLevel:
     max_days: int
 
 
+@dataclass(frozen=True)
+class MaterializedViewsStatus:
+    """マテリアライズドビューの存在状態"""
+
+    halfhourly_altitude_grid: bool = False
+    threehour_altitude_grid: bool = False
+
+    def get(self, table_name: str) -> bool:
+        """テーブル名でビューの存在状態を取得する
+
+        Args:
+            table_name: テーブル名 ("halfhourly_altitude_grid" または "threehour_altitude_grid")
+
+        Returns:
+            ビューが存在する場合 True
+        """
+        if table_name == "halfhourly_altitude_grid":
+            return self.halfhourly_altitude_grid
+        if table_name == "threehour_altitude_grid":
+            return self.threehour_altitude_grid
+        return False
+
+
+@dataclass
+class MaterializedViewStats:
+    """マテリアライズドビューの統計情報"""
+
+    row_count: int
+    earliest: datetime.datetime | None
+    latest: datetime.datetime | None
+    error: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        """API レスポンス用に辞書に変換する"""
+        if self.error:
+            return {"error": True}
+        return {
+            "row_count": self.row_count,
+            "earliest": self.earliest,
+            "latest": self.latest,
+        }
+
+
+@dataclass
+class AllMaterializedViewStats:
+    """全マテリアライズドビューの統計情報"""
+
+    halfhourly_altitude_grid: MaterializedViewStats
+    threehour_altitude_grid: MaterializedViewStats
+
+    def to_dict(self) -> dict[str, dict[str, Any]]:
+        """API レスポンス用に辞書に変換する"""
+        return {
+            "halfhourly_altitude_grid": self.halfhourly_altitude_grid.to_dict(),
+            "threehour_altitude_grid": self.threehour_altitude_grid.to_dict(),
+        }
+
+
+@dataclass
+class MaterializedViewRefreshResult:
+    """マテリアライズドビュー更新結果
+
+    各ビューの更新にかかった時間（秒）を保持する。
+    -1 はエラーを示す。
+    """
+
+    halfhourly_altitude_grid: float
+    threehour_altitude_grid: float
+
+    def to_dict(self) -> dict[str, float]:
+        """API レスポンス用に辞書に変換する"""
+        return {
+            "halfhourly_altitude_grid": self.halfhourly_altitude_grid,
+            "threehour_altitude_grid": self.threehour_altitude_grid,
+        }
+
+
+@dataclass
+class NumpyFetchResult:
+    """NumPy 配列形式のデータ取得結果
+
+    fetch_by_time_numpy / fetch_aggregated_numpy から返される形式。
+    グラフ描画に必要なデータを保持する。
+    """
+
+    time: NDArray[np.datetime64]
+    altitude: NDArray[np.float64]
+    temperature: NDArray[np.float64]
+    count: int
+    wind_x: NDArray[np.float64] | None = None
+    wind_y: NDArray[np.float64] | None = None
+    wind_speed: NDArray[np.float64] | None = None
+    wind_angle: NDArray[np.float64] | None = None
+
+
+def _convert_rows_to_numpy_arrays(
+    rows: Sequence[tuple[Any, ...]],
+    include_wind: bool = False,
+) -> NumpyFetchResult:
+    """行データをNumPy配列に変換する共通関数
+
+    Args:
+        rows: データベースから取得した行のリスト
+        include_wind: 風データを含めるか
+
+    Returns:
+        NumpyFetchResult: NumPy配列形式のデータ
+
+    """
+    import numpy
+
+    row_count = len(rows)
+    if row_count == 0:
+        return NumpyFetchResult(
+            time=numpy.array([], dtype="datetime64[us]"),
+            altitude=numpy.array([], dtype=numpy.float64),
+            temperature=numpy.array([], dtype=numpy.float64),
+            count=0,
+            wind_x=numpy.array([], dtype=numpy.float64) if include_wind else None,
+            wind_y=numpy.array([], dtype=numpy.float64) if include_wind else None,
+            wind_speed=numpy.array([], dtype=numpy.float64) if include_wind else None,
+            wind_angle=numpy.array([], dtype=numpy.float64) if include_wind else None,
+        )
+
+    # タプルのリストからNumPy配列に一括変換
+    # 時間、高度、温度を事前確保した配列に直接書き込み
+    times = numpy.empty(row_count, dtype="datetime64[us]")
+    altitudes = numpy.empty(row_count, dtype=numpy.float64)
+    temperatures = numpy.empty(row_count, dtype=numpy.float64)
+
+    if include_wind:
+        wind_x = numpy.empty(row_count, dtype=numpy.float64)
+        wind_y = numpy.empty(row_count, dtype=numpy.float64)
+        wind_speed = numpy.empty(row_count, dtype=numpy.float64)
+        wind_angle = numpy.empty(row_count, dtype=numpy.float64)
+
+        for i, row in enumerate(rows):
+            times[i] = row[0]
+            altitudes[i] = row[1] if row[1] is not None else numpy.nan
+            temperatures[i] = row[2] if row[2] is not None else numpy.nan
+            wind_x[i] = row[3] if row[3] is not None else numpy.nan
+            wind_y[i] = row[4] if row[4] is not None else numpy.nan
+            wind_speed[i] = row[5] if row[5] is not None else numpy.nan
+            wind_angle[i] = row[6] if row[6] is not None else numpy.nan
+
+        return NumpyFetchResult(
+            time=times,
+            altitude=altitudes,
+            temperature=temperatures,
+            count=row_count,
+            wind_x=wind_x,
+            wind_y=wind_y,
+            wind_speed=wind_speed,
+            wind_angle=wind_angle,
+        )
+
+    for i, row in enumerate(rows):
+        times[i] = row[0]
+        altitudes[i] = row[1] if row[1] is not None else numpy.nan
+        temperatures[i] = row[2] if row[2] is not None else numpy.nan
+
+    return NumpyFetchResult(
+        time=times,
+        altitude=altitudes,
+        temperature=temperatures,
+        count=row_count,
+    )
+
+
 # 期間に応じたサンプリングレベルの定義
 # 長期間では時間×高度帯から代表点を1つ選ぶことでデータ量を削減しつつ品質を維持
 AGGREGATION_LEVELS: list[AggregationLevel] = [
@@ -122,11 +278,37 @@ AGGREGATION_LEVELS: list[AggregationLevel] = [
 ]
 
 
-# 再接続設定
-_MAX_RECONNECT_RETRIES: int = 5
-_RECONNECT_DELAY: float = 5.0
+# 有効なカラム名（SQLインジェクション対策用バリデーション）
+VALID_METEOROLOGICAL_COLUMNS: tuple[str, ...] = (
+    "time",
+    "callsign",
+    "distance",
+    "altitude",
+    "latitude",
+    "longitude",
+    "temperature",
+    "wind_x",
+    "wind_y",
+    "wind_angle",
+    "wind_speed",
+    "method",
+)
 
 _should_terminate = threading.Event()
+
+
+def _to_naive_datetime(dt: datetime.datetime) -> datetime.datetime:
+    """タイムゾーン情報を削除して naive datetime に変換
+
+    PostgreSQL 内の naive datetime（サーバーローカルタイム=JST）との比較用。
+
+    Args:
+        dt: タイムゾーン付きの datetime
+
+    Returns:
+        タイムゾーン情報を削除した naive datetime
+    """
+    return dt.replace(tzinfo=None)
 
 
 def open(host: str, port: int, database: str, user: str, password: str) -> PgConnection:
@@ -211,7 +393,7 @@ def _insert(conn: PgConnection, data: MeasurementData) -> None:
         )
 
 
-def _attempt_reconnect(db_config: DBConfig) -> PgConnection:
+def _attempt_reconnect(db_config: DatabaseConfig) -> PgConnection:
     """データベースへの再接続を試行する
 
     Args:
@@ -225,17 +407,17 @@ def _attempt_reconnect(db_config: DBConfig) -> PgConnection:
         ReconnectError: すべての再接続試行に失敗した場合
 
     """
-    for attempt in range(1, _MAX_RECONNECT_RETRIES + 1):
+    for attempt in range(1, amdar.constants.DB_MAX_RECONNECT_RETRIES + 1):
         if _should_terminate.is_set():
             raise TerminationRequestedError("終了が要求されました")
 
         logging.warning(
             "再接続を試行します（%d/%d回目、%.1f秒待機）...",
             attempt,
-            _MAX_RECONNECT_RETRIES,
-            _RECONNECT_DELAY,
+            amdar.constants.DB_MAX_RECONNECT_RETRIES,
+            amdar.constants.DB_RECONNECT_DELAY_SECONDS,
         )
-        time.sleep(_RECONNECT_DELAY)
+        time.sleep(amdar.constants.DB_RECONNECT_DELAY_SECONDS)
 
         try:
             new_conn = open(
@@ -250,7 +432,7 @@ def _attempt_reconnect(db_config: DBConfig) -> PgConnection:
         except Exception:
             logging.exception("再接続に失敗しました（%d回目）", attempt)
 
-    error_message = f"すべての再接続試行（{_MAX_RECONNECT_RETRIES}回）に失敗しました"
+    error_message = f"すべての再接続試行（{amdar.constants.DB_MAX_RECONNECT_RETRIES}回）に失敗しました"
     logging.error(error_message)
     raise ReconnectError(error_message)
 
@@ -278,7 +460,7 @@ def store_queue(
     conn: PgConnection,
     measurement_queue: multiprocessing.Queue[MeasurementData],
     liveness_file: pathlib.Path,
-    db_config: DBConfig,
+    db_config: DatabaseConfig,
     slack_config: my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.SlackEmptyConfig,
     count: int = 0,
 ) -> None:
@@ -334,7 +516,7 @@ def _process_one_item(
 def _handle_db_error(
     state: _StoreState,
     error: Exception,
-    db_config: DBConfig,
+    db_config: DatabaseConfig,
     slack_config: my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.SlackEmptyConfig,
 ) -> None:
     """データベース接続エラーを処理する"""
@@ -419,27 +601,7 @@ def fetch_by_time(
         columns = ["time", "altitude", "temperature", "distance"]
 
     # カラム名をサニタイズ（SQLインジェクション対策）
-    valid_columns = [
-        "time",
-        "callsign",
-        "distance",
-        "altitude",
-        "latitude",
-        "longitude",
-        "temperature",
-        "wind_x",
-        "wind_y",
-        "wind_angle",
-        "wind_speed",
-        "method",
-    ]
-    sanitized_columns = [col for col in columns if col in valid_columns]
-
-    if not sanitized_columns:
-        msg = "No valid columns specified"
-        raise ValueError(msg)
-
-    columns_str = ", ".join(sanitized_columns)
+    columns_str = sanitize_columns(columns, VALID_METEOROLOGICAL_COLUMNS)
 
     start = time.perf_counter()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -456,8 +618,8 @@ def fetch_by_time(
             cur.execute(
                 query,
                 (
-                    time_start.replace(tzinfo=None),
-                    time_end.replace(tzinfo=None),
+                    _to_naive_datetime(time_start),
+                    _to_naive_datetime(time_end),
                     distance,
                     max_altitude,
                 ),
@@ -474,8 +636,8 @@ def fetch_by_time(
             cur.execute(
                 query,
                 (
-                    time_start.replace(tzinfo=None),
-                    time_end.replace(tzinfo=None),
+                    _to_naive_datetime(time_start),
+                    _to_naive_datetime(time_end),
                     distance,
                 ),
             )
@@ -486,7 +648,7 @@ def fetch_by_time(
         logging.info(
             "Elapsed time: %.2f sec (selected %d columns, %s rows)",
             time.perf_counter() - start,
-            len(sanitized_columns),
+            columns_str.count(",") + 1,
             f"{len(data):,}",
         )
 
@@ -500,7 +662,7 @@ def fetch_by_time_numpy(
     distance: float,
     max_altitude: float | None = None,
     include_wind: bool = False,
-) -> dict[str, Any]:
+) -> NumpyFetchResult:
     """
     指定された時間範囲と距離でデータをNumPy配列として取得する（高速版）
 
@@ -516,21 +678,9 @@ def fetch_by_time_numpy(
         include_wind: 風データを含めるか
 
     Returns:
-        NumPy配列を含む辞書:
-        {
-            "time": numpy.ndarray,
-            "altitude": numpy.ndarray,
-            "temperature": numpy.ndarray,
-            "wind_x": numpy.ndarray (include_wind=True時のみ),
-            "wind_y": numpy.ndarray (include_wind=True時のみ),
-            "wind_speed": numpy.ndarray (include_wind=True時のみ),
-            "wind_angle": numpy.ndarray (include_wind=True時のみ),
-            "count": int,
-        }
+        NumpyFetchResult: NumPy配列形式のデータ取得結果
 
     """
-    import numpy
-
     # カラム選択
     if include_wind:
         columns = "time, altitude, temperature, wind_x, wind_y, wind_speed, wind_angle"
@@ -551,8 +701,8 @@ def fetch_by_time_numpy(
             cur.execute(
                 query,
                 (
-                    time_start.replace(tzinfo=None),
-                    time_end.replace(tzinfo=None),
+                    _to_naive_datetime(time_start),
+                    _to_naive_datetime(time_end),
                     distance,
                     max_altitude,
                 ),
@@ -566,85 +716,25 @@ def fetch_by_time_numpy(
             cur.execute(
                 query,
                 (
-                    time_start.replace(tzinfo=None),
-                    time_end.replace(tzinfo=None),
+                    _to_naive_datetime(time_start),
+                    _to_naive_datetime(time_end),
                     distance,
                 ),
             )
 
         # タプル形式で全データ取得
         rows = cur.fetchall()
-        row_count = len(rows)
 
-        if row_count == 0:
-            result: dict[str, Any] = {
-                "time": numpy.array([], dtype="datetime64[us]"),
-                "altitude": numpy.array([], dtype=numpy.float64),
-                "temperature": numpy.array([], dtype=numpy.float64),
-                "count": 0,
-            }
-            if include_wind:
-                result["wind_x"] = numpy.array([], dtype=numpy.float64)
-                result["wind_y"] = numpy.array([], dtype=numpy.float64)
-                result["wind_speed"] = numpy.array([], dtype=numpy.float64)
-                result["wind_angle"] = numpy.array([], dtype=numpy.float64)
-            return result
-
-        # タプルのリストからNumPy配列に一括変換
-        # 時間、高度、温度を事前確保した配列に直接書き込み
-        times = numpy.empty(row_count, dtype="datetime64[us]")
-        altitudes = numpy.empty(row_count, dtype=numpy.float64)
-        temperatures = numpy.empty(row_count, dtype=numpy.float64)
-
-        if include_wind:
-            wind_x = numpy.empty(row_count, dtype=numpy.float64)
-            wind_y = numpy.empty(row_count, dtype=numpy.float64)
-            wind_speed = numpy.empty(row_count, dtype=numpy.float64)
-            wind_angle = numpy.empty(row_count, dtype=numpy.float64)
-
-            for i, row in enumerate(rows):
-                times[i] = row[0]
-                altitudes[i] = row[1] if row[1] is not None else numpy.nan
-                temperatures[i] = row[2] if row[2] is not None else numpy.nan
-                wind_x[i] = row[3] if row[3] is not None else numpy.nan
-                wind_y[i] = row[4] if row[4] is not None else numpy.nan
-                wind_speed[i] = row[5] if row[5] is not None else numpy.nan
-                wind_angle[i] = row[6] if row[6] is not None else numpy.nan
-
-            logging.info(
-                "Elapsed time: %.2f sec (numpy fetch, %d columns, %s rows)",
-                time.perf_counter() - start,
-                col_count,
-                f"{row_count:,}",
-            )
-            return {
-                "time": times,
-                "altitude": altitudes,
-                "temperature": temperatures,
-                "count": row_count,
-                "wind_x": wind_x,
-                "wind_y": wind_y,
-                "wind_speed": wind_speed,
-                "wind_angle": wind_angle,
-            }
-
-        for i, row in enumerate(rows):
-            times[i] = row[0]
-            altitudes[i] = row[1] if row[1] is not None else numpy.nan
-            temperatures[i] = row[2] if row[2] is not None else numpy.nan
+        result = _convert_rows_to_numpy_arrays(rows, include_wind)
 
         logging.info(
             "Elapsed time: %.2f sec (numpy fetch, %d columns, %s rows)",
             time.perf_counter() - start,
             col_count,
-            f"{row_count:,}",
+            f"{result.count:,}",
         )
-        return {
-            "time": times,
-            "altitude": altitudes,
-            "temperature": temperatures,
-            "count": row_count,
-        }
+
+        return result
 
 
 def fetch_aggregated_numpy(
@@ -653,7 +743,7 @@ def fetch_aggregated_numpy(
     time_end: datetime.datetime,
     max_altitude: float | None = None,
     include_wind: bool = False,
-) -> dict[str, Any]:
+) -> NumpyFetchResult:
     """
     期間に応じて適切な集約レベルのデータをNumPy配列として取得する（高速版）
 
@@ -665,11 +755,9 @@ def fetch_aggregated_numpy(
         include_wind: 風データを含めるか
 
     Returns:
-        NumPy配列を含む辞書（fetch_by_time_numpy と同じ形式）
+        NumpyFetchResult: NumPy配列形式のデータ取得結果
 
     """
-    import numpy
-
     days = (time_end - time_start).total_seconds() / 86400
     level = get_aggregation_level(days)
 
@@ -687,14 +775,14 @@ def fetch_aggregated_numpy(
             conn,
             time_start,
             time_end,
-            distance=100,
+            distance=DEFAULT_DISTANCE_KM,
             max_altitude=max_altitude,
             include_wind=include_wind,
         )
 
     # マテリアライズドビューが存在するか確認
     view_exists = check_materialized_views_exist(conn)
-    if not view_exists.get(level.table, False):
+    if not view_exists.get(level.table):
         logging.warning(
             "Materialized view %s does not exist, falling back to raw data",
             level.table,
@@ -703,7 +791,7 @@ def fetch_aggregated_numpy(
             conn,
             time_start,
             time_end,
-            distance=100,
+            distance=DEFAULT_DISTANCE_KM,
             max_altitude=max_altitude,
             include_wind=include_wind,
         )
@@ -730,8 +818,8 @@ def fetch_aggregated_numpy(
                 cur.execute(
                     query,
                     (
-                        time_start.replace(tzinfo=None),
-                        time_end.replace(tzinfo=None),
+                        _to_naive_datetime(time_start),
+                        _to_naive_datetime(time_end),
                         max_altitude,
                     ),
                 )
@@ -745,15 +833,14 @@ def fetch_aggregated_numpy(
                 cur.execute(
                     query,
                     (
-                        time_start.replace(tzinfo=None),
-                        time_end.replace(tzinfo=None),
+                        _to_naive_datetime(time_start),
+                        _to_naive_datetime(time_end),
                     ),
                 )
 
             rows = cur.fetchall()
-            row_count = len(rows)
 
-            if row_count == 0:
+            if len(rows) == 0:
                 logging.warning(
                     "No data in materialized view %s, falling back to raw data",
                     level.table,
@@ -762,67 +849,22 @@ def fetch_aggregated_numpy(
                     conn,
                     time_start,
                     time_end,
-                    distance=100,
+                    distance=DEFAULT_DISTANCE_KM,
                     max_altitude=max_altitude,
                     include_wind=include_wind,
                 )
 
-            # タプルからNumPy配列に変換
-            times = numpy.empty(row_count, dtype="datetime64[us]")
-            altitudes = numpy.empty(row_count, dtype=numpy.float64)
-            temperatures = numpy.empty(row_count, dtype=numpy.float64)
-
-            if include_wind:
-                wind_x = numpy.empty(row_count, dtype=numpy.float64)
-                wind_y = numpy.empty(row_count, dtype=numpy.float64)
-                wind_speed = numpy.empty(row_count, dtype=numpy.float64)
-                wind_angle = numpy.empty(row_count, dtype=numpy.float64)
-
-                for i, row in enumerate(rows):
-                    times[i] = row[0]
-                    altitudes[i] = row[1] if row[1] is not None else numpy.nan
-                    temperatures[i] = row[2] if row[2] is not None else numpy.nan
-                    wind_x[i] = row[3] if row[3] is not None else numpy.nan
-                    wind_y[i] = row[4] if row[4] is not None else numpy.nan
-                    wind_speed[i] = row[5] if row[5] is not None else numpy.nan
-                    wind_angle[i] = row[6] if row[6] is not None else numpy.nan
-
-                logging.info(
-                    "Elapsed time: %.2f sec (numpy sampled from %s, %d columns, %s rows)",
-                    time.perf_counter() - start,
-                    level.table,
-                    col_count,
-                    f"{row_count:,}",
-                )
-                return {
-                    "time": times,
-                    "altitude": altitudes,
-                    "temperature": temperatures,
-                    "count": row_count,
-                    "wind_x": wind_x,
-                    "wind_y": wind_y,
-                    "wind_speed": wind_speed,
-                    "wind_angle": wind_angle,
-                }
-
-            for i, row in enumerate(rows):
-                times[i] = row[0]
-                altitudes[i] = row[1] if row[1] is not None else numpy.nan
-                temperatures[i] = row[2] if row[2] is not None else numpy.nan
+            result = _convert_rows_to_numpy_arrays(rows, include_wind)
 
             logging.info(
                 "Elapsed time: %.2f sec (numpy sampled from %s, %d columns, %s rows)",
                 time.perf_counter() - start,
                 level.table,
                 col_count,
-                f"{row_count:,}",
+                f"{result.count:,}",
             )
-            return {
-                "time": times,
-                "altitude": altitudes,
-                "temperature": temperatures,
-                "count": row_count,
-            }
+
+            return result
 
     except psycopg2.Error as e:
         logging.warning(
@@ -834,7 +876,7 @@ def fetch_aggregated_numpy(
             conn,
             time_start,
             time_end,
-            distance=100,
+            distance=DEFAULT_DISTANCE_KM,
             max_altitude=max_altitude,
             include_wind=include_wind,
         )
@@ -863,27 +905,7 @@ def fetch_latest(
         columns = ["time", "altitude", "temperature", "distance"]
 
     # カラム名をサニタイズ（SQLインジェクション対策）
-    valid_columns = [
-        "time",
-        "callsign",
-        "distance",
-        "altitude",
-        "latitude",
-        "longitude",
-        "temperature",
-        "wind_x",
-        "wind_y",
-        "wind_angle",
-        "wind_speed",
-        "method",
-    ]
-    sanitized_columns = [col for col in columns if col in valid_columns]
-
-    if not sanitized_columns:
-        msg = "No valid columns specified"
-        raise ValueError(msg)
-
-    columns_str = ", ".join(sanitized_columns)
+    columns_str = sanitize_columns(columns, VALID_METEOROLOGICAL_COLUMNS)
 
     start = time.perf_counter()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -892,7 +914,7 @@ def fetch_latest(
             query = (
                 f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
                 f"WHERE altitude IS NOT NULL AND temperature IS NOT NULL "
-                f"AND temperature > -100 AND distance <= %s "
+                f"AND temperature > {amdar.constants.GRAPH_TEMPERATURE_THRESHOLD} AND distance <= %s "
                 f"ORDER BY time DESC LIMIT %s"
             )
             cur.execute(query, (distance, limit))
@@ -900,7 +922,7 @@ def fetch_latest(
             query = (
                 f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
                 f"WHERE altitude IS NOT NULL AND temperature IS NOT NULL "
-                f"AND temperature > -100 "
+                f"AND temperature > {amdar.constants.GRAPH_TEMPERATURE_THRESHOLD} "
                 f"ORDER BY time DESC LIMIT %s"
             )
             cur.execute(query, (limit,))
@@ -910,7 +932,7 @@ def fetch_latest(
         logging.info(
             "Elapsed time: %.2f sec (selected %d columns, %s rows)",
             time.perf_counter() - start,
-            len(sanitized_columns),
+            columns_str.count(",") + 1,
             f"{len(data):,}",
         )
 
@@ -991,9 +1013,9 @@ def fetch_last_received_by_method(conn: PgConnection) -> MethodLastReceived:
     vdl2_time = None
 
     for row in results:
-        if row["method"] == "mode-s":
+        if row["method"] == amdar.constants.MODE_S_METHOD:
             mode_s_time = row["last_received"]
-        elif row["method"] == "vdl2":
+        elif row["method"] == amdar.constants.VDL2_METHOD:
             vdl2_time = row["last_received"]
 
     return MethodLastReceived(mode_s=mode_s_time, vdl2=vdl2_time)
@@ -1063,14 +1085,14 @@ def fetch_aggregated_by_time(
             conn,
             time_start,
             time_end,
-            distance=100,  # 集約ビューは既にdistance<=100でフィルタ済み
+            distance=DEFAULT_DISTANCE_KM,  # 集約ビューは既にdistance<=100でフィルタ済み
             columns=fallback_columns,
             max_altitude=max_altitude,
         )
 
     # マテリアライズドビューが存在するか確認
     view_exists = check_materialized_views_exist(conn)
-    if not view_exists.get(level.table, False):
+    if not view_exists.get(level.table):
         logging.warning(
             "Materialized view %s does not exist, falling back to raw data",
             level.table,
@@ -1079,7 +1101,7 @@ def fetch_aggregated_by_time(
             conn,
             time_start,
             time_end,
-            distance=100,
+            distance=DEFAULT_DISTANCE_KM,
             columns=fallback_columns,
             max_altitude=max_altitude,
         )
@@ -1109,8 +1131,8 @@ def fetch_aggregated_by_time(
                 cur.execute(
                     query,
                     (
-                        time_start.replace(tzinfo=None),
-                        time_end.replace(tzinfo=None),
+                        _to_naive_datetime(time_start),
+                        _to_naive_datetime(time_end),
                         max_altitude,
                     ),
                 )
@@ -1134,8 +1156,8 @@ def fetch_aggregated_by_time(
                 cur.execute(
                     query,
                     (
-                        time_start.replace(tzinfo=None),
-                        time_end.replace(tzinfo=None),
+                        _to_naive_datetime(time_start),
+                        _to_naive_datetime(time_end),
                     ),
                 )
 
@@ -1159,7 +1181,7 @@ def fetch_aggregated_by_time(
                     conn,
                     time_start,
                     time_end,
-                    distance=100,
+                    distance=DEFAULT_DISTANCE_KM,
                     columns=fallback_columns,
                     max_altitude=max_altitude,
                 )
@@ -1176,13 +1198,40 @@ def fetch_aggregated_by_time(
             conn,
             time_start,
             time_end,
-            distance=100,
+            distance=DEFAULT_DISTANCE_KM,
             columns=fallback_columns,
             max_altitude=max_altitude,
         )
 
 
-def refresh_materialized_views(conn: PgConnection) -> dict[str, float]:
+def _refresh_single_view(conn: PgConnection, view: str) -> float:
+    """単一のマテリアライズドビューを更新する
+
+    Returns:
+        更新にかかった時間（秒）。エラー時は -1
+    """
+    start = time.perf_counter()
+    try:
+        with conn.cursor() as cur:
+            # CONCURRENTLYを使用すると、更新中もビューを読み取り可能
+            # ただし、初回はインデックスが必要
+            cur.execute(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view}")
+        elapsed = time.perf_counter() - start
+        logging.info("Refreshed %s in %.2f sec", view, elapsed)
+        return elapsed
+    except psycopg2.errors.ObjectNotInPrerequisiteState:
+        # CONCURRENTLY が使えない場合（ユニークインデックスがない）は通常のREFRESH
+        with conn.cursor() as cur:
+            cur.execute(f"REFRESH MATERIALIZED VIEW {view}")
+        elapsed = time.perf_counter() - start
+        logging.info("Refreshed %s (non-concurrent) in %.2f sec", view, elapsed)
+        return elapsed
+    except Exception:
+        logging.exception("Failed to refresh %s", view)
+        return -1
+
+
+def refresh_materialized_views(conn: PgConnection) -> MaterializedViewRefreshResult:
     """
     全てのマテリアライズドビューを更新する
 
@@ -1193,34 +1242,13 @@ def refresh_materialized_views(conn: PgConnection) -> dict[str, float]:
         各ビューの更新にかかった時間（秒）
 
     """
-    views = ["halfhourly_altitude_grid", "threehour_altitude_grid"]
-    timings: dict[str, float] = {}
-
-    for view in views:
-        start = time.perf_counter()
-        try:
-            with conn.cursor() as cur:
-                # CONCURRENTLYを使用すると、更新中もビューを読み取り可能
-                # ただし、初回はインデックスが必要
-                cur.execute(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view}")
-            elapsed = time.perf_counter() - start
-            timings[view] = elapsed
-            logging.info("Refreshed %s in %.2f sec", view, elapsed)
-        except psycopg2.errors.ObjectNotInPrerequisiteState:
-            # CONCURRENTLY が使えない場合（ユニークインデックスがない）は通常のREFRESH
-            with conn.cursor() as cur:
-                cur.execute(f"REFRESH MATERIALIZED VIEW {view}")
-            elapsed = time.perf_counter() - start
-            timings[view] = elapsed
-            logging.info("Refreshed %s (non-concurrent) in %.2f sec", view, elapsed)
-        except Exception:
-            logging.exception("Failed to refresh %s", view)
-            timings[view] = -1
-
-    return timings
+    return MaterializedViewRefreshResult(
+        halfhourly_altitude_grid=_refresh_single_view(conn, "halfhourly_altitude_grid"),
+        threehour_altitude_grid=_refresh_single_view(conn, "threehour_altitude_grid"),
+    )
 
 
-def check_materialized_views_exist(conn: PgConnection) -> dict[str, bool]:
+def check_materialized_views_exist(conn: PgConnection) -> MaterializedViewsStatus:
     """
     マテリアライズドビューの存在を確認する
 
@@ -1228,11 +1256,11 @@ def check_materialized_views_exist(conn: PgConnection) -> dict[str, bool]:
         conn: データベース接続
 
     Returns:
-        各ビューの存在フラグ
+        マテリアライズドビューの存在状態
 
     """
     views = ["halfhourly_altitude_grid", "threehour_altitude_grid"]
-    result: dict[str, bool] = {}
+    results: dict[str, bool] = {}
 
     with conn.cursor() as cur:
         for view in views:
@@ -1242,12 +1270,41 @@ def check_materialized_views_exist(conn: PgConnection) -> dict[str, bool]:
             )
             row = cur.fetchone()
             exists = row[0] if row else False
-            result[view] = exists
+            results[view] = exists
 
-    return result
+    return MaterializedViewsStatus(
+        halfhourly_altitude_grid=results.get("halfhourly_altitude_grid", False),
+        threehour_altitude_grid=results.get("threehour_altitude_grid", False),
+    )
 
 
-def get_materialized_view_stats(conn: PgConnection) -> dict[str, dict[str, Any]]:
+def _fetch_view_stats(conn: PgConnection, view: str) -> MaterializedViewStats:
+    """単一のマテリアライズドビューの統計情報を取得する"""
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""
+                SELECT
+                    COUNT(*) as row_count,
+                    MIN(time_bucket) as earliest,
+                    MAX(time_bucket) as latest
+                FROM {view}
+                """  # noqa: S608
+            )
+            result = cur.fetchone()
+            if result:
+                return MaterializedViewStats(
+                    row_count=result["row_count"],
+                    earliest=result["earliest"],
+                    latest=result["latest"],
+                )
+            return MaterializedViewStats(row_count=0, earliest=None, latest=None)
+    except Exception:
+        logging.exception("Failed to get stats for %s", view)
+        return MaterializedViewStats(row_count=0, earliest=None, latest=None, error=True)
+
+
+def get_materialized_view_stats(conn: PgConnection) -> AllMaterializedViewStats:
     """
     マテリアライズドビューの統計情報を取得する
 
@@ -1258,41 +1315,20 @@ def get_materialized_view_stats(conn: PgConnection) -> dict[str, dict[str, Any]]
         各ビューの統計情報
 
     """
-    views = ["halfhourly_altitude_grid", "threehour_altitude_grid"]
-    stats: dict[str, dict[str, Any]] = {}
+    return AllMaterializedViewStats(
+        halfhourly_altitude_grid=_fetch_view_stats(conn, "halfhourly_altitude_grid"),
+        threehour_altitude_grid=_fetch_view_stats(conn, "threehour_altitude_grid"),
+    )
 
-    for view in views:
-        try:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute(
-                    f"""
-                    SELECT
-                        COUNT(*) as row_count,
-                        MIN(time_bucket) as earliest,
-                        MAX(time_bucket) as latest
-                    FROM {view}
-                    """  # noqa: S608
-                )
-                result = cur.fetchone()
-                stats[view] = dict(result) if result else {"row_count": 0, "earliest": None, "latest": None}
-        except Exception:
-            logging.exception("Failed to get stats for %s", view)
-            stats[view] = {"error": True}
-
-    return stats
-
-
-SCHEMA_CONFIG = "config.schema"
 
 if __name__ == "__main__":
     import multiprocessing
 
     import docopt
-    import my_lib.config
     import my_lib.logger
 
+    import amdar.config
     import amdar.sources.modes.receiver
-    from amdar.config import load_from_dict
 
     assert __doc__ is not None  # noqa: S101
     args = docopt.docopt(__doc__)
@@ -1302,8 +1338,7 @@ if __name__ == "__main__":
 
     my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
 
-    config_dict = my_lib.config.load(config_file, pathlib.Path(SCHEMA_CONFIG))
-    config = load_from_dict(config_dict, pathlib.Path.cwd())
+    config = amdar.config.load_config(config_file)
 
     measurement_queue: multiprocessing.Queue[MeasurementData] = multiprocessing.Queue()
 
@@ -1317,7 +1352,7 @@ if __name__ == "__main__":
         config.database.password,
     )
 
-    db_config = DBConfig(
+    db_config = DatabaseConfig(
         host=config.database.host,
         port=config.database.port,
         name=config.database.name,

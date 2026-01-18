@@ -6,7 +6,9 @@ import pathlib
 from dataclasses import dataclass, field
 from typing import Any
 
+import my_lib.config
 import my_lib.notify.slack
+import my_lib.safe_access
 import my_lib.webapp.config
 
 
@@ -68,7 +70,7 @@ class FontConfig:
     map: dict[str, str] = field(default_factory=dict)
 
 
-@dataclass
+@dataclass(frozen=True)
 class WebappConfig(my_lib.webapp.config.WebappConfig):
     """Webアプリケーション設定（my_lib.webapp.config.WebappConfig を拡張）"""
 
@@ -129,84 +131,124 @@ def _parse_slack_config(
     slack_dict: dict[str, Any],
 ) -> my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.SlackEmptyConfig:
     """Slack 設定をパースして SlackErrorOnlyConfig または SlackEmptyConfig を返す"""
-    parsed = my_lib.notify.slack.parse_config(slack_dict)
+    parsed = my_lib.notify.slack.SlackConfig.parse(slack_dict)
 
     # SlackErrorOnlyConfig または SlackEmptyConfig のみを許可
     if isinstance(parsed, my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.SlackEmptyConfig):
         return parsed
 
     # その他の設定タイプの場合、SlackErrorOnlyConfig に変換を試みる
-    # NOTE: hasattr チェック後でも型が絞り込まれないため getattr を使用 (B009 を無視)
-    if hasattr(parsed, "error") and hasattr(parsed, "bot_token") and hasattr(parsed, "from_name"):
+    # SafeAccess を使用して属性を安全に取得
+    parsed_safe: Any = my_lib.safe_access.safe(parsed)  # type: ignore[attr-defined]
+    bot_token = parsed_safe.bot_token.value()
+    from_name = parsed_safe.from_name.value()
+    error = parsed_safe.error.value()
+    if bot_token is not None and from_name is not None and error is not None:
         return my_lib.notify.slack.SlackErrorOnlyConfig(
-            bot_token=getattr(parsed, "bot_token"),  # noqa: B009
-            from_name=getattr(parsed, "from_name"),  # noqa: B009
-            error=getattr(parsed, "error"),  # noqa: B009
+            bot_token=bot_token,
+            from_name=from_name,
+            error=error,
         )
 
     # 変換できない場合は空設定を返す
     return my_lib.notify.slack.SlackEmptyConfig()
 
 
+def _resolve_path(base_dir: pathlib.Path, path_str: str) -> pathlib.Path:
+    """相対パスを base_dir 基準で解決する
+
+    Args:
+        base_dir: 基準ディレクトリ
+        path_str: パス文字列
+
+    Returns:
+        解決されたパス（絶対パスの場合はそのまま）
+    """
+    path = pathlib.Path(path_str)
+    if path.is_absolute():
+        return path
+    return base_dir / path
+
+
+def load_config(config_file: str) -> Config:
+    """設定ファイルを読み込んで Config を返す
+
+    スキーマ検証を行い、base_dir を現在の作業ディレクトリに設定します。
+
+    Args:
+        config_file: 設定ファイルのパス
+
+    Returns:
+        Config インスタンス
+    """
+    import amdar.constants
+
+    config_dict = my_lib.config.load(config_file, amdar.constants.get_schema_path())
+    return load_from_dict(config_dict, pathlib.Path.cwd())
+
+
 def load_from_dict(config_dict: dict[str, Any], base_dir: pathlib.Path) -> Config:
     """辞書形式の設定を Config に変換する"""
+    cfg: Any = my_lib.config.accessor(config_dict)  # type: ignore[attr-defined]
+
     # VDL2 設定（オプション）
     vdl2_config = None
-    if "vdl2" in config_dict["decoder"]:
+    vdl2_host = cfg.get("decoder", "vdl2", "host")
+    if vdl2_host is not None:
         vdl2_config = HostPortConfig(
-            host=config_dict["decoder"]["vdl2"]["host"],
-            port=config_dict["decoder"]["vdl2"]["port"],
+            host=vdl2_host,
+            port=cfg.get("decoder", "vdl2", "port"),
         )
+
+    # VDL2 liveness ファイル（オプション）
+    vdl2_liveness_path = cfg.get("liveness", "file", "receiver", "vdl2")
+    vdl2_liveness = _resolve_path(base_dir, vdl2_liveness_path) if vdl2_liveness_path else None
 
     return Config(
         decoder=DecoderConfig(
             modes=HostPortConfig(
-                host=config_dict["decoder"]["modes"]["host"],
-                port=config_dict["decoder"]["modes"]["port"],
+                host=cfg.get("decoder", "modes", "host"),
+                port=cfg.get("decoder", "modes", "port"),
             ),
             vdl2=vdl2_config,
         ),
         database=DatabaseConfig(
-            host=config_dict["database"]["host"],
-            port=config_dict["database"]["port"],
-            name=config_dict["database"]["name"],
-            user=config_dict["database"]["user"],
-            password=config_dict["database"]["pass"],
+            host=cfg.get("database", "host"),
+            port=cfg.get("database", "port"),
+            name=cfg.get("database", "name"),
+            user=cfg.get("database", "user"),
+            password=cfg.get("database", "pass"),
         ),
         filter=FilterConfig(
             area=Area(
-                lat=CoordinateRef(ref=config_dict["filter"]["area"]["lat"]["ref"]),
-                lon=CoordinateRef(ref=config_dict["filter"]["area"]["lon"]["ref"]),
-                distance=config_dict["filter"]["area"]["distance"],
+                lat=CoordinateRef(ref=cfg.get("filter", "area", "lat", "ref")),
+                lon=CoordinateRef(ref=cfg.get("filter", "area", "lon", "ref")),
+                distance=cfg.get("filter", "area", "distance"),
             ),
         ),
         font=FontConfig(
-            path=pathlib.Path(config_dict["font"]["path"]),
-            map=config_dict["font"]["map"],
+            path=_resolve_path(base_dir, cfg.get_str("font", "path")),
+            map=cfg.get_dict("font", "map"),
         ),
         webapp=WebappConfig(
-            static_dir_path=pathlib.Path(config_dict["webapp"]["static_dir_path"]),
-            cache_dir_path=pathlib.Path(config_dict["webapp"]["cache_dir_path"]),
+            static_dir_path=_resolve_path(base_dir, cfg.get_str("webapp", "static_dir_path")),
+            cache_dir_path=_resolve_path(base_dir, cfg.get_str("webapp", "cache_dir_path")),
         ),
         liveness=LivenessConfig(
             file=LivenessFileConfig(
-                collector=pathlib.Path(config_dict["liveness"]["file"]["collector"]),
+                collector=_resolve_path(base_dir, cfg.get_str("liveness", "file", "collector")),
                 receiver=LivenessReceiverFileConfig(
-                    modes=pathlib.Path(config_dict["liveness"]["file"]["receiver"]["modes"]),
-                    vdl2=(
-                        pathlib.Path(config_dict["liveness"]["file"]["receiver"]["vdl2"])
-                        if "vdl2" in config_dict["liveness"]["file"]["receiver"]
-                        else None
-                    ),
+                    modes=_resolve_path(base_dir, cfg.get_str("liveness", "file", "receiver", "modes")),
+                    vdl2=vdl2_liveness,
                 ),
             ),
             schedule=LivenessScheduleConfig(
-                daytime_start_hour=config_dict["liveness"]["schedule"]["daytime"]["start_hour"],
-                daytime_end_hour=config_dict["liveness"]["schedule"]["daytime"]["end_hour"],
-                daytime_timeout_sec=config_dict["liveness"]["schedule"]["daytime"]["timeout_sec"],
-                nighttime_timeout_sec=config_dict["liveness"]["schedule"]["nighttime"]["timeout_sec"],
+                daytime_start_hour=cfg.get("liveness", "schedule", "daytime", "start_hour"),
+                daytime_end_hour=cfg.get("liveness", "schedule", "daytime", "end_hour"),
+                daytime_timeout_sec=cfg.get("liveness", "schedule", "daytime", "timeout_sec"),
+                nighttime_timeout_sec=cfg.get("liveness", "schedule", "nighttime", "timeout_sec"),
             ),
         ),
-        slack=_parse_slack_config(config_dict.get("slack", {})),
+        slack=_parse_slack_config(cfg.get_dict("slack")),
         base_dir=base_dir,
     )

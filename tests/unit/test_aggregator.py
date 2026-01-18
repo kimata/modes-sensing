@@ -440,8 +440,8 @@ class TestRealtimeAggregator:
         )
 
         stats = aggregator.get_stats()
-        assert stats["aircraft_count"] == 1
-        assert stats["output_queue_size"] == 1
+        assert stats.get("aircraft_count") == 1
+        assert stats.get("output_queue_size") == 1
 
     def test_clear(self) -> None:
         """内部状態のクリア"""

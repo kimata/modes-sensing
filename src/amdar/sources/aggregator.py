@@ -21,22 +21,79 @@ Options:
 
 from __future__ import annotations
 
+import datetime
 import logging
 import math
 import pathlib
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
 from queue import Queue
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple, TypedDict
 
+import my_lib.time
 import pyModeS
 
+import amdar.constants
+import amdar.core.geo
 import amdar.sources.outlier
 from amdar.core.types import WeatherObservation, WindData
 
 if TYPE_CHECKING:
     pass
+
+
+class IntegratedBufferStats(TypedDict):
+    """IntegratedBuffer の統計情報"""
+
+    aircraft_count: int
+    total_entries: int
+    callsign_mappings: int
+    message_counter: int
+
+
+class RealtimeAggregatorStats(TypedDict, total=False):
+    """RealtimeAggregator の統計情報
+
+    total=False で outlier_history_count をオプショナルにする。
+    """
+
+    aircraft_count: int
+    total_entries: int
+    callsign_mappings: int
+    message_counter: int
+    output_queue_size: int
+    outlier_history_count: int
+
+
+class FileAggregatorStats(TypedDict):
+    """FileAggregator の統計情報"""
+
+    aircraft_count: int
+    total_entries: int
+    callsign_mappings: int
+    message_counter: int
+    results_count: int
+
+
+@dataclass
+class _ModesFileFragment:
+    """Mode-S ファイル解析用フラグメント
+
+    parse_modes_file() 内で ICAO ごとにメッセージをバッファリングし、
+    気象データ算出に必要な情報が揃ったらペアリングを行う。
+    """
+
+    icao: str
+    callsign: str | None = None
+    altitude_ft: float | None = None
+    lat: float | None = None
+    lon: float | None = None
+    # BDS 5,0: (trackangle, groundspeed, trueair)
+    bds50: tuple[float, float, float] | None = None
+    # BDS 6,0: (heading, indicatedair, mach)
+    bds60: tuple[float, float, float] | None = None
+    # BDS 4,4: (temperature, wind_speed, wind_direction)
+    bds44: tuple[float, float, float] | None = None
 
 
 @dataclass
@@ -46,7 +103,7 @@ class AltitudeEntry:
     ADS-B から取得した航空機の高度・位置情報を保持します。
     """
 
-    timestamp: datetime
+    timestamp: datetime.datetime
     """データ取得時刻"""
 
     altitude_m: float
@@ -60,6 +117,25 @@ class AltitudeEntry:
 
     message_index: int = 0
     """メッセージの順序インデックス（ファイル解析時用）"""
+
+
+class AltitudeResult(NamedTuple):
+    """高度補完結果
+
+    get_altitude_at / get_altitude_by_order から返される高度情報。
+    """
+
+    altitude_m: float
+    """高度 [m]"""
+
+    latitude: float | None
+    """緯度 [度]"""
+
+    longitude: float | None
+    """経度 [度]"""
+
+    source: str
+    """データソース ("adsb" | "interpolated")"""
 
 
 @dataclass
@@ -84,13 +160,13 @@ class IntegratedBuffer:
     _callsign_to_icao: dict[str, str] = field(default_factory=dict)
     """コールサイン -> ICAO のマッピング"""
 
-    _current_time: datetime | None = field(default=None)
+    _current_time: datetime.datetime | None = field(default=None)
     """現在の基準時刻（最新データの時刻）"""
 
     _message_counter: int = field(default=0)
     """メッセージカウンタ（ファイル解析時の順序管理用）"""
 
-    def update_time(self, timestamp: datetime) -> None:
+    def update_time(self, timestamp: datetime.datetime) -> None:
         """基準時刻を更新し、古いデータを破棄
 
         ファイル解析時も新データの時刻で判断するため、
@@ -101,10 +177,10 @@ class IntegratedBuffer:
         """
         self._current_time = timestamp
         # ウィンドウの2倍より古いデータを破棄
-        cutoff = timestamp - timedelta(seconds=self.window_seconds * 2)
+        cutoff = timestamp - datetime.timedelta(seconds=self.window_seconds * 2)
         self._cleanup_before(cutoff)
 
-    def _cleanup_before(self, cutoff: datetime) -> None:
+    def _cleanup_before(self, cutoff: datetime.datetime) -> None:
         """指定時刻より古いエントリを削除
 
         Args:
@@ -126,7 +202,7 @@ class IntegratedBuffer:
         self,
         icao: str,
         callsign: str | None,
-        timestamp: datetime,
+        timestamp: datetime.datetime,
         altitude_m: float,
         lat: float | None = None,
         lon: float | None = None,
@@ -169,8 +245,8 @@ class IntegratedBuffer:
     def get_altitude_at(
         self,
         icao_or_callsign: str,
-        timestamp: datetime,
-    ) -> tuple[float, float | None, float | None, str] | None:
+        timestamp: datetime.datetime,
+    ) -> AltitudeResult | None:
         """指定時刻に最も近い高度・位置を取得
 
         優先順位:
@@ -182,8 +258,7 @@ class IntegratedBuffer:
             timestamp: 対象時刻
 
         Returns:
-            (altitude_m, lat, lon, source) または None
-            source: "adsb" | "interpolated"
+            AltitudeResult または None
         """
         # ICAO を解決
         icao = self._resolve_identifier(icao_or_callsign)
@@ -215,14 +290,19 @@ class IntegratedBuffer:
         time_diff = abs((best.timestamp - timestamp).total_seconds())
         source = "adsb" if time_diff < 1.0 else "interpolated"
 
-        return (best.altitude_m, best.latitude, best.longitude, source)
+        return AltitudeResult(
+            altitude_m=best.altitude_m,
+            latitude=best.latitude,
+            longitude=best.longitude,
+            source=source,
+        )
 
     def get_altitude_by_order(
         self,
         icao_or_callsign: str,
         message_index: int,
         max_distance: int = 1000,
-    ) -> tuple[float, float | None, float | None, str] | None:
+    ) -> AltitudeResult | None:
         """メッセージ順序ベースで高度を取得（時刻なしファイル用）
 
         時刻情報がないファイル解析時に使用します。
@@ -233,7 +313,7 @@ class IntegratedBuffer:
             max_distance: 前後何メッセージまで探索するか
 
         Returns:
-            (altitude_m, lat, lon, source) または None
+            AltitudeResult または None
         """
         icao = self._resolve_identifier(icao_or_callsign)
         if not icao:
@@ -255,7 +335,12 @@ class IntegratedBuffer:
             key=lambda e: (abs(e.message_index - message_index), -e.message_index),
         )
 
-        return (best.altitude_m, best.latitude, best.longitude, "interpolated")
+        return AltitudeResult(
+            altitude_m=best.altitude_m,
+            latitude=best.latitude,
+            longitude=best.longitude,
+            source="interpolated",
+        )
 
     def resolve_icao(self, callsign: str) -> str | None:
         """コールサインから ICAO を解決
@@ -291,19 +376,19 @@ class IntegratedBuffer:
         # コールサインとして検索
         return self._callsign_to_icao.get(identifier)
 
-    def get_stats(self) -> dict[str, int]:
+    def get_stats(self) -> IntegratedBufferStats:
         """バッファの統計情報を取得
 
         Returns:
-            統計情報の辞書
+            統計情報
         """
         total_entries = sum(len(entries) for entries in self._altitude_by_icao.values())
-        return {
-            "aircraft_count": len(self._altitude_by_icao),
-            "total_entries": total_entries,
-            "callsign_mappings": len(self._callsign_to_icao),
-            "message_counter": self._message_counter,
-        }
+        return IntegratedBufferStats(
+            aircraft_count=len(self._altitude_by_icao),
+            total_entries=total_entries,
+            callsign_mappings=len(self._callsign_to_icao),
+            message_counter=self._message_counter,
+        )
 
     def clear(self) -> None:
         """バッファをクリア"""
@@ -324,8 +409,8 @@ class RealtimeAggregator:
     def __init__(
         self,
         window_seconds: float = 60.0,
-        ref_lat: float = 35.682677,
-        ref_lon: float = 139.762230,
+        ref_lat: float = amdar.constants.DEFAULT_REFERENCE_LATITUDE,
+        ref_lon: float = amdar.constants.DEFAULT_REFERENCE_LONGITUDE,
         enable_outlier_filter: bool = True,
     ):
         """初期化
@@ -423,7 +508,7 @@ class RealtimeAggregator:
         self,
         icao: str,
         callsign: str | None,
-        timestamp: datetime,
+        timestamp: datetime.datetime,
         altitude_m: float,
         lat: float | None = None,
         lon: float | None = None,
@@ -455,7 +540,7 @@ class RealtimeAggregator:
         *,
         icao: str,
         callsign: str | None,
-        timestamp: datetime,
+        timestamp: datetime.datetime,
         altitude_m: float,
         lat: float | None = None,
         lon: float | None = None,
@@ -510,7 +595,7 @@ class RealtimeAggregator:
             distance=distance,
             temperature=temperature_c,
             wind=wind,
-            method="mode-s",
+            method=amdar.constants.MODE_S_METHOD,
             data_source=data_source,
             altitude_source="adsb",
         )
@@ -532,7 +617,7 @@ class RealtimeAggregator:
         *,
         icao: str | None,
         callsign: str | None,
-        timestamp: datetime,
+        timestamp: datetime.datetime,
         altitude_m: float | None = None,
         lat: float | None = None,
         lon: float | None = None,
@@ -606,7 +691,7 @@ class RealtimeAggregator:
             distance=distance,
             temperature=temperature_c,
             wind=wind,
-            method="vdl2",
+            method=amdar.constants.VDL2_METHOD,
             data_source=data_source,
             altitude_source=altitude_source,
         )
@@ -624,39 +709,22 @@ class RealtimeAggregator:
         return observation
 
     def _calculate_distance(self, lat: float, lon: float) -> float:
-        """基準点からの距離を計算
+        """基準点からの距離を計算 [km]"""
+        return amdar.core.geo.haversine_distance(self._ref_lat, self._ref_lon, lat, lon)
 
-        簡易的な計算（球面近似）を使用します。
-
-        Args:
-            lat: 緯度
-            lon: 経度
-
-        Returns:
-            距離 [km]
-        """
-        import math
-
-        # 地球の半径 [km]
-        R = 6371.0
-
-        lat1 = math.radians(self._ref_lat)
-        lat2 = math.radians(lat)
-        dlat = math.radians(lat - self._ref_lat)
-        dlon = math.radians(lon - self._ref_lon)
-
-        a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-        return R * c
-
-    def get_stats(self) -> dict[str, int]:
+    def get_stats(self) -> RealtimeAggregatorStats:
         """統計情報を取得"""
-        stats = self._buffer.get_stats()
-        stats["output_queue_size"] = self._output_queue.qsize()
+        buffer_stats = self._buffer.get_stats()
+        result = RealtimeAggregatorStats(
+            aircraft_count=buffer_stats["aircraft_count"],
+            total_entries=buffer_stats["total_entries"],
+            callsign_mappings=buffer_stats["callsign_mappings"],
+            message_counter=buffer_stats["message_counter"],
+            output_queue_size=self._output_queue.qsize(),
+        )
         if self._outlier_detector is not None:
-            stats["outlier_history_count"] = self._outlier_detector.history_count
-        return stats
+            result["outlier_history_count"] = self._outlier_detector.history_count
+        return result
 
     def clear(self) -> None:
         """内部状態をクリア"""
@@ -675,8 +743,8 @@ class FileAggregator:
 
     def __init__(
         self,
-        ref_lat: float = 35.682677,
-        ref_lon: float = 139.762230,
+        ref_lat: float = amdar.constants.DEFAULT_REFERENCE_LATITUDE,
+        ref_lon: float = amdar.constants.DEFAULT_REFERENCE_LONGITUDE,
         max_index_distance: int = 1000,
     ):
         """初期化
@@ -700,14 +768,7 @@ class FileAggregator:
 
     def _calculate_distance(self, lat: float, lon: float) -> float:
         """基準点からの距離を計算 [km]"""
-        R = 6371.0
-        lat1 = math.radians(self._ref_lat)
-        lat2 = math.radians(lat)
-        dlat = math.radians(lat - self._ref_lat)
-        dlon = math.radians(lon - self._ref_lon)
-        a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-        return R * c
+        return amdar.core.geo.haversine_distance(self._ref_lat, self._ref_lon, lat, lon)
 
     def _calc_temperature(self, trueair_ms: float, mach: float) -> float:
         """真気速度とマッハ数から気温を計算"""
@@ -777,11 +838,11 @@ class FileAggregator:
             抽出された WeatherObservation のリスト
         """
         # ICAO ごとのフラグメント管理
-        fragments: dict[str, dict] = {}
+        fragments: dict[str, _ModesFileFragment] = {}
         results: list[WeatherObservation] = []
 
         # ダミー時刻（ファイル解析時は時刻がないため）
-        base_time = datetime.now(UTC)
+        base_time = my_lib.time.now()
 
         with file_path.open() as f:
             for line in f:
@@ -795,22 +856,14 @@ class FileAggregator:
 
                 msg_index = self._next_index()
                 # ダミー時刻を進める（1メッセージ=10ms）
-                dummy_time = base_time + timedelta(milliseconds=msg_index * 10)
+                dummy_time = base_time + datetime.timedelta(milliseconds=msg_index * 10)
 
                 try:
                     icao = str(pyModeS.icao(msg))
                     dformat = pyModeS.df(msg)
 
                     if icao not in fragments:
-                        fragments[icao] = {
-                            "callsign": None,
-                            "altitude_ft": None,
-                            "lat": None,
-                            "lon": None,
-                            "bds50": None,
-                            "bds60": None,
-                            "bds44": None,
-                        }
+                        fragments[icao] = _ModesFileFragment(icao=icao)
                     frag = fragments[icao]
 
                     # DF=17,18: ADS-B
@@ -823,15 +876,15 @@ class FileAggregator:
                         if (5 <= code <= 18) or (20 <= code <= 22):
                             altitude = pyModeS.adsb.altitude(msg)
                             if altitude and altitude > 0:
-                                frag["altitude_ft"] = float(altitude)
-                                altitude_m = frag["altitude_ft"] * 0.3048
+                                frag.altitude_ft = float(altitude)
+                                altitude_m = frag.altitude_ft * amdar.constants.FEET_TO_METERS
                                 try:
                                     lat, lon = pyModeS.adsb.position_with_ref(
                                         msg, self._ref_lat, self._ref_lon
                                     )
                                     if lat is not None and lon is not None:
-                                        frag["lat"] = lat
-                                        frag["lon"] = lon
+                                        frag.lat = lat
+                                        frag.lon = lon
                                 except Exception:
                                     # 位置計算の失敗は無視（高度情報のみでも有用）
                                     logging.debug("Failed to calculate position for %s", icao)
@@ -839,27 +892,27 @@ class FileAggregator:
                                 # バッファに登録（VDL2 補完用）
                                 self._buffer.add_adsb_position(
                                     icao=icao,
-                                    callsign=frag["callsign"],
+                                    callsign=frag.callsign,
                                     timestamp=dummy_time,
                                     altitude_m=altitude_m,
-                                    lat=frag["lat"],
-                                    lon=frag["lon"],
+                                    lat=frag.lat,
+                                    lon=frag.lon,
                                 )
 
                         # コールサイン
                         elif 1 <= code <= 4:
                             callsign = pyModeS.adsb.callsign(msg).rstrip("_")
                             if callsign:
-                                frag["callsign"] = callsign
+                                frag.callsign = callsign
                                 # コールサイン更新時もバッファ更新
-                                if frag["altitude_ft"]:
+                                if frag.altitude_ft:
                                     self._buffer.add_adsb_position(
                                         icao=icao,
                                         callsign=callsign,
                                         timestamp=dummy_time,
-                                        altitude_m=frag["altitude_ft"] * 0.3048,
-                                        lat=frag["lat"],
-                                        lon=frag["lon"],
+                                        altitude_m=frag.altitude_ft * amdar.constants.FEET_TO_METERS,
+                                        lat=frag.lat,
+                                        lon=frag.lon,
                                     )
 
                     # DF=20,21: Comm-B
@@ -873,28 +926,28 @@ class FileAggregator:
                                 if (
                                     wind_speed is not None
                                     and wind_direction is not None
-                                    and frag["altitude_ft"] is not None
+                                    and frag.altitude_ft is not None
                                 ):
                                     obs = WeatherObservation.from_imperial(
                                         icao=icao,
-                                        callsign=frag["callsign"],
-                                        altitude_ft=frag["altitude_ft"],
-                                        latitude=frag["lat"],
-                                        longitude=frag["lon"],
+                                        callsign=frag.callsign,
+                                        altitude_ft=frag.altitude_ft,
+                                        latitude=frag.lat,
+                                        longitude=frag.lon,
                                         temperature_c=temperature,
                                         wind_speed_kt=wind_speed,
                                         wind_direction_deg=wind_direction,
                                         distance=self._calculate_distance(
-                                            frag["lat"] or self._ref_lat,
-                                            frag["lon"] or self._ref_lon,
+                                            frag.lat or self._ref_lat,
+                                            frag.lon or self._ref_lon,
                                         ),
-                                        method="mode-s",
+                                        method=amdar.constants.MODE_S_METHOD,
                                         data_source="bds44",
                                         altitude_source="adsb",
                                     )
                                     if obs.is_valid():
                                         results.append(obs)
-                                    frag["bds44"] = None
+                                    frag.bds44 = None
                             continue
 
                         # BDS 5,0
@@ -903,7 +956,7 @@ class FileAggregator:
                             groundspeed = pyModeS.commb.gs50(msg)
                             trueair = pyModeS.commb.tas50(msg)
                             if all(v is not None for v in (trackangle, groundspeed, trueair)):
-                                frag["bds50"] = (trackangle, groundspeed, trueair)
+                                frag.bds50 = (trackangle, groundspeed, trueair)
 
                         # BDS 6,0
                         elif pyModeS.bds.bds60.is60(msg):
@@ -911,28 +964,28 @@ class FileAggregator:
                             indicatedair = pyModeS.commb.ias60(msg)
                             mach = pyModeS.commb.mach60(msg)
                             if all(v is not None for v in (heading, indicatedair, mach)):
-                                frag["bds60"] = (heading, indicatedair, mach)
+                                frag.bds60 = (heading, indicatedair, mach)
 
                         # BDS 5,0 + 6,0 ペアリング
                         if (
-                            frag["bds50"] is not None
-                            and frag["bds60"] is not None
-                            and frag["altitude_ft"] is not None
-                            and frag["lat"] is not None
-                            and frag["lon"] is not None
+                            frag.bds50 is not None
+                            and frag.bds60 is not None
+                            and frag.altitude_ft is not None
+                            and frag.lat is not None
+                            and frag.lon is not None
                         ):
-                            trackangle, groundspeed, trueair = frag["bds50"]
-                            heading, indicatedair, mach = frag["bds60"]
+                            trackangle, groundspeed, trueair = frag.bds50
+                            heading, indicatedair, mach = frag.bds60
 
-                            trueair_ms = float(trueair) * 0.514  # type: ignore[arg-type]
-                            groundspeed_ms = float(groundspeed) * 0.514  # type: ignore[arg-type]
+                            trueair_ms = float(trueair) * amdar.constants.KNOTS_TO_MS  # type: ignore[arg-type]
+                            groundspeed_ms = float(groundspeed) * amdar.constants.KNOTS_TO_MS  # type: ignore[arg-type]
                             mach_f = float(mach)  # type: ignore[arg-type]
 
                             temperature_c = self._calc_temperature(trueair_ms, mach_f)
-                            if temperature_c >= -100:
+                            if temperature_c >= amdar.constants.GRAPH_TEMPERATURE_THRESHOLD:
                                 wind = self._calc_wind(
-                                    frag["lat"],
-                                    frag["lon"],
+                                    frag.lat,
+                                    frag.lon,
                                     float(trackangle),  # type: ignore[arg-type]
                                     groundspeed_ms,
                                     float(heading),  # type: ignore[arg-type]
@@ -941,22 +994,22 @@ class FileAggregator:
 
                                 obs = WeatherObservation(
                                     icao=icao,
-                                    callsign=frag["callsign"],
-                                    altitude=frag["altitude_ft"] * 0.3048,
-                                    latitude=frag["lat"],
-                                    longitude=frag["lon"],
+                                    callsign=frag.callsign,
+                                    altitude=frag.altitude_ft * amdar.constants.FEET_TO_METERS,
+                                    latitude=frag.lat,
+                                    longitude=frag.lon,
                                     temperature=temperature_c,
                                     wind=wind,
-                                    distance=self._calculate_distance(frag["lat"], frag["lon"]),
-                                    method="mode-s",
+                                    distance=self._calculate_distance(frag.lat, frag.lon),
+                                    method=amdar.constants.MODE_S_METHOD,
                                     data_source="bds50_60",
                                     altitude_source="adsb",
                                 )
                                 if obs.is_valid():
                                     results.append(obs)
 
-                            frag["bds50"] = None
-                            frag["bds60"] = None
+                            frag.bds50 = None
+                            frag.bds60 = None
 
                 except Exception:
                     logging.debug("Mode-S message parse failed: %s", msg)
@@ -981,13 +1034,13 @@ class FileAggregator:
         results: list[WeatherObservation] = []
 
         # ダミー時刻（ファイル解析時は解析時刻を基準に使用）
-        base_time = datetime.now(UTC)
+        base_time = my_lib.time.now()
 
         with file_path.open("rb") as f:
             for line in f:
                 msg_index = self._next_index()
                 # ダミー時刻を進める（1メッセージ=10ms）
-                dummy_time = base_time + timedelta(milliseconds=msg_index * 10)
+                dummy_time = base_time + datetime.timedelta(milliseconds=msg_index * 10)
 
                 # ACARS 気象データを解析
                 acars = vdl2_parser.parse_acars_weather(line)
@@ -999,7 +1052,7 @@ class FileAggregator:
                             icao=xid.icao,
                             callsign=None,
                             timestamp=dummy_time,
-                            altitude_m=xid.altitude_ft * 0.3048,
+                            altitude_m=xid.altitude_ft * amdar.constants.FEET_TO_METERS,
                             lat=xid.latitude,
                             lon=xid.longitude,
                         )
@@ -1028,7 +1081,7 @@ class FileAggregator:
 
                         if result:
                             altitude_m, interp_lat, interp_lon, altitude_source = result
-                            altitude_ft = int(altitude_m / 0.3048)
+                            altitude_ft = int(altitude_m / amdar.constants.FEET_TO_METERS)
                             if final_lat is None:
                                 final_lat = interp_lat
                             if final_lon is None:
@@ -1057,7 +1110,7 @@ class FileAggregator:
                         float(acars.wind_dir_deg) if acars.wind_dir_deg is not None else None
                     ),
                     distance=distance,
-                    method="vdl2",
+                    method=amdar.constants.VDL2_METHOD,
                     data_source="acars",
                     altitude_source=altitude_source,
                 )
@@ -1071,19 +1124,23 @@ class FileAggregator:
         """蓄積された結果を取得"""
         return self._results
 
-    def get_stats(self) -> dict[str, int]:
+    def get_stats(self) -> FileAggregatorStats:
         """統計情報を取得"""
-        return {
-            **self._buffer.get_stats(),
-            "results_count": len(self._results),
-        }
+        buffer_stats = self._buffer.get_stats()
+        return FileAggregatorStats(
+            aircraft_count=buffer_stats["aircraft_count"],
+            total_entries=buffer_stats["total_entries"],
+            callsign_mappings=buffer_stats["callsign_mappings"],
+            message_counter=buffer_stats["message_counter"],
+            results_count=len(self._results),
+        )
 
 
 def parse_from_files(
     modes_file: pathlib.Path | None = None,
     vdl2_file: pathlib.Path | None = None,
-    ref_lat: float = 35.682677,
-    ref_lon: float = 139.762230,
+    ref_lat: float = amdar.constants.DEFAULT_REFERENCE_LATITUDE,
+    ref_lon: float = amdar.constants.DEFAULT_REFERENCE_LONGITUDE,
     filter_outliers: bool = True,
 ) -> list[WeatherObservation]:
     """ファイルからデータを解析

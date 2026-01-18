@@ -11,23 +11,24 @@ import datetime
 import logging
 import threading
 import time
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING
 
 import my_lib.time
+
+from amdar.constants import (
+    DEFAULT_PREGENERATION_DAYS,
+    GRAPH_IMAGE_DPI,
+    PREGENERATION_INTERVAL_SECONDS,
+    GraphName,
+)
 
 if TYPE_CHECKING:
     import pathlib
 
     import amdar.config
 
-# 事前生成の間隔（秒）
-_PREGENERATION_INTERVAL_SECONDS = 25 * 60  # 25分
-
-# デフォルト表示期間（日）
-_DEFAULT_PERIOD_DAYS = 7
-
 # 事前生成対象のグラフ
-_PREGENERATION_GRAPHS = [
+_PREGENERATION_GRAPHS: list[GraphName] = [
     "scatter_2d",
     "contour_2d",
     "density",
@@ -56,7 +57,7 @@ class CachePregenerator:
     _running: bool
     _initialized: bool
 
-    def __new__(cls) -> Self:
+    def __new__(cls) -> CachePregenerator:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -67,7 +68,8 @@ class CachePregenerator:
                     instance._running = False
                     instance._initialized = False
                     cls._instance = instance
-        return cls._instance  # type: ignore[return-value]
+        assert cls._instance is not None  # noqa: S101 (シングルトンパターン)
+        return cls._instance
 
     def initialize(self, config: amdar.config.Config, cache_dir: pathlib.Path) -> None:
         """初期化して事前生成を開始する"""
@@ -86,7 +88,7 @@ class CachePregenerator:
             self._schedule_next(delay=10)
             logging.info(
                 "CachePregenerator initialized: interval=%d sec, graphs=%d",
-                _PREGENERATION_INTERVAL_SECONDS,
+                PREGENERATION_INTERVAL_SECONDS,
                 len(_PREGENERATION_GRAPHS),
             )
 
@@ -104,7 +106,7 @@ class CachePregenerator:
         if not self._initialized:
             return
 
-        interval = delay if delay is not None else _PREGENERATION_INTERVAL_SECONDS
+        interval = delay if delay is not None else PREGENERATION_INTERVAL_SECONDS
         self._timer = threading.Timer(interval, self._run_pregeneration)
         self._timer.daemon = True
         self._timer.start()
@@ -122,7 +124,7 @@ class CachePregenerator:
             # JSTで統一し、分単位で正規化（ユーザーリクエストと一致させる）
             now = my_lib.time.now()
             time_end = now.replace(second=0, microsecond=0)
-            time_start = time_end - datetime.timedelta(days=_DEFAULT_PERIOD_DAYS)
+            time_start = time_end - datetime.timedelta(days=DEFAULT_PREGENERATION_DAYS)
 
             logging.info(
                 "[PREGEN] Starting pregeneration: %s to %s",
@@ -189,7 +191,7 @@ class CachePregenerator:
                     ttl_remaining = graph_module.CACHE_TTL_SECONDS - cache_age
 
                     # 次回の事前生成までTTLが持つ場合はスキップ
-                    if ttl_remaining > _PREGENERATION_INTERVAL_SECONDS:
+                    if ttl_remaining > PREGENERATION_INTERVAL_SECONDS:
                         logging.debug(
                             "[PREGEN] Cache valid for %s: %s (TTL remaining: %.0f sec)",
                             graph_name,
@@ -213,7 +215,7 @@ class CachePregenerator:
                     logging.warning("[PREGEN] Unknown graph: %s", graph_name)
                     continue
 
-                figsize = tuple(x / graph_module.IMAGE_DPI for x in graph_def.size)
+                figsize = tuple(x / GRAPH_IMAGE_DPI for x in graph_def.size)
 
                 # 同期的にグラフを生成
                 result = graph_module.plot_in_subprocess(

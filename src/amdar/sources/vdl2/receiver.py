@@ -11,18 +11,20 @@ IntegratedBuffer を使用する場合、ADS-B からの高度補完も行いま
 
 from __future__ import annotations
 
+import datetime
 import logging
 import pathlib
 import queue
 import threading
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import my_lib.footprint
+import my_lib.time
 import zmq
 
+import amdar.constants
 import amdar.sources.outlier
 import amdar.sources.vdl2.parser
 
@@ -32,9 +34,6 @@ if TYPE_CHECKING:
 
 _should_terminate = threading.Event()
 _liveness_file: pathlib.Path | None = None
-
-# フラグメントの有効期限（秒）
-_FRAGMENT_TIMEOUT = 300  # 5分
 
 # フラグメントバッファ（航空機ごと）
 _fragment_buffer: dict[str, _AircraftFragment] = {}
@@ -94,7 +93,7 @@ def _try_combine_fragments(
     icao: str,
     ref_lat: float,
     ref_lon: float,
-    received_at: datetime,
+    received_at: datetime.datetime,
 ) -> amdar.database.postgresql.MeasurementData | None:
     """フラグメントを結合して MeasurementData を生成する
 
@@ -123,7 +122,7 @@ def _try_combine_fragments(
 
         # 時間差をチェック
         time_diff = abs(fragment.xid_timestamp - fragment.acars_timestamp)
-        if time_diff > _FRAGMENT_TIMEOUT:
+        if time_diff > amdar.constants.VDL2_FRAGMENT_TIMEOUT_SECONDS:
             return None
 
         # ACARS に高度がある場合はそのまま使用
@@ -172,20 +171,20 @@ def _cleanup_old_fragments() -> None:
         for icao, fragment in _fragment_buffer.items():
             # 最後の更新から一定時間経過したフラグメントを削除
             latest_time = max(fragment.xid_timestamp, fragment.acars_timestamp)
-            if current_time - latest_time > _FRAGMENT_TIMEOUT * 2:
+            if current_time - latest_time > amdar.constants.VDL2_FRAGMENT_TIMEOUT_SECONDS * 2:
                 expired_keys.append(icao)
 
         for key in expired_keys:
             del _fragment_buffer[key]
 
 
-def _try_altitude_補完_from_buffer(
+def _try_altitude_interpolation_from_buffer(
     acars_data: amdar.sources.vdl2.parser.AcarsWeatherData,
     icao: str | None,
     buffer: IntegratedBuffer,
     ref_lat: float,
     ref_lon: float,
-    received_at: datetime,
+    received_at: datetime.datetime,
 ) -> amdar.database.postgresql.MeasurementData | None:
     """IntegratedBuffer を使って高度補完を試みる
 
@@ -204,7 +203,7 @@ def _try_altitude_補完_from_buffer(
         return None
 
     # 補完対象のタイムスタンプ
-    timestamp = acars_data.timestamp or datetime.now(UTC)
+    timestamp = acars_data.timestamp or my_lib.time.now()
 
     # ICAO またはコールサインで検索
     identifier = icao or acars_data.flight
@@ -223,7 +222,7 @@ def _try_altitude_補完_from_buffer(
     final_lon = acars_data.longitude if acars_data.longitude is not None else interp_lon
 
     # 高度を ft に変換
-    altitude_ft = int(altitude_m / 0.3048)
+    altitude_ft = int(altitude_m / amdar.constants.FEET_TO_METERS)
 
     # 新しい AcarsWeatherData を作成
     combined_acars = amdar.sources.vdl2.parser.AcarsWeatherData(
@@ -310,7 +309,7 @@ def _worker(
             acars_data = amdar.sources.vdl2.parser.parse_acars_weather(msg)
             if acars_data:
                 # 受信時刻を取得（VDL2 データ内のタイムスタンプは無視）
-                received_at = datetime.now(UTC)
+                received_at = my_lib.time.now()
 
                 # まず直接変換を試みる
                 measurement = amdar.sources.vdl2.parser.convert_to_measurement_data(
@@ -332,12 +331,12 @@ def _worker(
                 else:
                     # 高度がない場合、まず IntegratedBuffer から補完を試みる
                     if buffer is not None:
-                        buffer_補完 = _try_altitude_補完_from_buffer(
+                        altitude_result = _try_altitude_interpolation_from_buffer(
                             acars_data, icao, buffer, ref_lat, ref_lon, received_at
                         )
-                        if buffer_補完:
+                        if altitude_result:
                             # 外れ値検出を行い、正常値のみキューに追加
-                            if _check_and_add_measurement(buffer_補完, data_queue, "buffer補完"):
+                            if _check_and_add_measurement(altitude_result, data_queue, "buffer補完"):
                                 buffer_combined_count += 1
                                 weather_count += 1
                                 # Liveness ファイルを更新
@@ -345,9 +344,9 @@ def _worker(
                                     my_lib.footprint.update(_liveness_file)
                                 logging.info(
                                     "VDL2 buffer補完 weather: %s alt=%d temp=%.1f",
-                                    buffer_補完.callsign,
-                                    buffer_補完.altitude,
-                                    buffer_補完.temperature,
+                                    altitude_result.callsign,
+                                    altitude_result.altitude,
+                                    altitude_result.temperature,
                                 )
                             continue
 
