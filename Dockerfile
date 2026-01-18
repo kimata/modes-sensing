@@ -33,6 +33,9 @@ ENV IMAGE_BUILD_DATE=${IMAGE_BUILD_DATE}
 
 ENV TZ=Asia/Tokyo
 
+# gitpython がインストールされていない環境でもエラーを抑制
+ENV GIT_PYTHON_REFRESH=quiet
+
 COPY --from=build /usr/local/lib/python${PYTHON_VERSION}/site-packages /usr/local/lib/python${PYTHON_VERSION}/site-packages
 
 WORKDIR /opt/modes-sensing
