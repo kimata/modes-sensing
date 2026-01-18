@@ -581,7 +581,7 @@ def _add_new_fragment(icao: str, packet_type: str, data: tuple[Any, ...]) -> Non
     global _fragment_list
 
     # 動的キーを使用するため TypedDict に完全に適合しない
-    _fragment_list.append({"icao": icao, packet_type: data})
+    _fragment_list.append({"icao": icao, packet_type: data})  # type: ignore[misc]
     if len(_fragment_list) >= _FRAGMENT_BUF_SIZE:
         _fragment_list.pop(0)
 
@@ -607,7 +607,7 @@ def _message_pairing(
         return
 
     # 動的キーを使用するため TypedDict に完全に適合しない
-    fragment[packet_type] = data
+    fragment[packet_type] = data  # type: ignore[literal-required]
 
     is_complete, data_source = _is_fragment_complete(fragment)
     if not is_complete:

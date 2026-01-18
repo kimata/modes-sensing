@@ -288,7 +288,7 @@ class IntegratedBuffer:
 
         # 完全一致なら "adsb"、それ以外は "interpolated"
         time_diff = abs((best.timestamp - timestamp).total_seconds())
-        source = "adsb" if time_diff < 1.0 else "interpolated"
+        source: AltitudeSourceType = "adsb" if time_diff < 1.0 else "interpolated"
 
         return AltitudeResult(
             altitude_m=best.altitude_m,
@@ -649,7 +649,7 @@ class RealtimeAggregator:
         if temperature_c is None and wind is None:
             return None
 
-        altitude_source = "acars"
+        altitude_source: AltitudeSourceType = "acars"
         final_altitude = altitude_m
         final_lat = lat
         final_lon = lon
@@ -660,7 +660,7 @@ class RealtimeAggregator:
             if identifier:
                 result = self._buffer.get_altitude_at(identifier, timestamp)
                 if result:
-                    final_altitude, interp_lat, interp_lon, altitude_source = result
+                    final_altitude, interp_lat, interp_lon, altitude_source = result.altitude_m, result.latitude, result.longitude, result.source
                     # 位置も補完（VDL2 に位置がない場合）
                     if final_lat is None:
                         final_lat = interp_lat
@@ -1068,7 +1068,7 @@ class FileAggregator:
 
                 # 高度の補完を試みる
                 altitude_ft = acars.altitude_ft
-                altitude_source = "acars"
+                altitude_source: AltitudeSourceType = "acars"
                 final_lat = acars.latitude
                 final_lon = acars.longitude
 
@@ -1084,7 +1084,7 @@ class FileAggregator:
                         )
 
                         if result:
-                            altitude_m, interp_lat, interp_lon, altitude_source = result
+                            altitude_m, interp_lat, interp_lon, altitude_source = result.altitude_m, result.latitude, result.longitude, result.source
                             altitude_ft = int(altitude_m / amdar.constants.FEET_TO_METERS)
                             if final_lat is None:
                                 final_lat = interp_lat
