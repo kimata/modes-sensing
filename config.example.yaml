@@ -29,7 +29,7 @@ font:
         jp_bold: migmix-1p-bold.ttf
 
 webapp:
-    static_dir_path: react/dist
+    static_dir_path: frontend/dist
     cache_dir_path: cache
 
 liveness:
