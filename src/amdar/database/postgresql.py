@@ -26,6 +26,8 @@ import my_lib.notify.slack
 import my_lib.time
 import numpy as np
 import psycopg2
+import psycopg2.errors
+import psycopg2.extensions
 import psycopg2.extras
 from numpy.typing import NDArray
 
@@ -1219,13 +1221,17 @@ def _refresh_single_view(conn: PgConnection, view: str) -> float:
         elapsed = time.perf_counter() - start
         logging.info("Refreshed %s in %.2f sec", view, elapsed)
         return elapsed
-    except psycopg2.errors.ObjectNotInPrerequisiteState:
+    except psycopg2.DatabaseError as e:
         # CONCURRENTLY が使えない場合（ユニークインデックスがない）は通常のREFRESH
-        with conn.cursor() as cur:
-            cur.execute(f"REFRESH MATERIALIZED VIEW {view}")
-        elapsed = time.perf_counter() - start
-        logging.info("Refreshed %s (non-concurrent) in %.2f sec", view, elapsed)
-        return elapsed
+        # エラーコード 55000 = OBJECT_NOT_IN_PREREQUISITE_STATE
+        if getattr(e, "pgcode", None) == "55000":
+            conn.rollback()  # エラー後のロールバック
+            with conn.cursor() as cur:
+                cur.execute(f"REFRESH MATERIALIZED VIEW {view}")
+            elapsed = time.perf_counter() - start
+            logging.info("Refreshed %s (non-concurrent) in %.2f sec", view, elapsed)
+            return elapsed
+        raise
     except Exception:
         logging.exception("Failed to refresh %s", view)
         return -1

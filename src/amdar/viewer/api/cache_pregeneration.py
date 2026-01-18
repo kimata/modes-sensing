@@ -215,7 +215,10 @@ class CachePregenerator:
                     logging.warning("[PREGEN] Unknown graph: %s", graph_name)
                     continue
 
-                figsize = tuple(x / GRAPH_IMAGE_DPI for x in graph_def.size)
+                figsize: tuple[float, float] = (
+                    graph_def.size[0] / GRAPH_IMAGE_DPI,
+                    graph_def.size[1] / GRAPH_IMAGE_DPI,
+                )
 
                 # 同期的にグラフを生成
                 result = graph_module.plot_in_subprocess(

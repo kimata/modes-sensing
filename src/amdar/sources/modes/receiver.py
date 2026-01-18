@@ -580,8 +580,8 @@ def _add_new_fragment(icao: str, packet_type: str, data: tuple[Any, ...]) -> Non
     """新しいフラグメントをリストに追加する"""
     global _fragment_list
 
-    # 動的キーを使用するため type: ignore が必要
-    _fragment_list.append({"icao": icao, packet_type: data})  # type: ignore[list-item, misc]
+    # 動的キーを使用するため TypedDict に完全に適合しない
+    _fragment_list.append({"icao": icao, packet_type: data})
     if len(_fragment_list) >= _FRAGMENT_BUF_SIZE:
         _fragment_list.pop(0)
 
@@ -606,8 +606,8 @@ def _message_pairing(
         _add_new_fragment(icao, packet_type, data)
         return
 
-    # 動的キーを使用するため type: ignore が必要
-    fragment[packet_type] = data  # type: ignore[literal-required]
+    # 動的キーを使用するため TypedDict に完全に適合しない
+    fragment[packet_type] = data
 
     is_complete, data_source = _is_fragment_complete(fragment)
     if not is_complete:

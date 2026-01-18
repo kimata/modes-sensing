@@ -8,12 +8,13 @@ from __future__ import annotations
 import datetime
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Self
+from typing import TYPE_CHECKING, Literal, Self, TypeAlias
 
 import amdar.constants
-from amdar.constants import MethodType
 
-# 再エクスポート: amdar.core.types.MethodType として使用可能にする
+# 型エイリアスを再定義（pyright の再エクスポート認識問題を回避）
+MethodType: TypeAlias = Literal["mode-s", "vdl2"]
+
 __all__ = ["AltitudeSourceType", "DataSourceType", "MethodType", "WeatherObservation", "WindData"]
 
 DataSourceType = Literal["bds44", "bds50_60", "acars_wn", "acars_wx", "acars_fl", "acars_pntaf", "acars", ""]

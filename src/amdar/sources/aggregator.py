@@ -36,7 +36,7 @@ import pyModeS
 import amdar.constants
 import amdar.core.geo
 import amdar.sources.outlier
-from amdar.core.types import WeatherObservation, WindData
+from amdar.core.types import AltitudeSourceType, DataSourceType, WeatherObservation, WindData
 
 if TYPE_CHECKING:
     pass
@@ -134,7 +134,7 @@ class AltitudeResult(NamedTuple):
     longitude: float | None
     """経度 [度]"""
 
-    source: str
+    source: AltitudeSourceType
     """データソース ("adsb" | "interpolated")"""
 
 
@@ -546,7 +546,7 @@ class RealtimeAggregator:
         lon: float | None = None,
         temperature_c: float | None = None,
         wind: WindData | None = None,
-        data_source: str = "bds50_60",
+        data_source: DataSourceType = "bds50_60",
     ) -> WeatherObservation | None:
         """Mode-S の気象データを処理
 
@@ -623,7 +623,7 @@ class RealtimeAggregator:
         lon: float | None = None,
         temperature_c: float | None = None,
         wind: WindData | None = None,
-        data_source: str = "acars",
+        data_source: DataSourceType = "acars",
     ) -> WeatherObservation | None:
         """VDL2 の気象データを処理
 
@@ -955,7 +955,11 @@ class FileAggregator:
                             trackangle = pyModeS.commb.trk50(msg)
                             groundspeed = pyModeS.commb.gs50(msg)
                             trueair = pyModeS.commb.tas50(msg)
-                            if all(v is not None for v in (trackangle, groundspeed, trueair)):
+                            if (
+                                trackangle is not None
+                                and groundspeed is not None
+                                and trueair is not None
+                            ):
                                 frag.bds50 = (trackangle, groundspeed, trueair)
 
                         # BDS 6,0
@@ -963,7 +967,7 @@ class FileAggregator:
                             heading = pyModeS.commb.hdg60(msg)
                             indicatedair = pyModeS.commb.ias60(msg)
                             mach = pyModeS.commb.mach60(msg)
-                            if all(v is not None for v in (heading, indicatedair, mach)):
+                            if heading is not None and indicatedair is not None and mach is not None:
                                 frag.bds60 = (heading, indicatedair, mach)
 
                         # BDS 5,0 + 6,0 ペアリング
@@ -977,18 +981,18 @@ class FileAggregator:
                             trackangle, groundspeed, trueair = frag.bds50
                             heading, indicatedair, mach = frag.bds60
 
-                            trueair_ms = float(trueair) * amdar.constants.KNOTS_TO_MS  # type: ignore[arg-type]
-                            groundspeed_ms = float(groundspeed) * amdar.constants.KNOTS_TO_MS  # type: ignore[arg-type]
-                            mach_f = float(mach)  # type: ignore[arg-type]
+                            trueair_ms = float(trueair) * amdar.constants.KNOTS_TO_MS
+                            groundspeed_ms = float(groundspeed) * amdar.constants.KNOTS_TO_MS
+                            mach_f = float(mach)
 
                             temperature_c = self._calc_temperature(trueair_ms, mach_f)
                             if temperature_c >= amdar.constants.GRAPH_TEMPERATURE_THRESHOLD:
                                 wind = self._calc_wind(
                                     frag.lat,
                                     frag.lon,
-                                    float(trackangle),  # type: ignore[arg-type]
+                                    float(trackangle),
                                     groundspeed_ms,
-                                    float(heading),  # type: ignore[arg-type]
+                                    float(heading),
                                     trueair_ms,
                                 )
 

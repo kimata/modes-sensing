@@ -28,7 +28,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import flask
 import matplotlib
@@ -243,7 +243,7 @@ _pool_manager = ProcessPoolManager()
 
 # 非同期ジョブの完了を追跡するためのデータ構造
 # job_id -> (async_result, graph_name, cache_dir)
-_pending_async_results: dict[str, tuple[multiprocessing.pool.AsyncResult, str, pathlib.Path]] = {}
+_pending_async_results: dict[str, tuple[multiprocessing.pool.AsyncResult, GraphName, pathlib.Path]] = {}
 _async_results_lock = threading.Lock()
 _result_checker_started = False
 
@@ -273,7 +273,7 @@ def _check_pending_results() -> None:
     with _async_results_lock:
         completed_jobs = []
         for job_id, (async_result, graph_name, cache_dir) in list(_pending_async_results.items()):
-            if not _check_single_job(job_id, async_result, graph_name, cache_dir):
+            if not _check_single_job(job_id, async_result, cast(GraphName, graph_name), cache_dir):
                 continue
             completed_jobs.append(job_id)
 
@@ -1724,11 +1724,18 @@ def parse_cache_filename(filepath: pathlib.Path) -> CacheFileInfo | None:
         return None
 
     try:
-        graph_name = parts[0]
+        graph_name_str = parts[0]
         period_seconds = int(parts[1])
         limit_altitude = parts[2] == "1"
         start_ts = int(parts[3])
         git_commit = parts[4]
+
+        # 有効なグラフ名か検証
+        if graph_name_str not in GRAPH_DEF_MAP:
+            return None
+
+        # 型を明示的にキャスト（GRAPH_DEF_MAP に含まれることを検証済み）
+        graph_name: GraphName = graph_name_str  # type: ignore[assignment]
 
         return CacheFileInfo(
             path=filepath,

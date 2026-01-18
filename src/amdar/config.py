@@ -139,7 +139,7 @@ def _parse_slack_config(
 
     # その他の設定タイプの場合、SlackErrorOnlyConfig に変換を試みる
     # SafeAccess を使用して属性を安全に取得
-    parsed_safe: Any = my_lib.safe_access.safe(parsed)  # type: ignore[attr-defined]
+    parsed_safe: Any = my_lib.safe_access.safe(parsed)
     bot_token = parsed_safe.bot_token.value()
     from_name = parsed_safe.from_name.value()
     error = parsed_safe.error.value()
@@ -189,7 +189,7 @@ def load_config(config_file: str) -> Config:
 
 def load_from_dict(config_dict: dict[str, Any], base_dir: pathlib.Path) -> Config:
     """辞書形式の設定を Config に変換する"""
-    cfg: Any = my_lib.config.accessor(config_dict)  # type: ignore[attr-defined]
+    cfg: Any = my_lib.config.accessor(config_dict)
 
     # VDL2 設定（オプション）
     vdl2_config = None
