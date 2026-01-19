@@ -856,7 +856,7 @@ def _prepare_data_numpy(numpy_data: amdar.database.postgresql.NumpyFetchResult) 
         & (altitudes <= GRAPH_ALT_MAX)
     )
 
-    valid_count = numpy.count_nonzero(valid_mask)
+    valid_count = int(numpy.count_nonzero(valid_mask))
 
     if valid_count == 0:
         return PreparedData(
