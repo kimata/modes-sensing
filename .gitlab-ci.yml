@@ -286,8 +286,10 @@ test-playwright-docker:
 
         # Playwrightテストを実行（ホストからポート経由で接続）
         # E2Eテストは単一サーバーに対して実行するため、並列数を制限
+        # NOTE: Docker環境では並列数を2に制限（4だとProcessPoolManagerが飽和し、
+        #       画像再生成テストで180秒タイムアウトを超過するため）
         - >
-            uv run pytest tests/e2e/test_webui.py --no-cov -n 4
+            uv run pytest tests/e2e/test_webui.py --no-cov --numprocesses=2
             --junit-xml=reports/playwright-docker-junit.xml
             --host ${APP_HOST} --port ${APP_PORT}
 
