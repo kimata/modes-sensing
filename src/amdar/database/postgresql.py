@@ -448,6 +448,7 @@ class _StoreState:
         self.max_consecutive_errors = max_consecutive_errors
         self.processed_count = 0
         self.should_stop = False
+        self.pending_data: MeasurementData | None = None  # DBエラー時に保持するデータ
 
     def reset_errors(self) -> None:
         self.consecutive_errors = 0
@@ -507,9 +508,22 @@ def _process_one_item(
     measurement_queue: multiprocessing.Queue[MeasurementData],
     liveness_file: pathlib.Path,
 ) -> None:
-    """キューから1件取得してDBに保存する"""
-    data = measurement_queue.get(timeout=1)
+    """キューから1件取得してDBに保存する
+
+    ペンディングデータがある場合は優先的に処理し、
+    DBエラー時はデータをペンディングとして保持することでデータロスを防ぐ。
+    """
+    # ペンディングデータがあれば優先処理（キューから取り出さない）
+    data = state.pending_data if state.pending_data is not None else measurement_queue.get(timeout=1)
+
+    # INSERT 前にペンディングとして保持
+    state.pending_data = data
+
+    # INSERT 実行（エラー時は例外がスローされ、pending_data は保持されたまま）
     _insert(state.conn, data)
+
+    # 成功したらペンディングをクリア
+    state.pending_data = None
     my_lib.footprint.update(liveness_file)
     state.reset_errors()
     state.processed_count += 1
