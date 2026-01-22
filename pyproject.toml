@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 dependencies = [
     "pyzmq>=27.1.0",
     "pymodes @ git+https://github.com/junzis/pyModeS@v2.21.1",
-    "my-lib @ git+https://github.com/kimata/my-py-lib@4fd91641829a496ecf9469f9f08b575ade595b38",
+    "my-lib @ git+https://github.com/kimata/my-py-lib@b577dfdf6e8df235fd0e58809379a171219772b8",
     "psycopg2-binary>=2.9.11",
     "numpy>=2.4.1",
     "scikit-learn>=1.8.0",
@@ -61,8 +61,13 @@ select = ["E", "F", "W", "I", "B", "UP"]
 [tool.ty]
 [tool.ty.rules]
 
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "semver"
+format = "{base}"
+
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "uv-dynamic-versioning"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
@@ -70,6 +75,9 @@ packages = ["src/amdar"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
 
 [tool.pytest.ini_options]
 minversion = "6.0"
