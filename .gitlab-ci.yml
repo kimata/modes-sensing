@@ -34,7 +34,7 @@ build-frontend:
 
     needs: []
 
-    image: node:22.15@sha256:e558507eb799e3a76fcdaaee5e48dce1a00aebc85892128a9fca59f63bd49511
+    image: node:22.22@sha256:cd7bcd2e7a1e6f72052feb023c7f6b722205d3fcab7bbcbd2d1bfdab10b1e935
 
     before_script: []
 
