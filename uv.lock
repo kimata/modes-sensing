@@ -693,6 +693,19 @@ wheels = [
 ]
 
 [[package]]
+name = "flask-pydantic"
+version = "0.14.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "flask" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/03/8b/05c91742c72740fb98e18bc4b0a7645e5df4c0ef9fec868e7343aaea0504/flask_pydantic-0.14.0.tar.gz", hash = "sha256:eb27fa6fd62d952b421df05c72349b5b1dc6fadacbd52879aac80cc519e4eab6", size = 12177, upload-time = "2025-12-22T02:58:52.575Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/77/60/cab2b0005e076875d869f74dd452cfd81b82a926c52bfff49c401bba0880/flask_pydantic-0.14.0-py3-none-any.whl", hash = "sha256:82a5914d90983f21976c39f97ea2901eba54536ac4b24850e9d52a0676448301", size = 10909, upload-time = "2025-12-22T02:58:51.211Z" },
+]
+
+[[package]]
 name = "fonttools"
 version = "4.59.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1393,11 +1406,13 @@ source = { editable = "." }
 dependencies = [
     { name = "flask" },
     { name = "flask-cors" },
+    { name = "flask-pydantic" },
     { name = "matplotlib" },
     { name = "my-lib" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "psycopg2-binary" },
+    { name = "pydantic" },
     { name = "pymodes" },
     { name = "pyzmq" },
     { name = "scikit-learn" },
@@ -1429,11 +1444,13 @@ dev = [
 requires-dist = [
     { name = "flask", specifier = ">=3.1.2" },
     { name = "flask-cors", specifier = ">=6.0.2" },
+    { name = "flask-pydantic", specifier = ">=0.12.0" },
     { name = "matplotlib", specifier = ">=3.10.8" },
-    { name = "my-lib", git = "https://github.com/kimata/my-py-lib?rev=8688ffae66fb0629415e117455e79c0c692f37fe" },
+    { name = "my-lib", git = "https://github.com/kimata/my-py-lib?rev=103d48606b4f613bfdbe128440709aad0bc51523" },
     { name = "numpy", specifier = ">=2.4.1" },
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
+    { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pymodes", git = "https://github.com/junzis/pyModeS?rev=v2.21.1" },
     { name = "pyzmq", specifier = ">=27.1.0" },
     { name = "scikit-learn", specifier = ">=1.8.0" },
@@ -1544,8 +1561,8 @@ wheels = [
 
 [[package]]
 name = "my-lib"
-version = "0.2.0"
-source = { git = "https://github.com/kimata/my-py-lib?rev=8688ffae66fb0629415e117455e79c0c692f37fe#8688ffae66fb0629415e117455e79c0c692f37fe" }
+version = "0.2.1"
+source = { git = "https://github.com/kimata/my-py-lib?rev=103d48606b4f613bfdbe128440709aad0bc51523#103d48606b4f613bfdbe128440709aad0bc51523" }
 dependencies = [
     { name = "coloredlogs" },
     { name = "dacite" },
@@ -1557,6 +1574,7 @@ dependencies = [
     { name = "line-bot-sdk" },
     { name = "lxml" },
     { name = "psutil" },
+    { name = "pydantic" },
     { name = "pyserial" },
     { name = "pytz" },
     { name = "pyyaml" },

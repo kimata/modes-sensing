@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 dependencies = [
     "pyzmq>=27.1.0",
     "pymodes @ git+https://github.com/junzis/pyModeS@v2.21.1",
-    "my-lib @ git+https://github.com/kimata/my-py-lib@8688ffae66fb0629415e117455e79c0c692f37fe",
+    "my-lib @ git+https://github.com/kimata/my-py-lib@103d48606b4f613bfdbe128440709aad0bc51523",
     "psycopg2-binary>=2.9.11",
     "numpy>=2.4.1",
     "scikit-learn>=1.8.0",
@@ -20,6 +20,8 @@ dependencies = [
     "pandas>=2.3.3",
     "flask>=3.1.2",
     "flask-cors>=6.0.2",
+    "flask-pydantic>=0.12.0",
+    "pydantic>=2.10.0",
 ]
 
 [project.scripts]
