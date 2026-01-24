@@ -1,13 +1,13 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+このプロジェクトの注目すべき変更点をすべてこのファイルに記載します。
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+このファイルのフォーマットは [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に基づいており、
+このプロジェクトは [Semantic Versioning](https://semver.org/spec/v2.0.0.html) に準拠しています。
 
 ## [0.1.0] - 2025-01-24
 
-### Added
+### ✨ Added
 
 - Mode S メッセージ (BDS 4,4/4,5) のリアルタイム受信・デコード機能
 - VDL2 メッセージの受信・デコード機能
