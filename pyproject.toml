@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 dependencies = [
     "pyzmq>=27.1.0",
     "pymodes @ git+https://github.com/junzis/pyModeS@v2.21.1",
-    "my-lib @ git+https://github.com/kimata/my-py-lib@c1c1a7dea26a950e442f3dabd53033f47dd2fd40",
+    "my-lib @ git+https://github.com/kimata/my-py-lib@8688ffae66fb0629415e117455e79c0c692f37fe",
     "psycopg2-binary>=2.9.11",
     "numpy>=2.4.1",
     "scikit-learn>=1.8.0",
