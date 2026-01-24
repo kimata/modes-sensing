@@ -6,12 +6,7 @@ import Modal from './components/Modal'
 import Footer from './components/Footer'
 import ReceiverStatus from './components/ReceiverStatus'
 import { parseUrlParams, updateUrl, resetUrl, PERIOD_DAYS, type PeriodType } from './hooks/useUrlParams'
-
-interface DataRange {
-  earliest: string | null
-  latest: string | null
-  count?: number
-}
+import type { DataRangeResponse } from './types/api'
 
 function App() {
   // URL パラメータを解析
@@ -55,7 +50,7 @@ function App() {
   // URL パラメータがある場合は、data-range による調整をスキップ
   const [isInitialDateRangeSet, setIsInitialDateRangeSet] = useState(urlParams.hasUrlParams)
   const [modalImage, setModalImage] = useState<string | null>(null)
-  const [dataRange, setDataRange] = useState<DataRange | null>(null)
+  const [dataRange, setDataRange] = useState<DataRangeResponse | null>(null)
   const [dataRangeSubtitle, setDataRangeSubtitle] = useState<string>('')
   const [limitAltitude, setLimitAltitude] = useState(getInitialLimitAltitude)
 
@@ -65,7 +60,7 @@ function App() {
       try {
         const response = await fetch('/modes-sensing/api/data-range')
         if (response.ok) {
-          const range: DataRange = await response.json()
+          const range: DataRangeResponse = await response.json()
           setDataRange(range)
 
           // 初期日付範囲をデータ範囲に基づいて調整

@@ -1,32 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-
-// 型定義
-interface JobInfo {
-    job_id: string;
-    graph_name: string;
-}
-
-interface CreateJobsResponse {
-    jobs: JobInfo[];
-}
-
-interface JobStatusInfo {
-    status: "pending" | "processing" | "completed" | "failed" | "timeout";
-    progress: number;
-    graph_name: string;
-    error: string | null;
-    elapsed_seconds: number | null;
-    stage?: string; // 現在の処理段階
-}
-
-interface BatchStatusResponse {
-    jobs: Record<string, JobStatusInfo>;
-}
+import type { CreateJobsResponse, BatchStatusResponse, JobStatusValue } from "../types/api";
 
 export interface GraphJob {
     jobId: string;
     graphName: string;
-    status: "pending" | "processing" | "completed" | "failed" | "timeout";
+    status: JobStatusValue;
     progress: number;
     error: string | null;
     resultUrl: string | null;

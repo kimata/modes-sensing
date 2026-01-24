@@ -1,3 +1,10 @@
+// API 型定義を再エクスポート
+export * from "./api";
+
+// 後方互換性のためのエイリアス
+// 新しいコードでは LastReceivedResponse を使用してください
+export type { LastReceivedResponse as LastReceived } from "./api";
+
 export interface SysInfo {
     date: string;
     timezone: string;
@@ -11,9 +18,4 @@ export interface SysInfo {
     disk_free_mb: number;
     process_count: number;
     cpu_temperature?: number;
-}
-
-export interface LastReceived {
-    mode_s: string | null;
-    vdl2: string | null;
 }
