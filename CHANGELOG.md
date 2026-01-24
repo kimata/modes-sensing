@@ -1,0 +1,27 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.1.0] - 2025-01-24
+
+### Added
+
+- Mode S メッセージ (BDS 4,4/4,5) のリアルタイム受信・デコード機能
+- VDL2 メッセージの受信・デコード機能
+- 気温・風向・風速の計算機能（真気速度・マッハ数・地速・機首方位から）
+- 機械学習による外れ値検出（sklearn IsolationForest）
+- PostgreSQL/SQLite へのデータ保存機能
+- 8種類のグラフ生成機能
+    - 2D/3D 散布図
+    - ヒートマップ
+    - 2D/3D 等高線
+    - 密度プロット
+    - 温度プロット
+    - 風向プロット
+- 非同期グラフ生成（マルチプロセス + ジョブキュー）
+- React フロントエンドによるインタラクティブな可視化
+- Slack 連携によるエラー通知
+- ヘルスチェック機能

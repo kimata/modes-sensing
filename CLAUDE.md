@@ -1096,3 +1096,27 @@ Apache License Version 2.0
 - 関連するテストも修正すること
 - 関連するドキュメントも更新すること
 - mypy, pyright, ty がパスすることを確認すること
+
+### タグ作成時のルール
+
+Git タグを作成する際は、必ず `CHANGELOG.md` を更新すること：
+
+1. タグ作成前に `CHANGELOG.md` に変更内容を記載する
+2. 記載フォーマットは [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に準拠する
+3. セマンティックバージョニングに従ってバージョン番号を決定する
+
+```markdown
+## [1.2.0] - 2025-01-24
+
+### Added
+
+- 新機能の説明
+
+### Changed
+
+- 変更内容の説明
+
+### Fixed
+
+- バグ修正の説明
+```
