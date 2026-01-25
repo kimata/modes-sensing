@@ -229,6 +229,7 @@ test-playwright-docker:
     needs:
         - generate-tag
         - build-image
+        - test-docker # 同時に実行するとリソース不足になるので、順次実行されるようにする
 
     script:
         # クリーンアップ: 古いコンテナを停止
