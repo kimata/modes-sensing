@@ -229,8 +229,10 @@ test-playwright-docker:
     needs:
         - generate-tag
         - build-image
-        - test-docker # 同時に実行するとリソース不足になるので、順次実行されるようにする
-        - test-playwright # 同時に実行するとリソース不足になるので、順次実行されるようにする
+        - job: test-docker # 同時に実行するとリソース不足になるので、順次実行されるようにする
+          artifacts: false
+        - job: test-playwright # 同時に実行するとリソース不足になるので、順次実行されるようにする
+          artifacts: false
 
     script:
         # クリーンアップ: 古いコンテナを停止
