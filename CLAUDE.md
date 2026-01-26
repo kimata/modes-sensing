@@ -1080,6 +1080,13 @@ Apache License Version 2.0
 
 ## 開発ワークフロー規約
 
+### リポジトリ構成
+
+- **プライマリリポジトリ**: GitLab (`gitlab.green-rabbit.net`)
+- **ミラーリポジトリ**: GitHub (`github.com/kimata/modes-sensing`)
+
+GitLab にプッシュすると、自動的に GitHub にミラーリングされます。GitHub への直接プッシュは不要です。
+
 ### コミット時の注意
 
 - 今回のセッションで作成し、プロジェクトが機能するのに必要なファイル以外は git add しないこと
