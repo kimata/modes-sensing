@@ -157,7 +157,7 @@ def wait_for_all_images_individually(page, timeout=30000):
                 return {{
                     found: true,
                     title: "{title}",
-                    loaded: img.complete && img.naturalWidth > 0,
+                    loaded: img.complete && img.naturalWidth > 0 && !img.src.startsWith('data:'),
                     src: img.src
                 }};
             }}
@@ -174,7 +174,7 @@ def wait_for_all_images_individually(page, timeout=30000):
                     return {{
                         found: true,
                         title: "{title}",
-                        loaded: img.complete && img.naturalWidth > 0,
+                        loaded: img.complete && img.naturalWidth > 0 && !img.src.startsWith('data:'),
                         src: img.src
                     }};
                 }}
@@ -190,7 +190,7 @@ def wait_for_all_images_individually(page, timeout=30000):
                     f"""
                     () => {{
                         const img = document.querySelector('img[alt="{title}"]');
-                        return img && img.complete && img.naturalWidth > 0;
+                        return img && img.complete && img.naturalWidth > 0 && !img.src.startsWith('data:');
                     }}
                     """,
                     timeout=timeout,
@@ -229,7 +229,7 @@ def wait_for_images_to_load(page, expected_count=8, timeout=180000):
                 let consecutiveChecks = window.consecutiveLoadedChecks || 0;
 
                 images.forEach(img => {{
-                    if (img.complete && img.naturalWidth > 0) {{
+                    if (img.complete && img.naturalWidth > 0 && !img.src.startsWith('data:')) {{
                         loadedCount++;
                     }}
                 }});
@@ -258,7 +258,7 @@ def wait_for_images_to_load(page, expected_count=8, timeout=180000):
                 const images = document.querySelectorAll(selectors.join(', '));
                 let loadedCount = 0;
                 images.forEach(img => {
-                    if (img.complete && img.naturalWidth > 0) {
+                    if (img.complete && img.naturalWidth > 0 && !img.src.startsWith('data:')) {
                         loadedCount++;
                     }
                 });
@@ -385,7 +385,7 @@ def test_all_images_display_correctly(page_init, host, port):
                     const img = document.querySelector(`img[alt="${{title}}"]`);
                     if (!img) continue;
 
-                    if (img.complete && img.naturalWidth > 0) {{
+                    if (img.complete && img.naturalWidth > 0 && !img.src.startsWith('data:')) {{
                         const figure = img.closest('figure');
                         if (figure) {{
                             const style = window.getComputedStyle(figure);
@@ -434,7 +434,7 @@ def test_all_images_display_correctly(page_init, host, port):
     contour_2d_loaded = page.evaluate("""
         () => {
             const img = document.querySelector('img[alt="2D等高線プロット"]');
-            return img && img.complete && img.naturalWidth > 0;
+            return img && img.complete && img.naturalWidth > 0 && !img.src.startsWith('data:');
         }
     """)
 
@@ -446,7 +446,7 @@ def test_all_images_display_correctly(page_init, host, port):
                 """
                 () => {
                     const img = document.querySelector('img[alt="2D等高線プロット"]');
-                    return img && img.complete && img.naturalWidth > 0;
+                    return img && img.complete && img.naturalWidth > 0 && !img.src.startsWith('data:');
                 }
                 """,
                 timeout=60000,
@@ -494,7 +494,7 @@ def test_all_images_display_correctly(page_init, host, port):
                         naturalWidth: img.naturalWidth,
                         naturalHeight: img.naturalHeight,
                         src: img.src,
-                        loaded: img.complete && img.naturalWidth > 0
+                        loaded: img.complete && img.naturalWidth > 0 && !img.src.startsWith('data:')
                     }};
                 }}
             """)
@@ -918,8 +918,8 @@ def test_wind_direction_graph_display(page_init, host, port):
             const img = document.querySelector('img[alt="風向・風速分布"]');
             if (!img) return false;
 
-            // 画像読み込み完了確認
-            if (!img.complete || img.naturalWidth <= 0) return false;
+            // 画像読み込み完了確認（data URI プレースホルダを除外）
+            if (!img.complete || img.naturalWidth <= 0 || img.src.startsWith('data:')) return false;
 
             // figure要素の表示確認
             const figure = img.closest('figure');
@@ -968,7 +968,9 @@ def test_image_modal_functionality(page_init, host, port):
             if (!figure) return false;
 
             const computedStyle = window.getComputedStyle(figure);
-            return computedStyle.display !== 'none' && firstImage.complete && firstImage.naturalWidth > 0;
+            const isLoaded = firstImage.complete && firstImage.naturalWidth > 0;
+            const isNotPlaceholder = !firstImage.src.startsWith('data:');
+            return computedStyle.display !== 'none' && isLoaded && isNotPlaceholder;
         }
         """,
         timeout=180000,  # 非同期API対応で180秒に延長
