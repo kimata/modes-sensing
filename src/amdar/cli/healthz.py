@@ -55,21 +55,6 @@ def _notify_error(
     )
 
 
-def check_liveness(targets: list[HealthzTarget], port: int | None = None) -> tuple[bool, str | None]:
-    """複数ターゲットの liveness をチェックする
-
-    Returns:
-        (成功したか, 失敗したターゲット名)
-    """
-    for target in targets:
-        if not my_lib.healthz.check_liveness(target):
-            return (False, target.name)
-
-    if port is not None and not my_lib.healthz.check_http_port(port):
-        return (False, "http_port")
-    return (True, None)
-
-
 def main() -> None:
     """CLI エントリポイント"""
     import sys
@@ -138,12 +123,16 @@ def main() -> None:
 
     logging.debug(my_lib.pretty.format(targets))
 
-    success, failed_target = check_liveness(targets, port)
+    failed_targets = my_lib.healthz.check_liveness_all_with_ports(
+        targets,
+        http_port=port,
+    )
 
-    if success:
+    if not failed_targets:
         logging.info("OK.")
         sys.exit(0)
     else:
+        failed_target = failed_targets[0]
         # コンテナ起動後の猶予期間を過ぎている場合のみ通知
         # VDL2 はデータ受信頻度が低いため、長い猶予期間を設定
         uptime: Any = my_lib.container_util.get_uptime()
