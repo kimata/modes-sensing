@@ -146,7 +146,10 @@ class TestProcessOneItem:
             assert state.pending_data is None
 
             # キューにはまだデータが残っていることを確認
-            assert not measurement_queue.empty()
+            # NOTE: multiprocessing.Queue.empty() は信頼性が低いため、
+            # get_nowait() でデータを取り出して確認する
+            remaining_data = measurement_queue.get_nowait()
+            assert remaining_data.callsign == "TEST001"
 
     def test_retry_after_reconnect(
         self, sample_measurement_data: MeasurementData, temp_liveness_file: pathlib.Path
