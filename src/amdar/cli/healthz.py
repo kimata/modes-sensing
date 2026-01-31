@@ -25,6 +25,28 @@ import amdar.config
 import amdar.constants
 
 
+def check_liveness(target_list: list[HealthzTarget], port: int | None = None) -> tuple[bool, str | None]:
+    """Liveness チェックを実行する.
+
+    Args:
+        target_list: チェック対象のリスト
+        port: HTTP ポートチェックを行う場合のポート番号
+
+    Returns:
+        (success, failed_target): すべてのターゲットが正常な場合は (True, None)、
+                                   失敗がある場合は (False, 失敗したターゲット名)
+    """
+    failed_targets = my_lib.healthz.check_liveness_all(target_list)
+    if failed_targets:
+        return (False, failed_targets[0])
+
+    # ポートチェック
+    if port is not None and not my_lib.healthz.check_http_port(port):
+        return (False, "http_port")
+
+    return (True, None)
+
+
 def _get_timeout_for_now(schedule: amdar.config.LivenessScheduleConfig) -> int:
     """現在時刻に応じたタイムアウト値を返す
 
