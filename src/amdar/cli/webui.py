@@ -65,6 +65,7 @@ def create_app(config: amdar.config.Config) -> flask.Flask:
 
     import amdar.viewer.api.cache_pregeneration
     import amdar.viewer.api.graph
+    import amdar.viewer.api.materialized_view_refresh
     import amdar.viewer.api.progress_estimation
 
     app = flask.Flask("modes-sensing")
@@ -79,6 +80,9 @@ def create_app(config: amdar.config.Config) -> flask.Flask:
     app.register_blueprint(amdar.viewer.api.graph.blueprint, url_prefix=my_lib.webapp.config.URL_PREFIX)
 
     my_lib.webapp.config.show_handler_list(app)
+
+    # マテリアライズドビューの定期リフレッシュを開始
+    amdar.viewer.api.materialized_view_refresh.materialized_view_refresher.initialize(config)
 
     # 履歴管理とキャッシュ事前生成を初期化
     cache_dir = config.webapp.cache_dir_path
