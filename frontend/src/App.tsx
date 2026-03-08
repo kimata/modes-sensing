@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react'
-import { PaperAirplaneIcon } from '@heroicons/react/24/solid'
 import DateSelector from './components/DateSelector'
 import GraphDisplay from './components/GraphDisplay'
 import Modal from './components/Modal'
@@ -189,7 +188,7 @@ function App() {
               className="text-inherit no-underline cursor-pointer transition-opacity hover:opacity-70"
               title="クリックでデフォルト表示に戻る"
             >
-              <PaperAirplaneIcon className="w-10 h-10 mr-2 inline-block -rotate-45" />
+              <img src={`${import.meta.env.BASE_URL}airplane.svg`} alt="airplane" className="w-10 h-10 mr-2 inline-block" />
               航空機の気象データ
             </a>
           </h1>
