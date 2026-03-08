@@ -188,7 +188,7 @@ function App() {
               className="text-inherit no-underline cursor-pointer transition-opacity hover:opacity-70"
               title="クリックでデフォルト表示に戻る"
             >
-              <img src="/modes-sensing/airplane.svg" alt="airplane" className="w-10 h-10 mr-2 inline-block" />
+              <img src="/modes-sensing/airplane.svg" alt="airplane" className="w-[60px] h-[60px] mr-2 inline-block" />
               航空機の気象データ
             </a>
           </h1>
