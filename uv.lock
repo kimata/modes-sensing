@@ -20,7 +20,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-03-22T11:54:24.173612803Z"
+exclude-newer = "2026-03-22T13:39:01.976086072Z"
 exclude-newer-span = "P1W"
 
 [[package]]
@@ -1472,7 +1472,7 @@ requires-dist = [
     { name = "flask-cors", specifier = ">=6.0.2" },
     { name = "flask-pydantic", specifier = ">=0.14.0" },
     { name = "matplotlib", specifier = ">=3.10.8" },
-    { name = "my-lib", git = "https://github.com/kimata/my-py-lib?rev=786fcecb21259c28d9db8bd328f152d5d5c89b8d" },
+    { name = "my-lib", git = "https://github.com/kimata/my-py-lib?rev=1e3845cb4a7dd16806c380bed34387b23007f69d" },
     { name = "numpy", specifier = ">=2.4.1" },
     { name = "pandas", specifier = ">=3.0.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
@@ -1588,7 +1588,7 @@ wheels = [
 [[package]]
 name = "my-lib"
 version = "0.2.2"
-source = { git = "https://github.com/kimata/my-py-lib?rev=786fcecb21259c28d9db8bd328f152d5d5c89b8d#786fcecb21259c28d9db8bd328f152d5d5c89b8d" }
+source = { git = "https://github.com/kimata/my-py-lib?rev=1e3845cb4a7dd16806c380bed34387b23007f69d#1e3845cb4a7dd16806c380bed34387b23007f69d" }
 dependencies = [
     { name = "coloredlogs" },
     { name = "dacite" },
