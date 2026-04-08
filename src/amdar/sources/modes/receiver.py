@@ -289,7 +289,7 @@ def _receive_lines(sock: socket.socket) -> Generator[str, None, None]:
     while True:
         data = sock.recv(1024)
 
-        if data is None:
+        if not data:
             return
 
         buffer += data
