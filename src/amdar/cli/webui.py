@@ -51,16 +51,15 @@ def _sig_handler(num: int, frame: FrameType | None) -> None:
         _term()
 
 
+URL_PREFIX = "/modes-sensing"
+
+
 def create_app(config: amdar.config.Config) -> flask.Flask:
     # NOTE: アクセスログは無効にする
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
-    import my_lib.webapp.config
-
-    my_lib.webapp.config.URL_PREFIX = "/modes-sensing"
-    my_lib.webapp.config.init(config.webapp)
-
     import my_lib.webapp.base
+    import my_lib.webapp.config
     import my_lib.webapp.util
 
     import amdar.viewer.api.cache_pregeneration
@@ -68,16 +67,21 @@ def create_app(config: amdar.config.Config) -> flask.Flask:
     import amdar.viewer.api.materialized_view_refresh
     import amdar.viewer.api.progress_estimation
 
+    # my_lib.webapp の実行環境を構築（URL prefix と静的ファイル配信パスを束ねる）
+    environment = my_lib.webapp.config.build_environment(config.webapp, url_prefix=URL_PREFIX)
+
     app = flask.Flask("modes-sensing")
 
     flask_cors.CORS(app)
 
     app.config["CONFIG"] = config
 
-    app.register_blueprint(my_lib.webapp.base.blueprint, url_prefix=my_lib.webapp.config.URL_PREFIX)
-    app.register_blueprint(my_lib.webapp.base.blueprint_default)
-    app.register_blueprint(my_lib.webapp.util.blueprint, url_prefix=my_lib.webapp.config.URL_PREFIX)
-    app.register_blueprint(amdar.viewer.api.graph.blueprint, url_prefix=my_lib.webapp.config.URL_PREFIX)
+    app.register_blueprint(
+        my_lib.webapp.base.create_static_blueprint(environment=environment), url_prefix=URL_PREFIX
+    )
+    app.register_blueprint(my_lib.webapp.base.create_root_redirect_blueprint(url_prefix=URL_PREFIX))
+    app.register_blueprint(my_lib.webapp.util.blueprint, url_prefix=URL_PREFIX)
+    app.register_blueprint(amdar.viewer.api.graph.blueprint, url_prefix=URL_PREFIX)
 
     my_lib.webapp.config.show_handler_list(app)
 

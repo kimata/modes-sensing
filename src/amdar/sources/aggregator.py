@@ -660,7 +660,12 @@ class RealtimeAggregator:
             if identifier:
                 result = self._buffer.get_altitude_at(identifier, timestamp)
                 if result:
-                    final_altitude, interp_lat, interp_lon, altitude_source = result.altitude_m, result.latitude, result.longitude, result.source
+                    final_altitude, interp_lat, interp_lon, altitude_source = (
+                        result.altitude_m,
+                        result.latitude,
+                        result.longitude,
+                        result.source,
+                    )
                     # 位置も補完（VDL2 に位置がない場合）
                     if final_lat is None:
                         final_lat = interp_lat
@@ -859,8 +864,8 @@ class FileAggregator:
                 dummy_time = base_time + datetime.timedelta(milliseconds=msg_index * 10)
 
                 try:
-                    icao = str(pyModeS.icao(msg))
-                    dformat = pyModeS.df(msg)
+                    icao = str(pyModeS.icao(msg))  # pyright: ignore[reportPrivateImportUsage]
+                    dformat = pyModeS.df(msg)  # pyright: ignore[reportPrivateImportUsage]
 
                     if icao not in fragments:
                         fragments[icao] = _ModesFileFragment(icao=icao)
@@ -868,7 +873,7 @@ class FileAggregator:
 
                     # DF=17,18: ADS-B
                     if dformat in (17, 18) and len(msg) == 28:
-                        code = pyModeS.typecode(msg)
+                        code = pyModeS.typecode(msg)  # pyright: ignore[reportPrivateImportUsage]
                         if code is None:
                             continue
 
@@ -955,11 +960,7 @@ class FileAggregator:
                             trackangle = pyModeS.commb.trk50(msg)
                             groundspeed = pyModeS.commb.gs50(msg)
                             trueair = pyModeS.commb.tas50(msg)
-                            if (
-                                trackangle is not None
-                                and groundspeed is not None
-                                and trueair is not None
-                            ):
+                            if trackangle is not None and groundspeed is not None and trueair is not None:
                                 frag.bds50 = (trackangle, groundspeed, trueair)
 
                         # BDS 6,0
@@ -1084,7 +1085,12 @@ class FileAggregator:
                         )
 
                         if result:
-                            altitude_m, interp_lat, interp_lon, altitude_source = result.altitude_m, result.latitude, result.longitude, result.source
+                            altitude_m, interp_lat, interp_lon, altitude_source = (
+                                result.altitude_m,
+                                result.latitude,
+                                result.longitude,
+                                result.source,
+                            )
                             altitude_ft = int(altitude_m / amdar.constants.FEET_TO_METERS)
                             if final_lat is None:
                                 final_lat = interp_lat

@@ -160,11 +160,11 @@ class TestReceiverWithFixture:
                 continue
 
             try:
-                df = pyModeS.df(message)
+                df = pyModeS.df(message)  # pyright: ignore[reportPrivateImportUsage]
                 df_counts[df] = df_counts.get(df, 0) + 1
 
                 if df in (17, 18):
-                    tc = pyModeS.typecode(message)
+                    tc = pyModeS.typecode(message)  # pyright: ignore[reportPrivateImportUsage]
                     if tc is not None:
                         tc_counts[tc] = tc_counts.get(tc, 0) + 1
 

@@ -21,7 +21,7 @@ import socket
 import threading
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 import my_lib.footprint
 import my_lib.notify.slack
@@ -152,8 +152,8 @@ def parse_weather_records_from_file(
                 continue
 
             try:
-                icao = str(pyModeS.icao(msg))
-                dformat = pyModeS.df(msg)
+                icao = str(pyModeS.icao(msg))  # pyright: ignore[reportPrivateImportUsage]
+                dformat = pyModeS.df(msg)  # pyright: ignore[reportPrivateImportUsage]
 
                 # フラグメントを取得または作成
                 if icao not in fragments:
@@ -162,7 +162,7 @@ def parse_weather_records_from_file(
 
                 # DF=17,18: ADS-B
                 if dformat in (17, 18) and len(msg) == 28:
-                    code = pyModeS.typecode(msg)
+                    code = pyModeS.typecode(msg)  # pyright: ignore[reportPrivateImportUsage]
                     if code is None:
                         continue
 
@@ -580,8 +580,9 @@ def _add_new_fragment(icao: str, packet_type: str, data: tuple[Any, ...]) -> Non
     """新しいフラグメントをリストに追加する"""
     global _fragment_list
 
-    # 動的キーを使用するため TypedDict に完全に適合しない
-    _fragment_list.append({"icao": icao, packet_type: data})  # type: ignore[misc]
+    # packet_type は動的キーなので、一度 dict として組み立ててから cast する
+    new_fragment: dict[str, Any] = {"icao": icao, packet_type: data}
+    _fragment_list.append(cast(MessageFragment, new_fragment))
     if len(_fragment_list) >= _FRAGMENT_BUF_SIZE:
         _fragment_list.pop(0)
 
@@ -606,8 +607,8 @@ def _message_pairing(
         _add_new_fragment(icao, packet_type, data)
         return
 
-    # 動的キーを使用するため TypedDict に完全に適合しない
-    fragment[packet_type] = data  # type: ignore[literal-required]
+    # packet_type は動的キーなので dict として書き込む
+    cast(dict[str, Any], fragment)[packet_type] = data
 
     is_complete, data_source = _is_fragment_complete(fragment)
     if not is_complete:
@@ -662,7 +663,7 @@ def _process_adsb_message(
 ) -> None:
     """ADS-Bメッセージ（dformat=17）を処理する"""
     logging.debug("receive ADSB")
-    code = pyModeS.typecode(message)
+    code = pyModeS.typecode(message)  # pyright: ignore[reportPrivateImportUsage]
 
     if code is None:
         return
@@ -725,8 +726,8 @@ def _process_message(
     if len(message) < 22:
         return
 
-    icao = str(pyModeS.icao(message))
-    dformat = pyModeS.df(message)
+    icao = str(pyModeS.icao(message))  # pyright: ignore[reportPrivateImportUsage]
+    dformat = pyModeS.df(message)  # pyright: ignore[reportPrivateImportUsage]
 
     # DF=17: ADS-B, DF=18: TIS-B/ADS-R（同じ Extended Squitter 形式）
     if dformat in (17, 18):
