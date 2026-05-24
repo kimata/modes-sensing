@@ -70,7 +70,7 @@ class TestCreateGraphJobEndpoint:
         """ジョブ作成レスポンスの構造を検証"""
         # グラフ生成はモックして、レスポンス構造のみ検証
         with unittest.mock.patch(
-            "amdar.viewer.api.graph.get_cached_image",
+            "amdar.viewer.graph.cache.get_cached_image",
             return_value=(b"fake_png_data", "cached_file.png"),
         ):
             response = client.post(
@@ -121,7 +121,7 @@ class TestJobStatusEndpoint:
         """ジョブステータスレスポンスの構造を検証"""
         # まずジョブを作成
         with unittest.mock.patch(
-            "amdar.viewer.api.graph.get_cached_image",
+            "amdar.viewer.graph.cache.get_cached_image",
             return_value=(b"fake_png_data", "cached_file.png"),
         ):
             create_response = client.post(
@@ -180,7 +180,7 @@ class TestBatchStatusEndpoint:
         """一括ステータスレスポンスの構造を検証"""
         # まずジョブを作成
         with unittest.mock.patch(
-            "amdar.viewer.api.graph.get_cached_image",
+            "amdar.viewer.graph.cache.get_cached_image",
             return_value=(b"fake_png_data", "cached_file.png"),
         ):
             create_response = client.post(
@@ -235,7 +235,7 @@ class TestDataRangeEndpoint:
         mock_result.count = 0
 
         with (
-            unittest.mock.patch("amdar.viewer.api.graph._connect_database"),
+            unittest.mock.patch("amdar.viewer.api.data_routes._connect_database"),
             unittest.mock.patch(
                 "amdar.database.postgresql.fetch_data_range",
                 return_value=mock_result,
@@ -260,7 +260,7 @@ class TestDataRangeEndpoint:
         mock_result.count = 12345
 
         with (
-            unittest.mock.patch("amdar.viewer.api.graph._connect_database"),
+            unittest.mock.patch("amdar.viewer.api.data_routes._connect_database"),
             unittest.mock.patch(
                 "amdar.database.postgresql.fetch_data_range",
                 return_value=mock_result,
@@ -291,7 +291,7 @@ class TestLastReceivedEndpoint:
         mock_result.vdl2 = None
 
         with (
-            unittest.mock.patch("amdar.viewer.api.graph._connect_database"),
+            unittest.mock.patch("amdar.viewer.api.data_routes._connect_database"),
             unittest.mock.patch(
                 "amdar.database.postgresql.fetch_last_received_by_method",
                 return_value=mock_result,
@@ -315,7 +315,7 @@ class TestLastReceivedEndpoint:
         mock_result.vdl2 = datetime.datetime(2025, 1, 7, 11, 30, 0)
 
         with (
-            unittest.mock.patch("amdar.viewer.api.graph._connect_database"),
+            unittest.mock.patch("amdar.viewer.api.data_routes._connect_database"),
             unittest.mock.patch(
                 "amdar.database.postgresql.fetch_last_received_by_method",
                 return_value=mock_result,
@@ -344,7 +344,7 @@ class TestAggregateStatsEndpoint:
         mock_stats.to_dict.return_value = {"count": 100}
 
         with (
-            unittest.mock.patch("amdar.viewer.api.graph._connect_database"),
+            unittest.mock.patch("amdar.viewer.api.data_routes._connect_database"),
             unittest.mock.patch(
                 "amdar.database.postgresql.check_materialized_views_exist",
                 return_value=True,
