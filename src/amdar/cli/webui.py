@@ -63,9 +63,11 @@ def create_app(config: amdar.config.Config) -> flask.Flask:
     import my_lib.webapp.util
 
     import amdar.viewer.api.cache_pregeneration
-    import amdar.viewer.api.graph
+    import amdar.viewer.api.data_routes
+    import amdar.viewer.api.graph_routes
     import amdar.viewer.api.materialized_view_refresh
     import amdar.viewer.api.progress_estimation
+    import amdar.viewer.graph.service
 
     # my_lib.webapp の実行環境を構築（URL prefix と静的ファイル配信パスを束ねる）
     environment = my_lib.webapp.config.build_environment(config.webapp, url_prefix=URL_PREFIX)
@@ -81,17 +83,19 @@ def create_app(config: amdar.config.Config) -> flask.Flask:
     )
     app.register_blueprint(my_lib.webapp.base.create_root_redirect_blueprint(url_prefix=URL_PREFIX))
     app.register_blueprint(my_lib.webapp.util.blueprint, url_prefix=URL_PREFIX)
-    app.register_blueprint(amdar.viewer.api.graph.blueprint, url_prefix=URL_PREFIX)
+    app.register_blueprint(amdar.viewer.api.graph_routes.blueprint, url_prefix=URL_PREFIX)
+    app.register_blueprint(amdar.viewer.api.data_routes.blueprint, url_prefix=URL_PREFIX)
 
     my_lib.webapp.config.show_handler_list(app)
 
     # マテリアライズドビューの定期リフレッシュを開始
     amdar.viewer.api.materialized_view_refresh.materialized_view_refresher.initialize(config)
 
-    # 履歴管理とキャッシュ事前生成を初期化
+    # グラフ生成サービス・履歴管理・キャッシュ事前生成を初期化
     cache_dir = config.webapp.cache_dir_path
+    amdar.viewer.graph.service.graph_service.initialize(config, cache_dir)
     amdar.viewer.api.progress_estimation.generation_time_history.initialize(cache_dir)
-    amdar.viewer.api.cache_pregeneration.cache_pregenerator.initialize(config, cache_dir)
+    amdar.viewer.api.cache_pregeneration.cache_pregenerator.initialize()
 
     return app
 
