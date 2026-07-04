@@ -308,23 +308,6 @@ def _calc_temperature(trueair: float, mach: float) -> float:
     return (trueair / mach) * (trueair / mach) * K - 273.15
 
 
-def _calc_magnetic_declination(latitude: float, longitude: float) -> float:
-    # NOTE:
-    # 地磁気値(2020.0年値)を求める
-    # https://vldb.gsi.go.jp/sokuchi/geomag/menu_04/
-    delta_latitude = latitude - 37
-    delta_longitude = longitude - 138
-
-    return (
-        (8 + 15.822 / 60)
-        + (18.462 / 60) * delta_latitude
-        - (7.726 / 60) * delta_longitude
-        + (0.007 / 60) * delta_latitude * delta_latitude
-        + (0.007 / 60) * delta_latitude * delta_longitude
-        - (0.655 / 60) * delta_longitude * delta_longitude
-    )
-
-
 def _calc_wind(
     latitude: float,
     longitude: float,
@@ -333,7 +316,7 @@ def _calc_wind(
     heading: float,
     trueair: float,
 ) -> CoreWindData:
-    magnetic_declination = _calc_magnetic_declination(latitude, longitude)
+    magnetic_declination = amdar.core.geo.calc_magnetic_declination(latitude, longitude)
 
     ground_dir = math.pi / 2 - math.radians(trackangle)
     ground_x = groundspeed * math.cos(ground_dir)

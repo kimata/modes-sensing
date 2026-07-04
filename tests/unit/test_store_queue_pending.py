@@ -237,3 +237,100 @@ class TestProcessOneItem:
 
         with pytest.raises(queue.Empty):
             database_postgresql._process_one_item(state, measurement_queue, temp_liveness_file)
+
+
+class TestErrorHandlers:
+    """エラーハンドラのテスト（poison message でワーカーが停止しないこと）"""
+
+    def test_data_error_discards_pending(self, sample_measurement_data: MeasurementData):
+        """データ起因の DB エラーでは当該レコードを破棄して継続する"""
+        mock_conn = MagicMock()
+        state = database_postgresql._StoreState(mock_conn)
+        state.pending_data = sample_measurement_data
+
+        database_postgresql._handle_data_error(state, psycopg2.DataError("invalid input"))
+
+        # レコードが破棄され、ワーカーは停止しない
+        assert state.pending_data is None
+        assert state.should_stop is False
+        assert state.consecutive_errors == 0
+        # トランザクションのロールバックが試行される
+        mock_conn.rollback.assert_called_once()
+
+    def test_unexpected_error_discards_pending(self, sample_measurement_data: MeasurementData):
+        """予期しないエラーでも同一レコードの無限再試行にならない"""
+        mock_conn = MagicMock()
+        state = database_postgresql._StoreState(mock_conn)
+        state.pending_data = sample_measurement_data
+        slack_config = MagicMock()
+
+        with patch("my_lib.notify.slack.error"):
+            database_postgresql._handle_unexpected_error(state, slack_config)
+
+        # レコードは破棄されるが、1回目ではワーカーは停止しない
+        assert state.pending_data is None
+        assert state.should_stop is False
+        assert state.consecutive_errors == 1
+
+    def test_unexpected_error_stops_after_max_consecutive(self, sample_measurement_data: MeasurementData):
+        """連続エラー上限で従来どおり停止する（システム起因エラーの安全弁）"""
+        mock_conn = MagicMock()
+        state = database_postgresql._StoreState(mock_conn)
+        slack_config = MagicMock()
+
+        with patch("my_lib.notify.slack.error") as mock_slack:
+            for _ in range(3):
+                state.pending_data = sample_measurement_data
+                database_postgresql._handle_unexpected_error(state, slack_config)
+
+        assert state.should_stop is True
+        mock_slack.assert_called_once()
+
+    def test_store_queue_continues_after_data_error(
+        self, sample_measurement_data: MeasurementData, temp_liveness_file: pathlib.Path
+    ):
+        """poison message の次のレコードが正常に処理されることを確認"""
+        database_postgresql._should_terminate.clear()
+        mock_conn = MagicMock()
+
+        poison_data = MeasurementData(
+            callsign="POISON",
+            altitude=10000.0,
+            latitude=35.0,
+            longitude=136.0,
+            temperature=-40.0,
+            wind=WindData(x=10.0, y=5.0, angle=270.0, speed=11.18),
+            distance=50.0,
+            method="mode-s",
+        )
+
+        measurement_queue: multiprocessing.Queue[MeasurementData] = multiprocessing.Queue()
+        measurement_queue.put(poison_data)
+        measurement_queue.put(sample_measurement_data)
+
+        db_config = database_postgresql.DatabaseConfig(
+            host="localhost",
+            port=5432,
+            name="test",
+            user="test",
+            password="test",  # noqa: S106
+        )
+
+        # 1件目（POISON）は DataError、2件目は成功
+        insert_calls: list[str] = []
+
+        def _insert_side_effect(_conn, data: MeasurementData) -> None:
+            insert_calls.append(data.callsign)
+            if data.callsign == "POISON":
+                raise psycopg2.DataError("value out of range")
+
+        with (
+            patch.object(database_postgresql, "_insert", side_effect=_insert_side_effect),
+            patch("my_lib.notify.slack.error"),
+        ):
+            database_postgresql.store_queue(
+                mock_conn, measurement_queue, temp_liveness_file, db_config, MagicMock(), count=1
+            )
+
+        # POISON は破棄され、後続レコードが処理されて count=1 で正常終了する
+        assert insert_calls == ["POISON", "TEST001"]

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import collections
 import logging
+import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -85,6 +86,8 @@ class OutlierDetector:
         self._deviation_threshold = deviation_threshold
         self._sigma_threshold = sigma_threshold
         self._tolerance_factor = tolerance_factor
+        # Mode-S 受信スレッドと VDL2 受信スレッドから共有されるため排他制御する
+        self._lock = threading.Lock()
 
     def add_history(self, altitude: float, temperature: float) -> None:
         """履歴データを追加
@@ -93,16 +96,19 @@ class OutlierDetector:
             altitude: 高度 [m]
             temperature: 気温 [°C]
         """
-        self._history.append(_HistoryData(altitude=altitude, temperature=temperature))
+        with self._lock:
+            self._history.append(_HistoryData(altitude=altitude, temperature=temperature))
 
     def clear_history(self) -> None:
         """履歴データをクリア"""
-        self._history.clear()
+        with self._lock:
+            self._history.clear()
 
     @property
     def history_count(self) -> int:
         """履歴データ数"""
-        return len(self._history)
+        with self._lock:
+            return len(self._history)
 
     def is_outlier(
         self,
@@ -122,14 +128,19 @@ class OutlierDetector:
         Returns:
             外れ値の場合 True、正常値の場合 False
         """
-        # データが十分蓄積されていない場合は外れ値として扱わない
-        if len(self._history) < self._min_samples:
-            return False
+        # 判定中に他スレッドの add_history で deque が変更されないよう、
+        # 履歴のスナップショットをロック下で取得する
+        with self._lock:
+            if len(self._history) < self._min_samples:
+                return False
+            history_snapshot = list(self._history)
 
         try:
             # 履歴データから特徴量を抽出
             valid_data = [
-                data for data in self._history if data.altitude is not None and data.temperature is not None
+                data
+                for data in history_snapshot
+                if data.altitude is not None and data.temperature is not None
             ]
 
             if len(valid_data) < self._min_samples:
@@ -334,17 +345,24 @@ class OutlierDetector:
 
 # グローバルインスタンス（リアルタイム処理用）
 _default_detector: OutlierDetector | None = None
+_default_detector_lock = threading.Lock()
 
 
 def get_default_detector() -> OutlierDetector:
     """デフォルトの外れ値検出器を取得
 
     リアルタイム処理で共有される単一インスタンスを返します。
+    複数スレッドからの同時初期化を防ぐためロックで保護します。
     """
     global _default_detector
-    if _default_detector is None:
-        _default_detector = OutlierDetector()
-    return _default_detector
+    detector = _default_detector
+    if detector is None:
+        with _default_detector_lock:
+            detector = _default_detector
+            if detector is None:
+                detector = OutlierDetector()
+                _default_detector = detector
+    return detector
 
 
 def reset_default_detector() -> None:
@@ -353,4 +371,5 @@ def reset_default_detector() -> None:
     テスト用途などで使用します。
     """
     global _default_detector
-    _default_detector = None
+    with _default_detector_lock:
+        _default_detector = None

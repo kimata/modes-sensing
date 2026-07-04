@@ -25,6 +25,7 @@ import datetime
 import logging
 import math
 import pathlib
+import threading
 from collections import deque
 from dataclasses import dataclass, field
 from queue import Queue
@@ -40,6 +41,9 @@ from amdar.core.types import AltitudeSourceType, DataSourceType, WeatherObservat
 
 if TYPE_CHECKING:
     pass
+
+# auto_cleanup 有効時にクリーンアップを実行する最小間隔（秒）
+_AUTO_CLEANUP_INTERVAL_SECONDS = 10.0
 
 
 class IntegratedBufferStats(TypedDict):
@@ -149,10 +153,19 @@ class IntegratedBuffer:
     - バッファの最大サイズは設けない（時間ウィンドウで自動破棄）
     - 補完は時刻的に近いものを優先、同一時刻の場合は後のデータを使用
     - 高度がない場合はレコードを破棄
+    - 複数スレッド（Mode-S 受信・VDL2 受信・統計ログ）から共有されるため、
+      公開メソッドはロックで排他制御する
     """
 
     window_seconds: float = 60.0
     """補完ウィンドウ（秒）"""
+
+    auto_cleanup: bool = False
+    """位置追加時に古いエントリを自動破棄するか（リアルタイム受信用）
+
+    ファイル解析ではメッセージ順序ベースの補完（get_altitude_by_order）が
+    古いエントリも参照するため、デフォルトは False。
+    """
 
     _altitude_by_icao: dict[str, deque[AltitudeEntry]] = field(default_factory=dict)
     """ICAO -> 高度履歴のマッピング"""
@@ -166,6 +179,12 @@ class IntegratedBuffer:
     _message_counter: int = field(default=0)
     """メッセージカウンタ（ファイル解析時の順序管理用）"""
 
+    _last_cleanup: datetime.datetime | None = field(default=None, repr=False)
+    """自動クリーンアップの最終実行時刻"""
+
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    """スレッド間排他制御用ロック"""
+
     def update_time(self, timestamp: datetime.datetime) -> None:
         """基準時刻を更新し、古いデータを破棄
 
@@ -175,13 +194,14 @@ class IntegratedBuffer:
         Args:
             timestamp: 新しい基準時刻
         """
-        self._current_time = timestamp
-        # ウィンドウの2倍より古いデータを破棄
-        cutoff = timestamp - datetime.timedelta(seconds=self.window_seconds * 2)
-        self._cleanup_before(cutoff)
+        with self._lock:
+            self._current_time = timestamp
+            # ウィンドウの2倍より古いデータを破棄
+            cutoff = timestamp - datetime.timedelta(seconds=self.window_seconds * 2)
+            self._cleanup_before(cutoff)
 
     def _cleanup_before(self, cutoff: datetime.datetime) -> None:
-        """指定時刻より古いエントリを削除
+        """指定時刻より古いエントリを削除（ロック保持中に呼ぶこと）
 
         Args:
             cutoff: この時刻より古いエントリを削除
@@ -197,6 +217,32 @@ class IntegratedBuffer:
         # 空になった ICAO エントリを削除
         for icao in empty_icaos:
             del self._altitude_by_icao[icao]
+
+        # 高度履歴が消えた ICAO を指すコールサインマッピングも破棄
+        # （高度履歴がなければ補完に使えないため、残しても無限成長するだけ）
+        if empty_icaos:
+            dead_callsigns = [
+                callsign
+                for callsign, icao in self._callsign_to_icao.items()
+                if icao not in self._altitude_by_icao
+            ]
+            for callsign in dead_callsigns:
+                del self._callsign_to_icao[callsign]
+
+    def _maybe_auto_cleanup(self, timestamp: datetime.datetime) -> None:
+        """スロットル付きの自動クリーンアップ（ロック保持中に呼ぶこと）
+
+        毎メッセージの全 ICAO 走査を避けるため、
+        _AUTO_CLEANUP_INTERVAL_SECONDS に1回だけ実行する。
+        """
+        if (
+            self._last_cleanup is not None
+            and (timestamp - self._last_cleanup).total_seconds() < _AUTO_CLEANUP_INTERVAL_SECONDS
+        ):
+            return
+        self._last_cleanup = timestamp
+        cutoff = timestamp - datetime.timedelta(seconds=self.window_seconds * 2)
+        self._cleanup_before(cutoff)
 
     def add_adsb_position(
         self,
@@ -220,27 +266,33 @@ class IntegratedBuffer:
         if not icao:
             return
 
-        icao = icao.upper()
-        self._message_counter += 1
+        with self._lock:
+            icao = icao.upper()
+            self._message_counter += 1
 
-        # ICAO -> 高度履歴に追加
-        if icao not in self._altitude_by_icao:
-            self._altitude_by_icao[icao] = deque()
+            # ICAO -> 高度履歴に追加
+            if icao not in self._altitude_by_icao:
+                self._altitude_by_icao[icao] = deque()
 
-        entry = AltitudeEntry(
-            timestamp=timestamp,
-            altitude_m=altitude_m,
-            latitude=lat,
-            longitude=lon,
-            message_index=self._message_counter,
-        )
-        self._altitude_by_icao[icao].append(entry)
+            entry = AltitudeEntry(
+                timestamp=timestamp,
+                altitude_m=altitude_m,
+                latitude=lat,
+                longitude=lon,
+                message_index=self._message_counter,
+            )
+            self._altitude_by_icao[icao].append(entry)
 
-        # コールサイン -> ICAO マッピングを更新
-        if callsign:
-            callsign = callsign.strip().upper()
+            # コールサイン -> ICAO マッピングを更新
             if callsign:
-                self._callsign_to_icao[callsign] = icao
+                callsign = callsign.strip().upper()
+                if callsign:
+                    self._callsign_to_icao[callsign] = icao
+
+            # リアルタイム受信では追加時に古いエントリを破棄する
+            # （update_time() を呼ぶ経路がないと無限成長するため）
+            if self.auto_cleanup:
+                self._maybe_auto_cleanup(timestamp)
 
     def get_altitude_at(
         self,
@@ -260,19 +312,20 @@ class IntegratedBuffer:
         Returns:
             AltitudeResult または None
         """
-        # ICAO を解決
-        icao = self._resolve_identifier(icao_or_callsign)
-        if not icao:
-            return None
+        with self._lock:
+            # ICAO を解決
+            icao = self._resolve_identifier(icao_or_callsign)
+            if not icao:
+                return None
 
-        entries = self._altitude_by_icao.get(icao)
-        if not entries:
-            return None
+            entries = self._altitude_by_icao.get(icao)
+            if not entries:
+                return None
 
-        # ウィンドウ内のエントリをフィルタ
-        window_entries = [
-            e for e in entries if abs((e.timestamp - timestamp).total_seconds()) <= self.window_seconds
-        ]
+            # ウィンドウ内のエントリをフィルタ
+            window_entries = [
+                e for e in entries if abs((e.timestamp - timestamp).total_seconds()) <= self.window_seconds
+            ]
 
         if not window_entries:
             return None
@@ -315,16 +368,17 @@ class IntegratedBuffer:
         Returns:
             AltitudeResult または None
         """
-        icao = self._resolve_identifier(icao_or_callsign)
-        if not icao:
-            return None
+        with self._lock:
+            icao = self._resolve_identifier(icao_or_callsign)
+            if not icao:
+                return None
 
-        entries = self._altitude_by_icao.get(icao)
-        if not entries:
-            return None
+            entries = self._altitude_by_icao.get(icao)
+            if not entries:
+                return None
 
-        # インデックス差でフィルタ
-        nearby_entries = [e for e in entries if abs(e.message_index - message_index) <= max_distance]
+            # インデックス差でフィルタ
+            nearby_entries = [e for e in entries if abs(e.message_index - message_index) <= max_distance]
 
         if not nearby_entries:
             return None
@@ -353,7 +407,8 @@ class IntegratedBuffer:
         """
         if not callsign:
             return None
-        return self._callsign_to_icao.get(callsign.strip().upper())
+        with self._lock:
+            return self._callsign_to_icao.get(callsign.strip().upper())
 
     def _resolve_identifier(self, icao_or_callsign: str) -> str | None:
         """ICAO またはコールサインから ICAO を解決
@@ -382,20 +437,23 @@ class IntegratedBuffer:
         Returns:
             統計情報
         """
-        total_entries = sum(len(entries) for entries in self._altitude_by_icao.values())
-        return IntegratedBufferStats(
-            aircraft_count=len(self._altitude_by_icao),
-            total_entries=total_entries,
-            callsign_mappings=len(self._callsign_to_icao),
-            message_counter=self._message_counter,
-        )
+        with self._lock:
+            total_entries = sum(len(entries) for entries in self._altitude_by_icao.values())
+            return IntegratedBufferStats(
+                aircraft_count=len(self._altitude_by_icao),
+                total_entries=total_entries,
+                callsign_mappings=len(self._callsign_to_icao),
+                message_counter=self._message_counter,
+            )
 
     def clear(self) -> None:
         """バッファをクリア"""
-        self._altitude_by_icao.clear()
-        self._callsign_to_icao.clear()
-        self._current_time = None
-        self._message_counter = 0
+        with self._lock:
+            self._altitude_by_icao.clear()
+            self._callsign_to_icao.clear()
+            self._current_time = None
+            self._message_counter = 0
+            self._last_cleanup = None
 
 
 class RealtimeAggregator:
@@ -786,18 +844,6 @@ class FileAggregator:
         temperature_k = sound_speed**2 / (1.4 * 287)
         return temperature_k - 273.15
 
-    def _calc_magnetic_declination(self, lat: float, lon: float) -> float:
-        """磁気偏差を概算（日本周辺で使用）"""
-        delta_latitude = lat - 37.0
-        delta_longitude = lon - 138.0
-        return (
-            -7.6
-            + (0.009 / 60) * delta_latitude
-            - (0.082 / 60) * delta_longitude
-            + (0.107 / 60) * delta_latitude * delta_longitude
-            - (0.655 / 60) * delta_longitude * delta_longitude
-        )
-
     def _calc_wind(
         self,
         lat: float,
@@ -808,7 +854,7 @@ class FileAggregator:
         trueair_ms: float,
     ) -> WindData:
         """風向・風速を計算"""
-        mag_dec = self._calc_magnetic_declination(lat, lon)
+        mag_dec = amdar.core.geo.calc_magnetic_declination(lat, lon)
 
         ground_dir = math.pi / 2 - math.radians(trackangle)
         ground_x = groundspeed_ms * math.cos(ground_dir)

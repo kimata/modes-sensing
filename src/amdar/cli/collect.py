@@ -77,7 +77,8 @@ def execute(
     signal.signal(signal.SIGTERM, _sig_handler)
 
     # 統合バッファ（Mode-S → VDL2 の高度補完用）
-    shared_buffer = IntegratedBuffer(window_seconds=60.0)
+    # auto_cleanup=True: リアルタイム受信では位置追加時に古いエントリを自動破棄する
+    shared_buffer = IntegratedBuffer(window_seconds=60.0, auto_cleanup=True)
 
     # 統合キュー（両ソースのデータを DB に保存）
     measurement_queue: multiprocessing.Queue[MeasurementData] = multiprocessing.Queue()

@@ -11,6 +11,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+import amdar.core.geo
+import amdar.sources.modes.receiver
 from amdar.core.types import WindData
 from amdar.sources.aggregator import (
     AltitudeEntry,
@@ -224,6 +226,52 @@ class TestIntegratedBuffer:
         assert buffer.resolve_icao("JAL123") is None
         stats = buffer.get_stats()
         assert stats["aircraft_count"] == 0
+
+    def test_auto_cleanup_on_add(self) -> None:
+        """auto_cleanup 有効時は位置追加だけで古いエントリが破棄される"""
+        buffer = IntegratedBuffer(window_seconds=60.0, auto_cleanup=True)
+        ts_old = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        # 2*window (120秒) + スロットル間隔を超えた時刻
+        ts_new = ts_old + timedelta(seconds=180)
+
+        buffer.add_adsb_position(icao="84C27A", callsign="JAL123", timestamp=ts_old, altitude_m=10000.0)
+        buffer.add_adsb_position(icao="ABC123", callsign="ANA456", timestamp=ts_new, altitude_m=9000.0)
+
+        stats = buffer.get_stats()
+        assert stats["aircraft_count"] == 1  # 古い機体は破棄済み
+        assert stats["total_entries"] == 1
+        # 高度履歴が消えた機体のコールサインマッピングも破棄される
+        assert buffer.resolve_icao("JAL123") is None
+        assert buffer.resolve_icao("ANA456") == "ABC123"
+
+    def test_no_auto_cleanup_by_default(self) -> None:
+        """デフォルト（ファイル解析用）では追加時に破棄されない"""
+        buffer = IntegratedBuffer(window_seconds=60.0)
+        ts_old = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        ts_new = ts_old + timedelta(seconds=180)
+
+        buffer.add_adsb_position(icao="84C27A", callsign="JAL123", timestamp=ts_old, altitude_m=10000.0)
+        buffer.add_adsb_position(icao="ABC123", callsign="ANA456", timestamp=ts_new, altitude_m=9000.0)
+
+        stats = buffer.get_stats()
+        assert stats["aircraft_count"] == 2
+        assert stats["total_entries"] == 2
+        assert buffer.resolve_icao("JAL123") == "84C27A"
+
+    def test_auto_cleanup_is_throttled(self) -> None:
+        """スロットル間隔内の追加ではクリーンアップが走らない"""
+        # 2*window (4秒) < スロットル間隔 (10秒) となるようにウィンドウを小さくする
+        buffer = IntegratedBuffer(window_seconds=2.0, auto_cleanup=True)
+        ts = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+        # 最初の追加でクリーンアップ基準時刻が設定される
+        buffer.add_adsb_position(icao="84C27A", callsign=None, timestamp=ts, altitude_m=10000.0)
+        # ウィンドウ外だがスロットル間隔（10秒）未満の追加ではクリーンアップされない
+        buffer.add_adsb_position(
+            icao="ABC123", callsign=None, timestamp=ts + timedelta(seconds=5), altitude_m=9000.0
+        )
+
+        assert buffer.get_stats()["aircraft_count"] == 2
 
     def test_get_altitude_by_order(self) -> None:
         """メッセージ順序ベースでの高度取得"""
@@ -560,6 +608,34 @@ class TestFileAggregator:
         stats = agg.get_stats()
         assert "aircraft_count" in stats
         assert "results_count" in stats
+
+
+class TestMagneticDeclination:
+    """磁気偏角計算のテスト（リアルタイム/ファイル解析経路の一貫性）"""
+
+    def test_gsi_2020_reference_value(self) -> None:
+        """基準点 (37N, 138E) で国土地理院 2020 年値（約 +8.26°、西偏正）を返す"""
+        declination = amdar.core.geo.calc_magnetic_declination(37.0, 138.0)
+        assert declination == pytest.approx(8 + 15.822 / 60, abs=1e-6)
+
+    def test_wind_consistency_between_paths(self) -> None:
+        """receiver と FileAggregator の風計算が同一結果を返す
+
+        磁気偏角の実装が2系統に分かれて食い違っていた問題（風向が約16°
+        ずれる）の回帰テスト。
+        """
+        lat, lon = 35.5, 137.0
+        trackangle, groundspeed_ms, heading, trueair_ms = 270.0, 220.0, 265.0, 230.0
+
+        wind_receiver = amdar.sources.modes.receiver._calc_wind(
+            lat, lon, trackangle, groundspeed_ms, heading, trueair_ms
+        )
+        wind_file = FileAggregator()._calc_wind(lat, lon, trackangle, groundspeed_ms, heading, trueair_ms)
+
+        assert wind_file.x == pytest.approx(wind_receiver.x)
+        assert wind_file.y == pytest.approx(wind_receiver.y)
+        assert wind_file.angle == pytest.approx(wind_receiver.angle)
+        assert wind_file.speed == pytest.approx(wind_receiver.speed)
 
 
 class TestParseFromFiles:

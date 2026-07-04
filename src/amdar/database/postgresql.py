@@ -494,6 +494,11 @@ def store_queue(
         except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
             _handle_db_error(state, e, db_config, slack_config)
 
+        except psycopg2.Error as e:
+            # 接続系以外の DB エラー（DataError 等）はデータ起因の恒久エラーであり、
+            # 再試行しても成功しないため当該レコードを破棄して処理を継続する
+            _handle_data_error(state, e)
+
         except Exception:
             _handle_unexpected_error(state, slack_config)
 
@@ -564,6 +569,24 @@ def _handle_db_error(
         )
 
 
+def _handle_data_error(state: _StoreState, error: Exception) -> None:
+    """データ起因の DB エラーを処理する
+
+    同一レコードの再試行では回復しないため、当該レコードを破棄して
+    後続データの処理を継続する（保持し続けるとワーカー全体が停止し、
+    以降の観測データがすべて失われる）。
+    """
+    logging.error(
+        "データ起因のDBエラーのためレコードを破棄します: %s (data=%s)",
+        str(error),
+        state.pending_data,
+    )
+    state.pending_data = None
+    # 失敗したトランザクションが残っている場合に備えてロールバック
+    with contextlib.suppress(Exception):
+        state.conn.rollback()
+
+
 def _handle_unexpected_error(
     state: _StoreState,
     slack_config: my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.SlackEmptyConfig,
@@ -574,6 +597,14 @@ def _handle_unexpected_error(
         state.consecutive_errors + 1,
         state.max_consecutive_errors,
     )
+
+    # 同一レコードの無限再試行（poison message）を防ぐため当該レコードは破棄する。
+    # 連続エラーカウントは維持し、システム起因の連続失敗時は従来どおり停止する。
+    if state.pending_data is not None:
+        logging.error("処理に失敗したレコードを破棄します: %s", state.pending_data)
+        state.pending_data = None
+    with contextlib.suppress(Exception):
+        state.conn.rollback()
 
     if state.increment_errors():
         error_message = "最大連続エラー数に達しました。処理を終了します"

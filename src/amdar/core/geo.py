@@ -28,6 +28,32 @@ def simple_distance(lat: float, lon: float, ref_lat: float, ref_lon: float) -> f
     return math.sqrt(lat_dist**2 + lon_dist**2)
 
 
+def calc_magnetic_declination(latitude: float, longitude: float) -> float:
+    """磁気偏角を計算（日本周辺、西偏を正とする）
+
+    国土地理院の磁気偏角計算式（2020.0年値）による近似。
+    https://vldb.gsi.go.jp/sokuchi/geomag/menu_04/
+
+    Args:
+        latitude: 緯度 [度]
+        longitude: 経度 [度]
+
+    Returns:
+        磁気偏角 [度]（西偏が正）
+    """
+    delta_latitude = latitude - 37
+    delta_longitude = longitude - 138
+
+    return (
+        (8 + 15.822 / 60)
+        + (18.462 / 60) * delta_latitude
+        - (7.726 / 60) * delta_longitude
+        + (0.007 / 60) * delta_latitude * delta_latitude
+        + (0.007 / 60) * delta_latitude * delta_longitude
+        - (0.655 / 60) * delta_longitude * delta_longitude
+    )
+
+
 def haversine_distance(ref_lat: float, ref_lon: float, lat: float, lon: float) -> float:
     """Haversine 公式による精密距離計算
 
