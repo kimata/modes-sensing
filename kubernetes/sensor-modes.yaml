@@ -48,19 +48,22 @@ spec:
                           command:
                               - python
                               - -m
-                              - amdar.cli_healthz
+                              - amdar.cli.healthz
                               - -m
                               - COL
                       initialDelaySeconds: 120
                       periodSeconds: 60
                       timeoutSeconds: 5
                       successThreshold: 1
-                      failureThreshold: 3
+                      failureThreshold: 5
 
             imagePullSecrets:
                 - name: gitlab-regcred
 
             dnsPolicy: Default
+
+            nodeSelector:
+                kubernetes.io/arch: amd64
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -85,24 +88,24 @@ spec:
                 - name: modes-sensing-webui
                   image: gitlab.green-rabbit.net:5050/kimata/modes-sensing:latest
                   imagePullPolicy: Always
-                  command: ["python", "-m", "amdar.cli_webui"]
+                  command: ["python", "-m", "amdar.cli.webui"]
                   resources:
                       requests:
                           memory: 512Mi
-                          cpu: 500m
-                      limits:
-                          memory: 1Gi
                           cpu: 1000m
+                      limits:
+                          memory: 4Gi
+                          cpu: 2000m
 
-                  # livenessProbe:
-                  #   httpGet:
-                  #     path: /wattmeter-sharp/api/sysinfo
-                  #     port: 5000
-                  #   initialDelaySeconds: 120
-                  #   periodSeconds: 120
-                  #   timeoutSeconds: 30
-                  #   successThreshold: 1
-                  #   failureThreshold: 3
+                  livenessProbe:
+                      httpGet:
+                          path: /modes-sensing/api/sysinfo
+                          port: 5000
+                      initialDelaySeconds: 120
+                      periodSeconds: 120
+                      timeoutSeconds: 30
+                      successThreshold: 1
+                      failureThreshold: 3
 
             dnsPolicy: Default
 
