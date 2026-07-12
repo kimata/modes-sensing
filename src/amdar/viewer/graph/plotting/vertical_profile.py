@@ -1,10 +1,10 @@
-"""大気の鉛直プロファイル（気温プロファイル + ホドグラフ）のプロット。
+"""大気の鉛直プロファイル系グラフ（気温プロファイル / ホドグラフ）のプロット。
 
 要求期間の末尾 :data:`amdar.constants.VERTICAL_PROFILE_WINDOW_HOURS` 時間分の
 データを使い、ある時点の大気の鉛直構造をスナップショットとして描画する。
 
-- 左パネル: 気温の鉛直プロファイル（観測点 + 250m ビン中央値 + 標準大気減率）
-- 右パネル: ホドグラフ（250m ビン中央値の風ベクトル軌跡、高度で色付け）
+- temperature_profile: 気温の鉛直プロファイル（観測点 + 250m ビン中央値 + 標準大気減率）
+- hodograph: ホドグラフ（250m ビン中央値の風ベクトル軌跡、高度で色付け）
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ import matplotlib.collections
 import matplotlib.colors
 import matplotlib.dates
 import matplotlib.patches
-import matplotlib.pyplot
 import my_lib.time
 import numpy
 import PIL.Image
@@ -35,16 +34,16 @@ from amdar.viewer.graph.plotting.axes import (
     set_axis_labels,
     set_temperature_range,
     set_tick_label_size,
+    set_title,
 )
 from amdar.viewer.graph.plotting.data_prep import PreparedData
-from amdar.viewer.graph.plotting.figure import convert_figure_to_image
+from amdar.viewer.graph.plotting.figure import convert_figure_to_image, create_figure
 from amdar.viewer.graph.plotting.styles import (
     ALT_AXIS_LABEL,
     AXIS_LABEL_SIZE,
     ERROR_SIZE,
     TEMP_AXIS_LABEL,
     TICK_LABEL_SIZE,
-    TITLE_SIZE,
 )
 
 # パネル毎にデータ不足とみなす点数の閾値
@@ -68,6 +67,22 @@ def _to_wall_time_num(dt: datetime.datetime) -> float:
     """
     wall = dt.astimezone(my_lib.time.get_zoneinfo()).replace(tzinfo=None) if dt.tzinfo else dt
     return float(matplotlib.dates.date2num(wall))
+
+
+def _tail_window(
+    data: PreparedData,
+    plot_time_start: datetime.datetime | None,
+    plot_time_end: datetime.datetime | None,
+) -> tuple[float, float]:
+    """末尾ウィンドウ [end - 3h, end] を matplotlib date number で返す（JST 壁時計基準）。
+
+    plot_time_start / plot_time_end が未指定の場合はデータの最新時刻を終端とする。
+    """
+    window_end_num = _to_wall_time_num(plot_time_end) if plot_time_end else float(data.time_numeric.max())
+    window_start_num = window_end_num - VERTICAL_PROFILE_WINDOW_HOURS / 24
+    if plot_time_start:
+        window_start_num = max(window_start_num, _to_wall_time_num(plot_time_start))
+    return window_start_num, window_end_num
 
 
 def _bin_median_by_altitude(
@@ -110,7 +125,7 @@ def _draw_temperature_profile(
     temperatures: numpy.ndarray,
     limit_altitude: bool,
 ) -> None:
-    """左パネル: 気温の鉛直プロファイルを描画する。"""
+    """気温の鉛直プロファイルを描画する。"""
     alt_max = GRAPH_ALTITUDE_LIMIT if limit_altitude else GRAPH_ALT_MAX
 
     set_axis_labels(ax, TEMP_AXIS_LABEL, ALT_AXIS_LABEL)
@@ -118,7 +133,6 @@ def _draw_temperature_profile(
     set_altitude_range(ax, axis="y", limit_altitude=limit_altitude)
     set_tick_label_size(ax)
     ax.grid(True, alpha=0.7)
-    ax.set_title("気温プロファイル", fontsize=AXIS_LABEL_SIZE)
 
     if len(temperatures) < _MIN_PANEL_POINTS:
         _draw_insufficient_data(ax)
@@ -211,13 +225,12 @@ def _draw_hodograph(
     wind_y: numpy.ndarray,
     limit_altitude: bool,
 ) -> None:
-    """右パネル: ホドグラフを描画する。"""
+    """ホドグラフを描画する。"""
     alt_max = GRAPH_ALTITUDE_LIMIT if limit_altitude else GRAPH_ALT_MAX
 
     set_axis_labels(ax, "東西風 wind_x (m/s)", "南北風 wind_y (m/s)")
     set_tick_label_size(ax)
     ax.set_aspect("equal")
-    ax.set_title("ホドグラフ", fontsize=AXIS_LABEL_SIZE)
 
     # 同心円グリッド（10/20/30 m/s）と十字線
     for radius in _HODOGRAPH_SPEED_CIRCLES_MS:
@@ -285,55 +298,65 @@ def _draw_hodograph(
     set_tick_label_size(cbar.ax)
 
 
-def plot_vertical_profile(
+def plot_temperature_profile(
     data: PreparedData,
     figsize: tuple[float, float],
     plot_time_start: datetime.datetime | None = None,
     plot_time_end: datetime.datetime | None = None,
     limit_altitude: bool = False,
 ) -> tuple[PIL.Image.Image, float]:
-    """気温の鉛直プロファイルとホドグラフの 2 パネルプロット。
+    """気温の鉛直プロファイルプロット。
 
     要求期間の末尾 VERTICAL_PROFILE_WINDOW_HOURS 時間分のデータのみを使う。
-    plot_time_start / plot_time_end が未指定の場合はデータの最新時刻を終端とする。
     """
-    logging.info("Starting plot vertical profile (limit_altitude: %s)", limit_altitude)
+    logging.info("Starting plot temperature profile (limit_altitude: %s)", limit_altitude)
     start = time.perf_counter()
 
     if data.count == 0:
-        raise ValueError("No data available for vertical profile")
+        raise ValueError("No data available for temperature profile")
 
-    # 末尾ウィンドウ [end - 3h, end] を決定する（JST 壁時計基準）
-    window_end_num = _to_wall_time_num(plot_time_end) if plot_time_end else float(data.time_numeric.max())
-    window_start_num = window_end_num - VERTICAL_PROFILE_WINDOW_HOURS / 24
-    if plot_time_start:
-        window_start_num = max(window_start_num, _to_wall_time_num(plot_time_start))
+    window_start_num, window_end_num = _tail_window(data, plot_time_start, plot_time_end)
 
     window_mask = (data.time_numeric >= window_start_num) & (data.time_numeric <= window_end_num)
     temp_mask = window_mask & (data.altitudes <= GRAPH_ALTITUDE_LIMIT) if limit_altitude else window_mask
 
-    fig, (ax_temp, ax_hodo) = matplotlib.pyplot.subplots(1, 2, figsize=figsize)
-    fig.subplots_adjust(left=0.07, bottom=0.09, right=0.97, top=0.86, wspace=0.2)
+    fig, ax = create_figure(figsize)
+    set_title("気温の鉛直プロファイル")
 
-    _draw_temperature_profile(
-        ax_temp, data.altitudes[temp_mask], data.temperatures[temp_mask], limit_altitude
-    )
+    _draw_temperature_profile(ax, data.altitudes[temp_mask], data.temperatures[temp_mask], limit_altitude)
+
+    img = convert_figure_to_image(fig)
+
+    return (img, time.perf_counter() - start)
+
+
+def plot_hodograph(
+    data: PreparedData,
+    figsize: tuple[float, float],
+    plot_time_start: datetime.datetime | None = None,
+    plot_time_end: datetime.datetime | None = None,
+    limit_altitude: bool = False,
+) -> tuple[PIL.Image.Image, float]:
+    """風のホドグラフプロット。
+
+    要求期間の末尾 VERTICAL_PROFILE_WINDOW_HOURS 時間分のデータのみを使う。
+    """
+    logging.info("Starting plot hodograph (limit_altitude: %s)", limit_altitude)
+    start = time.perf_counter()
+
+    if data.count == 0:
+        raise ValueError("No data available for hodograph")
+
+    window_start_num, window_end_num = _tail_window(data, plot_time_start, plot_time_end)
+
+    fig, ax = create_figure(figsize)
+    # NOTE: set_title は現在の axes に作用するため、colorbar 追加前に呼ぶ
+    set_title("風のホドグラフ")
 
     wind_altitudes, wind_x, wind_y = _extract_hodograph_wind(
         data, window_start_num, window_end_num, limit_altitude
     )
-    _draw_hodograph(fig, ax_hodo, wind_altitudes, wind_x, wind_y, limit_altitude)
-
-    # 対象時間帯（JST）をタイトルに明記する
-    window_start_dt = matplotlib.dates.num2date(window_start_num)
-    window_end_dt = matplotlib.dates.num2date(window_end_num)
-    fig.suptitle(
-        "大気鉛直プロファイル "
-        f"({window_start_dt.strftime('%-m月%-d日 %-H:%M')}"
-        f"〜{window_end_dt.strftime('%-m月%-d日 %-H:%M')} JST)",
-        fontsize=TITLE_SIZE,
-        fontweight="bold",
-    )
+    _draw_hodograph(fig, ax, wind_altitudes, wind_x, wind_y, limit_altitude)
 
     img = convert_figure_to_image(fig)
 

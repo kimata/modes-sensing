@@ -26,9 +26,16 @@ class TestGraphDefinitions:
             assert all(x > 0 for x in graph_def.size)
             assert graph_def.file.endswith(".png")
 
-    def test_vertical_profile_registered(self):
-        """vertical_profile が登録されていること"""
-        assert "vertical_profile" in GRAPH_DEF_MAP
-        graph_def = GRAPH_DEF_MAP["vertical_profile"]
-        assert graph_def.size == (2400, 1600)
-        assert graph_def.file == "vertical_profile.png"
+    def test_temperature_profile_registered(self):
+        """temperature_profile が登録されていること"""
+        assert "temperature_profile" in GRAPH_DEF_MAP
+        graph_def = GRAPH_DEF_MAP["temperature_profile"]
+        assert graph_def.size == (1600, 1600)
+        assert graph_def.file == "temperature_profile.png"
+
+    def test_hodograph_registered(self):
+        """hodograph が登録されていること"""
+        assert "hodograph" in GRAPH_DEF_MAP
+        graph_def = GRAPH_DEF_MAP["hodograph"]
+        assert graph_def.size == (1600, 1600)
+        assert graph_def.file == "hodograph.png"

@@ -29,7 +29,8 @@ const graphs: GraphInfo[] = [
   { name: 'heatmap', endpoint: '/modes-sensing/api/graph/heatmap', title: 'ヒートマップ', size: [2400, 1600] },
   { name: 'temperature', endpoint: '/modes-sensing/api/graph/temperature', title: '高度別温度時系列', size: [2400, 1600] },
   { name: 'wind_direction', endpoint: '/modes-sensing/api/graph/wind_direction', title: '風向・風速分布', size: [2400, 1600] },
-  { name: 'vertical_profile', endpoint: '/modes-sensing/api/graph/vertical_profile', title: '鉛直プロファイル', size: [2400, 1600] },
+  { name: 'temperature_profile', endpoint: '/modes-sensing/api/graph/temperature_profile', title: '気温プロファイル', size: [1600, 1600] },
+  { name: 'hodograph', endpoint: '/modes-sensing/api/graph/hodograph', title: 'ホドグラフ', size: [1600, 1600] },
   { name: 'scatter_3d', endpoint: '/modes-sensing/api/graph/scatter_3d', title: '3D散布図', size: [2800, 2800] },
   { name: 'contour_3d', endpoint: '/modes-sensing/api/graph/contour_3d', title: '3D等高線プロット', size: [2800, 2800] }
 ]

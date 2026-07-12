@@ -162,7 +162,7 @@ GRAPH_ALTITUDE_LIMIT: int = 2000  # limit_altitude=True 時の上限高度
 # 画像解像度
 GRAPH_IMAGE_DPI: float = 200.0
 
-# 鉛直プロファイルグラフが使用する末尾ウィンドウ（時間）
+# 鉛直プロファイル系グラフ（temperature_profile / hodograph）が使用する末尾ウィンドウ（時間）
 # 要求期間 [start, end] のうち末尾この時間分のデータのみを描画に使う
 VERTICAL_PROFILE_WINDOW_HOURS: int = 3
 
@@ -176,7 +176,8 @@ GraphName = Literal[
     "heatmap",
     "temperature",
     "wind_direction",
-    "vertical_profile",
+    "temperature_profile",
+    "hodograph",
 ]
 
 

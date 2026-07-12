@@ -6,6 +6,11 @@
 実装上のポイント:
     - グラフ生成は :class:`amdar.viewer.graph.service.GraphService` に委譲。
       matplotlib はサブプロセスで実行されるため、タイマースレッドから安全に呼べる。
+    - 期間の終端はフロントエンドのクランプ処理（data-range の latest への吸着）と
+      一致させるため、DB の最新データ時刻を使う（現在時刻はフォールバック）。
+    - 次回実行は前回実行の「開始」から一定間隔でスケジュールする（固定レート）。
+      完了基準にすると生成時間の分だけアンカー間隔が延び、キャッシュヒット判定の
+      開始日時許容差を超えるおそれがあるため。
     - キャッシュが TTL の残り時間で十分カバーできる場合は再生成をスキップする。
     - stop() 後は再スケジュールされず、再度 initialize() することで再開できる。
 
@@ -14,6 +19,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import logging
 import threading
@@ -21,6 +27,8 @@ import time
 
 import my_lib.time
 
+import amdar.config
+import amdar.database.postgresql
 from amdar.constants import (
     CACHE_TTL_SECONDS,
     DEFAULT_PREGENERATION_DAYS,
@@ -30,7 +38,7 @@ from amdar.constants import (
 from amdar.viewer.graph import cache
 from amdar.viewer.graph.service import graph_service
 
-# 事前生成対象のグラフ（デフォルト表示で使う 8 種）
+# 事前生成対象のグラフ（デフォルト表示で使う全種）
 _PREGENERATION_GRAPHS: list[GraphName] = [
     "scatter_2d",
     "contour_2d",
@@ -38,6 +46,8 @@ _PREGENERATION_GRAPHS: list[GraphName] = [
     "heatmap",
     "temperature",
     "wind_direction",
+    "temperature_profile",
+    "hodograph",
     "scatter_3d",
     "contour_3d",
 ]
@@ -45,19 +55,26 @@ _PREGENERATION_GRAPHS: list[GraphName] = [
 # 初回実行までの遅延（アプリ起動完了を待つ）
 _INITIAL_DELAY_SECONDS = 10
 
+# 固定レートスケジュールで生成が間隔を超過した場合の最小遅延
+_MIN_RESCHEDULE_DELAY_SECONDS = 60
+
 
 class CachePregenerator:
     """キャッシュ事前生成スケジューラ。"""
 
     def __init__(self) -> None:
+        self._config: amdar.config.Config | None = None
         self._timer: threading.Timer | None = None
         self._running = False
         self._initialized = False
         self._stop_requested = False
         self._lock = threading.Lock()
 
-    def initialize(self) -> None:
+    def initialize(self, config: amdar.config.Config | None = None) -> None:
         """事前生成を開始する（多重呼び出しは無視、stop() 後の再開は可能）。
+
+        Args:
+            config: DB 接続設定。None の場合は期間終端に現在時刻を使う。
 
         前提: :func:`amdar.viewer.graph.service.graph_service.initialize` が
         事前に呼ばれていること。
@@ -65,6 +82,7 @@ class CachePregenerator:
         with self._lock:
             if self._initialized:
                 return
+            self._config = config
             self._initialized = True
             self._stop_requested = False
             self._schedule_next_locked(delay=_INITIAL_DELAY_SECONDS)
@@ -106,13 +124,11 @@ class CachePregenerator:
         self._timer.start()
 
     def _run_pregeneration(self) -> None:
+        start_time = time.perf_counter()
         try:
             self._running = True
-            start_time = time.perf_counter()
 
-            # 分単位で正規化（ユーザリクエストと一致させる）
-            now = my_lib.time.now()
-            time_end = now.replace(second=0, microsecond=0)
+            time_end = self._resolve_time_end()
             time_start = time_end - datetime.timedelta(days=DEFAULT_PREGENERATION_DAYS)
 
             logging.info(
@@ -134,9 +150,49 @@ class CachePregenerator:
             logging.exception("[PREGEN] Error during pregeneration")
         finally:
             self._running = False
-            # stop() 済みの場合は再スケジュールしない（停止フラグをロック下で確認）
+            # 固定レート: 前回開始からの経過時間を差し引いてスケジュールする
+            # （stop() 済みの場合は再スケジュールしない。停止フラグをロック下で確認）
+            elapsed = time.perf_counter() - start_time
+            delay = max(PREGENERATION_INTERVAL_SECONDS - elapsed, _MIN_RESCHEDULE_DELAY_SECONDS)
             with self._lock:
-                self._schedule_next_locked()
+                self._schedule_next_locked(delay=delay)
+
+    def _resolve_time_end(self) -> datetime.datetime:
+        """事前生成期間の終端を決定する（分単位に正規化）。
+
+        フロントエンドは終了日時を data-range API の latest にクランプするため、
+        DB の最新データ時刻を優先する。fetch_data_range はモジュールレベルで
+        キャッシュされており、data-range API と同じ値が得られる。
+        取得失敗時・データが未来時刻の場合は現在時刻を使う。
+        """
+        now = my_lib.time.now().replace(second=0, microsecond=0)
+
+        config = self._config
+        if config is None:
+            return now
+
+        try:
+            conn = amdar.database.postgresql.open(
+                config.database.host,
+                config.database.port,
+                config.database.name,
+                config.database.user,
+                config.database.password,
+                apply_schema=False,
+            )
+            with contextlib.closing(conn):
+                result = amdar.database.postgresql.fetch_data_range(conn)
+        except Exception:
+            logging.warning("[PREGEN] Failed to fetch latest data time, using current time", exc_info=True)
+            return now
+
+        latest = result.latest
+        if latest is None:
+            return now
+        if latest.tzinfo is None:
+            latest = latest.replace(tzinfo=my_lib.time.get_zoneinfo())
+
+        return min(now, latest.replace(second=0, microsecond=0))
 
     def _generate_graphs(
         self,

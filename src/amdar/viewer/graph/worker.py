@@ -98,8 +98,8 @@ def _fetch_numpy_data(
     limit_altitude: bool,
 ):
     """DB からグラフ用データを取得する。"""
-    # vertical_profile は要求期間の末尾ウィンドウのみ使うため取得範囲を狭める
-    if graph_name == "vertical_profile":
+    # 鉛直プロファイル系は要求期間の末尾ウィンドウのみ使うため取得範囲を狭める
+    if graph_name in ("temperature_profile", "hodograph"):
         time_start = max(time_start, time_end - datetime.timedelta(hours=VERTICAL_PROFILE_WINDOW_HOURS))
 
     period_days = (time_end - time_start).total_seconds() / 86400
@@ -114,7 +114,7 @@ def _fetch_numpy_data(
         extended_time_start = time_start
         extended_time_end = time_end
 
-    include_wind = graph_name in ("wind_direction", "vertical_profile")
+    include_wind = graph_name in ("wind_direction", "hodograph")
     max_altitude = GRAPH_ALTITUDE_LIMIT if limit_altitude else None
 
     conn = _connect_database(config)
@@ -223,8 +223,8 @@ def _generate_graph_image_impl(
     graph_def = GRAPH_DEF_MAP[graph_name]
     try:
         # heatmap / contour_2d は元の時間範囲をプロット範囲として渡す。
-        # vertical_profile は末尾ウィンドウの決定とタイトル表記に時間範囲を使う
-        if graph_name in ("heatmap", "contour_2d", "vertical_profile"):
+        # 鉛直プロファイル系は末尾ウィンドウの決定に時間範囲を使う
+        if graph_name in ("heatmap", "contour_2d", "temperature_profile", "hodograph"):
             img, elapsed = graph_def.func(data, figsize, time_start, time_end, limit_altitude)
         else:
             img, elapsed = graph_def.func(data, figsize, limit_altitude)

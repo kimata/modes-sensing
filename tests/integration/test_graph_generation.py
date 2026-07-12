@@ -155,12 +155,12 @@ def _make_synthetic_numpy_data(
 
 
 class TestVerticalProfileSynthetic:
-    """vertical_profile の合成データテスト（DB 不要）。"""
+    """temperature_profile / hodograph の合成データテスト（DB 不要）。"""
 
-    def _generate_and_verify(self, config: Config, data, limit_altitude: bool = False) -> None:
+    def _generate_and_verify(self, config: Config, graph_name, data, limit_altitude: bool = False) -> None:
         set_font(config.font)
 
-        graph_def = GRAPH_DEF_MAP["vertical_profile"]
+        graph_def = GRAPH_DEF_MAP[graph_name]
         figsize = tuple(x / amdar.constants.GRAPH_IMAGE_DPI for x in graph_def.size)
         img, elapsed = graph_def.func(data, figsize, limit_altitude=limit_altitude)
 
@@ -173,20 +173,30 @@ class TestVerticalProfileSynthetic:
         with PIL.Image.open(buf) as png:
             png.verify()
 
-    def test_vertical_profile_with_synthetic_data(self, config: Config):
-        """気温 + 風の合成データで PNG が生成され、サイズが正しいこと。"""
+    def test_temperature_profile_with_synthetic_data(self, config: Config):
+        """気温の合成データで PNG が生成され、サイズが正しいこと。"""
         data = prepare_data_numpy(_make_synthetic_numpy_data())
-        self._generate_and_verify(config, data)
+        self._generate_and_verify(config, "temperature_profile", data)
 
-    def test_vertical_profile_without_wind(self, config: Config):
-        """風データなし（右パネルはデータ不足表示）でも PNG が生成されること。"""
+    def test_hodograph_with_synthetic_data(self, config: Config):
+        """風の合成データで PNG が生成され、サイズが正しいこと。"""
+        data = prepare_data_numpy(_make_synthetic_numpy_data())
+        self._generate_and_verify(config, "hodograph", data)
+
+    def test_hodograph_without_wind(self, config: Config):
+        """風データなし（データ不足表示）でも PNG が生成されること。"""
         data = prepare_data_numpy(_make_synthetic_numpy_data(include_wind=False))
-        self._generate_and_verify(config, data)
+        self._generate_and_verify(config, "hodograph", data)
 
-    def test_vertical_profile_limit_altitude(self, config: Config):
+    def test_temperature_profile_limit_altitude(self, config: Config):
         """limit_altitude=True でも PNG が生成されること。"""
         data = prepare_data_numpy(_make_synthetic_numpy_data())
-        self._generate_and_verify(config, data, limit_altitude=True)
+        self._generate_and_verify(config, "temperature_profile", data, limit_altitude=True)
+
+    def test_hodograph_limit_altitude(self, config: Config):
+        """limit_altitude=True でも PNG が生成されること。"""
+        data = prepare_data_numpy(_make_synthetic_numpy_data())
+        self._generate_and_verify(config, "hodograph", data, limit_altitude=True)
 
 
 class TestLimitAltitude:

@@ -170,14 +170,14 @@ INSERT 成功時のみ liveness ファイルを更新するため、保存が完
 - ワーカー数は `min(max(CPU コア数 / 2, 2), 10)`、`maxtasksperchild=20`。
 - `Config` は Pool の initializer で各ワーカーへ一度だけ渡します（タスク毎の pickle 転送なし）。
 - **matplotlib はサブプロセス（worker.py）内でのみ使用**します。メインプロセスのエラー画像生成は Pillow で行います。
-- 描画関数は `GRAPH_DEF_MAP`（`viewer/graph/definitions.py`）に 9 種類が登録されており、HTTP 層・キャッシュ層・worker 層から共通に参照されます。
+- 描画関数は `GRAPH_DEF_MAP`（`viewer/graph/definitions.py`）に 10 種類が登録されており、HTTP 層・キャッシュ層・worker 層から共通に参照されます。
 
 ### 画像キャッシュ（viewer/graph/cache.py）
 
 - キー: `{グラフ名}_{期間秒}_{高度制限}_{開始時刻}_{git commit}.png`
 - TTL 30 分、開始時刻の許容差 30 分（同じ「直近 7 日」ならヒットする）。
 - 書き込みは一時ファイル + rename の原子的置換。期限切れ削除は 60 秒間隔にスロットル。
-- 事前生成（`cache_pregeneration.py`）が 25 分毎に全 9 種を生成してキャッシュを温めます。
+- 事前生成（`cache_pregeneration.py`）が 25 分毎（固定レート）に全 10 種を生成してキャッシュを温めます。期間の終端はフロントエンドのクランプ処理と揃えるため DB の最新データ時刻（分単位に正規化）を使います。
 
 ### 進捗の伝搬（SSE）
 

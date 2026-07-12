@@ -110,7 +110,7 @@ def create_app(config: amdar.config.Config, use_reloader: bool = False) -> flask
 
     # 履歴管理・キャッシュ事前生成を初期化
     amdar.viewer.api.progress_estimation.generation_time_history.initialize(cache_dir)
-    amdar.viewer.api.cache_pregeneration.cache_pregenerator.initialize()
+    amdar.viewer.api.cache_pregeneration.cache_pregenerator.initialize(config)
 
     return app
 
