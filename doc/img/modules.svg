@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560" font-family="system-ui, -apple-system, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#898781"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="960" height="560" fill="#fcfcfb"/>
+  <text x="20" y="30" font-size="15" font-weight="700" fill="#1b1b1b">モジュール構成と依存方向（src/amdar/）</text>
+  <text x="20" y="50" font-size="11" fill="#52514e">矢印は「依存する側 → される側」。下層（core / constants / config）はどこからも依存されるが、上層には依存しない。</text>
+
+  <!-- cli layer -->
+  <rect x="20" y="70" width="920" height="80" rx="8" fill="#ece9f7" stroke="#4a3aa7"/>
+  <text x="35" y="92" font-size="12.5" font-weight="700" fill="#1b1b1b">cli/（エントリポイント）</text>
+  <rect x="40" y="102" width="270" height="38" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="175" y="118" text-anchor="middle" font-size="11.5" fill="#1b1b1b">collect.py — amdar（収集）</text>
+  <text x="175" y="133" text-anchor="middle" font-size="10" fill="#52514e">受信スレッド起動 + 保存ワーカー</text>
+  <rect x="330" y="102" width="270" height="38" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="465" y="118" text-anchor="middle" font-size="11.5" fill="#1b1b1b">webui.py — amdar-webui（Flask）</text>
+  <text x="465" y="133" text-anchor="middle" font-size="10" fill="#52514e">CORS localhost 限定 / SPA 配信</text>
+  <rect x="620" y="102" width="300" height="38" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="770" y="118" text-anchor="middle" font-size="11.5" fill="#1b1b1b">healthz.py — amdar-healthz</text>
+  <text x="770" y="133" text-anchor="middle" font-size="10" fill="#52514e">liveness ファイル監視（COL / WEB モード）</text>
+
+  <!-- sources layer -->
+  <rect x="20" y="180" width="450" height="150" rx="8" fill="#e8f0fb" stroke="#2a78d6"/>
+  <text x="35" y="202" font-size="12.5" font-weight="700" fill="#1b1b1b">sources/（受信・解析）</text>
+  <rect x="40" y="214" width="195" height="36" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="137" y="229" text-anchor="middle" font-size="11" fill="#1b1b1b">modes/receiver.py</text>
+  <text x="137" y="243" text-anchor="middle" font-size="9.5" fill="#52514e">TCP 受信・BDS デコード</text>
+  <rect x="250" y="214" width="200" height="36" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="350" y="229" text-anchor="middle" font-size="11" fill="#1b1b1b">vdl2/receiver.py + parser.py</text>
+  <text x="350" y="243" text-anchor="middle" font-size="9.5" fill="#52514e">ZMQ 受信・ACARS 解析</text>
+  <rect x="40" y="260" width="195" height="36" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="137" y="275" text-anchor="middle" font-size="11" fill="#1b1b1b">aggregator.py</text>
+  <text x="137" y="289" text-anchor="middle" font-size="9.5" fill="#52514e">IntegratedBuffer / FileAggregator</text>
+  <rect x="250" y="260" width="200" height="36" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="350" y="275" text-anchor="middle" font-size="11" fill="#1b1b1b">outlier.py</text>
+  <text x="350" y="289" text-anchor="middle" font-size="9.5" fill="#52514e">OutlierDetector（2 段階判定）</text>
+  <text x="40" y="318" font-size="10" fill="#52514e">共有オブジェクトは threading.Lock で保護</text>
+
+  <!-- viewer layer -->
+  <rect x="490" y="180" width="450" height="150" rx="8" fill="#e6f6ef" stroke="#1baf7a"/>
+  <text x="505" y="202" font-size="12.5" font-weight="700" fill="#1b1b1b">viewer/（可視化）</text>
+  <rect x="505" y="214" width="200" height="82" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="605" y="230" text-anchor="middle" font-size="11" fill="#1b1b1b">api/</text>
+  <text x="605" y="245" text-anchor="middle" font-size="9.5" fill="#52514e">graph_routes / data_routes</text>
+  <text x="605" y="259" text-anchor="middle" font-size="9.5" fill="#52514e">job_manager / progress_estimation</text>
+  <text x="605" y="273" text-anchor="middle" font-size="9.5" fill="#52514e">cache_pregeneration</text>
+  <text x="605" y="287" text-anchor="middle" font-size="9.5" fill="#52514e">materialized_view_refresh</text>
+  <rect x="720" y="214" width="205" height="82" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="822" y="230" text-anchor="middle" font-size="11" fill="#1b1b1b">graph/</text>
+  <text x="822" y="245" text-anchor="middle" font-size="9.5" fill="#52514e">service（オーケストレーション）</text>
+  <text x="822" y="259" text-anchor="middle" font-size="9.5" fill="#52514e">cache / worker / pool / progress</text>
+  <text x="822" y="273" text-anchor="middle" font-size="9.5" fill="#52514e">definitions（GRAPH_DEF_MAP）</text>
+  <text x="822" y="287" text-anchor="middle" font-size="9.5" fill="#52514e">plotting/（9 種の描画関数）</text>
+  <text x="505" y="318" font-size="10" fill="#52514e">matplotlib は worker（サブプロセス）内のみで使用</text>
+
+  <!-- database layer -->
+  <rect x="20" y="360" width="450" height="70" rx="8" fill="#fdf3dc" stroke="#eda100"/>
+  <text x="35" y="382" font-size="12.5" font-weight="700" fill="#1b1b1b">database/postgresql.py</text>
+  <text x="35" y="400" font-size="10.5" fill="#52514e">接続・スキーマ適用・INSERT ワーカー・fetch 系（生 / 集約）</text>
+  <text x="35" y="416" font-size="10.5" fill="#52514e">増分集約更新・受信品質集計（TTL キャッシュ付き）</text>
+
+  <!-- core layer -->
+  <rect x="490" y="360" width="450" height="70" rx="8" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="505" y="382" font-size="12.5" font-weight="700" fill="#1b1b1b">core/ ・ constants.py ・ config.py</text>
+  <text x="505" y="400" font-size="10.5" fill="#52514e">core: types（WeatherObservation 等）/ geo（距離・磁気偏角）/ physics（気温・風）</text>
+  <text x="505" y="416" font-size="10.5" fill="#52514e">constants: 定数・GraphName / config: frozen dataclass（スキーマ検証付き）</text>
+
+  <!-- frontend -->
+  <rect x="20" y="460" width="920" height="70" rx="8" fill="#ece9f7" stroke="#4a3aa7" stroke-dasharray="6 4"/>
+  <text x="35" y="482" font-size="12.5" font-weight="700" fill="#1b1b1b">frontend/src（React + TypeScript, Vite）</text>
+  <text x="35" y="500" font-size="10.5" fill="#52514e">components: DateSelector / GraphDisplay / ReceiverStatus / Modal / Footer　　hooks: useGraphJobs（SSE + ポーリング）/ useApi / useUrlParams / usePermalink</text>
+  <text x="35" y="516" font-size="10.5" fill="#52514e">utils: date / dateRange　　types: api.ts（API レスポンス型）　※ HTTP API 経由でのみバックエンドと通信</text>
+
+  <!-- arrows -->
+  <line x1="175" y1="150" x2="175" y2="180" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+  <line x1="465" y1="150" x2="600" y2="180" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+  <line x1="770" y1="150" x2="790" y2="180" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+  <line x1="245" y1="330" x2="245" y2="360" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+  <line x1="715" y1="330" x2="330" y2="378" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+  <line x1="400" y1="330" x2="600" y2="360" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+  <line x1="715" y1="330" x2="715" y2="360" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+</svg>

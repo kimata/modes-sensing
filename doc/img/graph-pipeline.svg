@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" font-family="system-ui, -apple-system, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#898781"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="960" height="620" fill="#fcfcfb"/>
+  <text x="20" y="30" font-size="15" font-weight="700" fill="#1b1b1b">グラフ生成パイプライン（amdar-webui）</text>
+
+  <!-- browser -->
+  <rect x="20" y="60" width="180" height="90" rx="8" fill="#ece9f7" stroke="#4a3aa7"/>
+  <text x="110" y="82" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1b1b1b">ブラウザ</text>
+  <text x="110" y="100" text-anchor="middle" font-size="10.5" fill="#52514e">useGraphJobs.ts</text>
+  <text x="110" y="116" text-anchor="middle" font-size="10.5" fill="#52514e">SSE（EventSource）＋</text>
+  <text x="110" y="131" text-anchor="middle" font-size="10.5" fill="#52514e">ポーリングフォールバック</text>
+
+  <!-- routes -->
+  <rect x="250" y="60" width="230" height="120" rx="8" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="365" y="82" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1b1b1b">graph_routes.py</text>
+  <text x="365" y="100" text-anchor="middle" font-size="10.5" fill="#52514e">POST /api/graph/job</text>
+  <text x="365" y="116" text-anchor="middle" font-size="10.5" fill="#52514e">検証: グラフ名 / 件数上限 16 / start&lt;end</text>
+  <text x="365" y="132" text-anchor="middle" font-size="10.5" fill="#52514e">GET  …/job/events（SSE, 0.5 秒間隔）</text>
+  <text x="365" y="148" text-anchor="middle" font-size="10.5" fill="#52514e">GET  …/jobs/status（unknown を含む）</text>
+  <text x="365" y="164" text-anchor="middle" font-size="10.5" fill="#52514e">GET  …/job/&lt;id&gt;/result（PNG）</text>
+  <line x1="200" y1="105" x2="250" y2="105" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- GraphService -->
+  <rect x="530" y="60" width="410" height="160" rx="8" fill="#e6f6ef" stroke="#1baf7a"/>
+  <text x="735" y="82" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1b1b1b">GraphService（graph/service.py）</text>
+  <rect x="545" y="94" width="185" height="52" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="637" y="112" text-anchor="middle" font-size="10.5" fill="#1b1b1b">① 実行中ジョブへの合流</text>
+  <text x="637" y="126" text-anchor="middle" font-size="9.5" fill="#52514e">同一 (グラフ, 期間, 高度制限) は</text>
+  <text x="637" y="139" text-anchor="middle" font-size="9.5" fill="#52514e">既存 job_id を返す（重複排除）</text>
+  <rect x="745" y="94" width="185" height="52" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="837" y="112" text-anchor="middle" font-size="10.5" fill="#1b1b1b">② キャッシュ照会</text>
+  <text x="837" y="126" text-anchor="middle" font-size="9.5" fill="#52514e">HIT: 安定 ID の完了ジョブを返す</text>
+  <text x="837" y="139" text-anchor="middle" font-size="9.5" fill="#52514e">MISS: JobManager に登録して投入</text>
+  <text x="735" y="168" text-anchor="middle" font-size="10.5" fill="#52514e">③ apply_async → ポーリングスレッドが 0.5 秒間隔で完了検知</text>
+  <text x="735" y="186" text-anchor="middle" font-size="10.5" fill="#52514e">タイムアウト起点 = 実行開始時刻（Manager 共有 dict でワーカーから通知）</text>
+  <text x="735" y="204" text-anchor="middle" font-size="10.5" fill="#52514e">キュー待ち上限 = 生成タイムアウト × 3。TIMEOUT 後も完走結果は保存</text>
+  <line x1="480" y1="110" x2="530" y2="110" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- ProcessPool -->
+  <rect x="530" y="260" width="410" height="140" rx="8" fill="#e8f0fb" stroke="#2a78d6"/>
+  <text x="735" y="282" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1b1b1b">ProcessPool（graph/pool.py + worker.py）</text>
+  <text x="735" y="300" text-anchor="middle" font-size="10.5" fill="#52514e">ワーカー数 = min(max(CPU/2, 2), 10)・maxtasksperchild=20</text>
+  <text x="735" y="316" text-anchor="middle" font-size="10.5" fill="#52514e">Config は initializer で一度だけ転送。matplotlib はサブプロセス専用</text>
+  <rect x="545" y="330" width="120" height="52" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="605" y="352" text-anchor="middle" font-size="10.5" fill="#1b1b1b">データ取得</text>
+  <text x="605" y="368" text-anchor="middle" font-size="9.5" fill="#52514e">生 / 集約テーブル</text>
+  <rect x="680" y="330" width="120" height="52" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="740" y="352" text-anchor="middle" font-size="10.5" fill="#1b1b1b">データ準備</text>
+  <text x="740" y="368" text-anchor="middle" font-size="9.5" fill="#52514e">numpy 変換・マスク</text>
+  <rect x="815" y="330" width="115" height="52" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="872" y="352" text-anchor="middle" font-size="10.5" fill="#1b1b1b">描画 → PNG</text>
+  <text x="872" y="368" text-anchor="middle" font-size="9.5" fill="#52514e">plotting/（9 種類）</text>
+  <line x1="665" y1="356" x2="680" y2="356" stroke="#898781" stroke-width="1.2" marker-end="url(#ar)"/>
+  <line x1="800" y1="356" x2="815" y2="356" stroke="#898781" stroke-width="1.2" marker-end="url(#ar)"/>
+  <line x1="735" y1="220" x2="735" y2="260" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- cache -->
+  <rect x="250" y="260" width="230" height="140" rx="8" fill="#fdf3dc" stroke="#eda100"/>
+  <text x="365" y="282" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1b1b1b">画像キャッシュ（graph/cache.py）</text>
+  <text x="365" y="302" text-anchor="middle" font-size="10" fill="#52514e">キー: グラフ名_期間秒_高度制限_開始時刻_commit</text>
+  <text x="365" y="318" text-anchor="middle" font-size="10" fill="#52514e">TTL 30 分・開始時刻の許容差 30 分</text>
+  <text x="365" y="334" text-anchor="middle" font-size="10" fill="#52514e">書き込みは一時ファイル + rename（原子的）</text>
+  <text x="365" y="350" text-anchor="middle" font-size="10" fill="#52514e">期限切れ削除は 60 秒間隔にスロットル</text>
+  <text x="365" y="370" text-anchor="middle" font-size="10" fill="#52514e">事前生成: 25 分毎に全 9 種を生成して</text>
+  <text x="365" y="384" text-anchor="middle" font-size="10" fill="#52514e">キャッシュを温める（cache_pregeneration.py）</text>
+  <line x1="530" y1="330" x2="480" y2="330" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="490" y="322" font-size="9.5" fill="#898781">保存</text>
+
+  <!-- JobManager -->
+  <rect x="20" y="260" width="180" height="140" rx="8" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="110" y="282" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1b1b1b">JobManager</text>
+  <text x="110" y="300" text-anchor="middle" font-size="10" fill="#52514e">メモリ内ジョブ管理</text>
+  <text x="110" y="318" text-anchor="middle" font-size="10" fill="#52514e">pending → processing →</text>
+  <text x="110" y="332" text-anchor="middle" font-size="10" fill="#52514e">completed / failed / timeout</text>
+  <text x="110" y="352" text-anchor="middle" font-size="10" fill="#52514e">結果保持 30 分</text>
+  <text x="110" y="368" text-anchor="middle" font-size="10" fill="#52514e">タイムアウト 20 分</text>
+  <text x="110" y="384" text-anchor="middle" font-size="10" fill="#52514e">クリーンアップスレッド常駐</text>
+
+  <!-- SSE flow back -->
+  <path d="M 250 140 Q 225 200 200 220 Q 150 260 110 260" stroke="#4a3aa7" stroke-width="1.5" fill="none" stroke-dasharray="5 4"/>
+  <text x="150" y="215" font-size="10" fill="#4a3aa7">状態参照</text>
+
+  <!-- progress estimation -->
+  <rect x="20" y="440" width="460" height="70" rx="8" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="35" y="462" font-size="12" font-weight="700" fill="#1b1b1b">進捗推定（progress_estimation.py）</text>
+  <text x="35" y="480" font-size="10.5" fill="#52514e">過去の生成時間（グラフ種別 × 期間バケット）を JSON に記録し、経過時間から進捗率を推定</text>
+  <text x="35" y="496" font-size="10.5" fill="#52514e">ステージ表示: キュー待機中 → 生成中 →完了</text>
+
+  <!-- MV refresher -->
+  <rect x="530" y="440" width="410" height="70" rx="8" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="545" y="462" font-size="12" font-weight="700" fill="#1b1b1b">集約テーブル更新（materialized_view_refresh.py）</text>
+  <text x="545" y="480" font-size="10.5" fill="#52514e">30 分毎に増分更新（直近 3 時間 / 12 時間の窓を DELETE→INSERT）</text>
+  <text x="545" y="496" font-size="10.5" fill="#52514e">手動トリガ: POST /api/refresh-aggregates（60 秒レート制限）</text>
+
+  <text x="20" y="560" font-size="12" font-weight="700" fill="#1b1b1b">ジョブ状態の伝搬</text>
+  <text x="20" y="580" font-size="10.5" fill="#52514e">SSE: 接続直後にスナップショット → 変化時のみ event: status → 全ジョブ終端で event: done（最大 32 ジョブ / 接続 10 分）</text>
+  <text x="20" y="596" font-size="10.5" fill="#52514e">サーバーが忘れたジョブは "unknown" として返却 → フロントは 1 回だけ自動再作成、以後はエラー表示（永久スピナーなし）</text>
+</svg>

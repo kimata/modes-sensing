@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 720" font-family="system-ui, -apple-system, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#898781"/>
+    </marker>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#d03b3b"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="960" height="720" fill="#fcfcfb"/>
+  <text x="20" y="30" font-size="15" font-weight="700" fill="#1b1b1b">収集パイプライン（amdar / cli/collect.py）</text>
+
+  <!-- Mode S lane -->
+  <rect x="20" y="50" width="920" height="240" rx="8" fill="#e8f0fb" stroke="#2a78d6"/>
+  <text x="35" y="72" font-size="13" font-weight="700" fill="#1b1b1b">Mode S 受信スレッド（sources/modes/receiver.py）</text>
+
+  <rect x="35" y="88" width="130" height="46" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="100" y="107" text-anchor="middle" font-size="11.5" fill="#1b1b1b">dump1090-fa</text>
+  <text x="100" y="122" text-anchor="middle" font-size="10" fill="#52514e">TCP :30002　*…; 形式</text>
+
+  <rect x="195" y="88" width="130" height="46" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="260" y="107" text-anchor="middle" font-size="11.5" fill="#1b1b1b">pyModeS デコード</text>
+  <text x="260" y="122" text-anchor="middle" font-size="10" fill="#52514e">DF で振り分け</text>
+  <line x1="165" y1="111" x2="195" y2="111" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- ADS-B branch -->
+  <rect x="365" y="88" width="180" height="46" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="455" y="107" text-anchor="middle" font-size="11.5" fill="#1b1b1b">DF17/18: ADS-B</text>
+  <text x="455" y="122" text-anchor="middle" font-size="10" fill="#52514e">ICAO・便名・位置・高度</text>
+  <line x1="325" y1="103" x2="365" y2="103" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- Comm-B branch -->
+  <rect x="365" y="150" width="180" height="46" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="455" y="169" text-anchor="middle" font-size="11.5" fill="#1b1b1b">DF20/21: Comm-B</text>
+  <text x="455" y="184" text-anchor="middle" font-size="10" fill="#52514e">BDS 4,4 / 5,0 / 6,0</text>
+  <line x1="325" y1="122" x2="365" y2="166" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- fragments -->
+  <rect x="585" y="88" width="170" height="46" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="670" y="107" text-anchor="middle" font-size="11.5" fill="#1b1b1b">fragments: dict[ICAO]</text>
+  <text x="670" y="122" text-anchor="middle" font-size="10" fill="#52514e">TTL 300 秒・上限 100 件</text>
+  <line x1="545" y1="111" x2="585" y2="111" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+  <line x1="545" y1="173" x2="585" y2="126" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- physics -->
+  <rect x="585" y="150" width="170" height="60" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="670" y="167" text-anchor="middle" font-size="11.5" fill="#1b1b1b">core/physics.py</text>
+  <text x="670" y="182" text-anchor="middle" font-size="9.5" fill="#52514e">気温 = (TAS/Mach)²·M/(κR) − 273.15</text>
+  <text x="670" y="196" text-anchor="middle" font-size="9.5" fill="#52514e">風 = 地速ベクトル − 真対気ベクトル</text>
+
+  <!-- pairing + threshold -->
+  <rect x="785" y="110" width="140" height="70" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="855" y="130" text-anchor="middle" font-size="11.5" fill="#1b1b1b">ペアリング</text>
+  <text x="855" y="146" text-anchor="middle" font-size="10" fill="#52514e">高度 × 気象データ</text>
+  <text x="855" y="162" text-anchor="middle" font-size="10" fill="#52514e">温度閾値チェック</text>
+  <line x1="755" y1="111" x2="785" y2="130" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+  <line x1="755" y1="180" x2="785" y2="160" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <text x="45" y="230" font-size="11" fill="#52514e">・BDS 4,4: 気温・風向・風速を直接取得　・BDS 5,0+6,0: 対地速度/トラック角 + 機首方位/マッハ数から physics で算出（磁気偏角は core/geo.py）</text>
+  <text x="45" y="250" font-size="11" fill="#52514e">・ADS-B 位置は IntegratedBuffer にも登録（VDL2 の高度補完用）　・再接続: 受信ゼロの接続はリトライカウント + バックオフ（最大 10 回で Slack 通知）</text>
+  <text x="45" y="270" font-size="11" fill="#52514e">・liveness ファイル更新は 5 秒間隔にスロットル</text>
+
+  <!-- VDL2 lane -->
+  <rect x="20" y="310" width="920" height="170" rx="8" fill="#e6f6ef" stroke="#1baf7a"/>
+  <text x="35" y="332" font-size="13" font-weight="700" fill="#1b1b1b">VDL2 受信スレッド（sources/vdl2/receiver.py + parser.py）</text>
+
+  <rect x="35" y="348" width="130" height="46" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="100" y="367" text-anchor="middle" font-size="11.5" fill="#1b1b1b">dumpvdl2</text>
+  <text x="100" y="382" text-anchor="middle" font-size="10" fill="#52514e">ZMQ SUB :5050</text>
+
+  <rect x="195" y="348" width="150" height="46" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="270" y="367" text-anchor="middle" font-size="11.5" fill="#1b1b1b">JSON パース（1回）</text>
+  <text x="270" y="382" text-anchor="middle" font-size="10" fill="#52514e">ACARS 本文を抽出</text>
+  <line x1="165" y1="371" x2="195" y2="371" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <rect x="375" y="348" width="180" height="46" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="465" y="367" text-anchor="middle" font-size="11.5" fill="#1b1b1b">気象報文パーサ</text>
+  <text x="465" y="382" text-anchor="middle" font-size="10" fill="#52514e">WN / PNTAF / POS 形式</text>
+  <line x1="345" y1="371" x2="375" y2="371" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <rect x="585" y="348" width="180" height="46" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="675" y="367" text-anchor="middle" font-size="11.5" fill="#1b1b1b">高度補完</text>
+  <text x="675" y="382" text-anchor="middle" font-size="10" fill="#52514e">IntegratedBuffer（±60 秒）</text>
+  <line x1="555" y1="371" x2="585" y2="371" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="45" y="424" font-size="11" fill="#52514e">・高度を含む報文はそのまま採用。高度なしの報文は同一機（ICAO/コールサイン）の ADS-B 高度履歴から時刻最近傍で補完</text>
+  <text x="45" y="444" font-size="11" fill="#52514e">・WN 形式の座標は「度＋分」として解釈（実データ照合で検証済み）　・ICAO とコールサインの対応は IntegratedBuffer が管理</text>
+  <text x="45" y="464" font-size="11" fill="#52514e">・補完できない報文は内部フラグメントバッファに保留</text>
+
+  <!-- shared / outlier -->
+  <rect x="795" y="348" width="130" height="46" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="860" y="367" text-anchor="middle" font-size="11.5" fill="#1b1b1b">OutlierDetector</text>
+  <text x="860" y="382" text-anchor="middle" font-size="10" fill="#52514e">共有（Mode S と同一）</text>
+  <line x1="765" y1="371" x2="795" y2="371" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- store lane -->
+  <rect x="20" y="500" width="920" height="200" rx="8" fill="#fdf3dc" stroke="#eda100"/>
+  <text x="35" y="522" font-size="13" font-weight="700" fill="#1b1b1b">保存ワーカー store_queue（database/postgresql.py・メインスレッド）</text>
+
+  <rect x="35" y="538" width="200" height="46" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="135" y="557" text-anchor="middle" font-size="11.5" fill="#1b1b1b">multiprocessing.Queue</text>
+  <text x="135" y="572" text-anchor="middle" font-size="10" fill="#52514e">両受信スレッドから集約</text>
+
+  <rect x="285" y="538" width="180" height="46" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="375" y="557" text-anchor="middle" font-size="11.5" fill="#1b1b1b">INSERT（1件ずつ）</text>
+  <text x="375" y="572" text-anchor="middle" font-size="10" fill="#52514e">meteorological_data</text>
+  <line x1="235" y1="561" x2="285" y2="561" stroke="#898781" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <text x="530" y="548" font-size="12" font-weight="600" fill="#1b1b1b">エラー分類:</text>
+  <rect x="530" y="558" width="395" height="38" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="540" y="574" font-size="10.5" fill="#1b1b1b">接続系（OperationalError / InterfaceError）</text>
+  <text x="540" y="589" font-size="10.5" fill="#52514e">→ レコード保持 + 再接続。3 連続失敗で停止 + Slack 通知</text>
+  <rect x="530" y="602" width="395" height="38" rx="6" fill="#ffffff" stroke="#d03b3b"/>
+  <text x="540" y="618" font-size="10.5" fill="#1b1b1b">データ系（DataError 等の psycopg2.Error）</text>
+  <text x="540" y="633" font-size="10.5" fill="#52514e">→ 当該レコードのみ破棄して継続（poison message 対策）</text>
+  <rect x="530" y="646" width="395" height="38" rx="6" fill="#ffffff" stroke="#c3c2b7"/>
+  <text x="540" y="662" font-size="10.5" fill="#1b1b1b">想定外の例外</text>
+  <text x="540" y="677" font-size="10.5" fill="#52514e">→ レコード破棄。3 連続失敗で停止 + Slack 通知</text>
+  <line x1="465" y1="561" x2="530" y2="577" stroke="#d03b3b" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arr)"/>
+  <text x="45" y="620" font-size="11" fill="#52514e">・成功時のみ liveness ファイルを更新</text>
+  <text x="45" y="640" font-size="11" fill="#52514e">　（healthz が停滞を検知して Slack 通知）</text>
+  <text x="45" y="660" font-size="11" fill="#52514e">・SIGTERM / SIGINT で受信スレッドと</text>
+  <text x="45" y="680" font-size="11" fill="#52514e">　ワーカーを順に停止</text>
+
+  <!-- lane connectors -->
+  <line x1="890" y1="180" x2="890" y2="290" stroke="#898781" stroke-width="1.5"/>
+  <path d="M 890 290 Q 890 305 875 310" stroke="#898781" stroke-width="1.5" fill="none"/>
+  <line x1="860" y1="394" x2="860" y2="440" stroke="#898781" stroke-width="1.5"/>
+  <path d="M 860 440 Q 860 530 245 556" stroke="#898781" stroke-width="1.5" fill="none" marker-end="url(#ar)"/>
+</svg>
