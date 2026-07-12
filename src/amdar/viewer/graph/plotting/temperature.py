@@ -13,6 +13,45 @@ from amdar.viewer.graph.plotting.data_prep import PreparedData
 from amdar.viewer.graph.plotting.figure import convert_figure_to_image, create_figure
 from amdar.viewer.graph.range import get_temperature_range
 
+# 30 分間隔のビン幅（matplotlib の日数単位、0.020833 日 ≒ 30 分）
+_BIN_SIZE_DAYS = 0.020833
+
+
+def bin_time_series(
+    sorted_times: numpy.ndarray,
+    sorted_temps: numpy.ndarray,
+    bin_size: float = _BIN_SIZE_DAYS,
+) -> tuple[numpy.ndarray, numpy.ndarray]:
+    """時刻昇順のデータを可変アンカーのビンで平均化する。
+
+    先頭の時刻をアンカーとして ``bin_size`` 以内の点を平均し、超えた点を
+    次のアンカーとして繰り返す（データの隙間でビンが再アンカーされる）。
+    numpy.searchsorted によりビン数分のループで処理する。
+
+    Returns:
+        (ビン中心時刻の配列, 平均温度の配列)
+    """
+    n = len(sorted_times)
+    if n == 0:
+        return numpy.array([]), numpy.array([])
+
+    # 平均を O(1) で求めるための累積和（先頭に 0 を置く）
+    temp_cumsum = numpy.concatenate(([0.0], numpy.cumsum(sorted_temps, dtype=numpy.float64)))
+
+    bin_centers: list[float] = []
+    bin_means: list[float] = []
+
+    index = 0
+    while index < n:
+        anchor = sorted_times[index]
+        # anchor + bin_size «以下» の点を同一ビンに含める（side="right"）
+        end = int(numpy.searchsorted(sorted_times, anchor + bin_size, side="right"))
+        bin_centers.append(float(anchor + bin_size / 2))
+        bin_means.append(float((temp_cumsum[end] - temp_cumsum[index]) / (end - index)))
+        index = end
+
+    return numpy.array(bin_centers), numpy.array(bin_means)
+
 
 def plot_temperature(
     data: PreparedData,
@@ -51,28 +90,9 @@ def plot_temperature(
         sorted_times = filtered_time_numeric[sort_indices]
         sorted_temps = filtered_temps[sort_indices]
 
-        # 30 分間隔でビニングして平均化（0.020833 日 ≒ 30 分）
+        # 30 分間隔でビニングして平均化
         if len(sorted_times) > 1:
-            bin_size = 0.020833
-            unique_times: list[float] = []
-            avg_temps: list[float] = []
-
-            current_bin_start = sorted_times[0]
-            current_temps: list[float] = []
-
-            for i, time_val in enumerate(sorted_times):
-                if time_val <= current_bin_start + bin_size:
-                    current_temps.append(sorted_temps[i])
-                else:
-                    if current_temps:
-                        unique_times.append(float(current_bin_start + bin_size / 2))
-                        avg_temps.append(float(numpy.mean(current_temps)))
-                    current_bin_start = time_val
-                    current_temps = [sorted_temps[i]]
-
-            if current_temps:
-                unique_times.append(float(current_bin_start + bin_size / 2))
-                avg_temps.append(float(numpy.mean(current_temps)))
+            unique_times, avg_temps = bin_time_series(sorted_times, sorted_temps)
 
             ax.plot(
                 unique_times,

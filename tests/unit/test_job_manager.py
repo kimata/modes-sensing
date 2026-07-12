@@ -51,18 +51,18 @@ class TestJobManager:
 
     @pytest.fixture
     def manager(self):
-        """JobManager インスタンス"""
-        manager = job_manager.JobManager()
-        # 既存のジョブをクリア
-        with manager._jobs_lock:
-            manager._jobs.clear()
-        yield manager
+        """JobManager インスタンス（テスト毎に独立）"""
+        return job_manager.JobManager()
 
-    def test_singleton(self):
-        """シングルトンパターン"""
+    def test_module_level_instance(self):
+        """モジュールレベルの共有インスタンスが存在する"""
+        assert isinstance(job_manager.job_manager, job_manager.JobManager)
+
+    def test_instances_are_independent(self):
+        """通常のクラスとして独立したインスタンスを生成できる"""
         manager1 = job_manager.JobManager()
         manager2 = job_manager.JobManager()
-        assert manager1 is manager2
+        assert manager1 is not manager2
 
     def test_create_job(self, manager):
         """ジョブ作成"""
@@ -115,6 +115,56 @@ class TestJobManager:
         )
 
         assert reused_id == "reuse-test-123"
+
+    def test_reuse_pending_and_processing_job(self, manager):
+        """PENDING/PROCESSING の既存ジョブは上書きせず再利用する"""
+        job_id = manager.create_job(
+            graph_name="scatter_2d",
+            time_start=datetime.datetime.now(),
+            time_end=datetime.datetime.now() + datetime.timedelta(hours=1),
+            limit_altitude=False,
+            job_id="pending-test-123",
+        )
+
+        # PENDING のまま同じ ID で再作成 → 既存ジョブが維持される
+        manager.update_status(job_id, job_manager.JobStatus.PROCESSING, progress=42)
+        reused_id = manager.create_job(
+            graph_name="scatter_2d",
+            time_start=datetime.datetime.now(),
+            time_end=datetime.datetime.now() + datetime.timedelta(hours=1),
+            limit_altitude=False,
+            job_id="pending-test-123",
+        )
+
+        assert reused_id == "pending-test-123"
+        job = manager.get_job(reused_id)
+        assert job is not None
+        assert job.status == job_manager.JobStatus.PROCESSING
+        assert job.progress == 42  # 上書きされていない
+
+    def test_failed_job_is_recreated(self, manager):
+        """FAILED の既存ジョブは同じ ID で作り直す"""
+        job_id = manager.create_job(
+            graph_name="scatter_2d",
+            time_start=datetime.datetime.now(),
+            time_end=datetime.datetime.now() + datetime.timedelta(hours=1),
+            limit_altitude=False,
+            job_id="failed-test-123",
+        )
+        manager.update_status(job_id, job_manager.JobStatus.FAILED, error="エラー")
+
+        recreated_id = manager.create_job(
+            graph_name="scatter_2d",
+            time_start=datetime.datetime.now(),
+            time_end=datetime.datetime.now() + datetime.timedelta(hours=1),
+            limit_altitude=False,
+            job_id="failed-test-123",
+        )
+
+        assert recreated_id == "failed-test-123"
+        job = manager.get_job(recreated_id)
+        assert job is not None
+        assert job.status == job_manager.JobStatus.PENDING
 
     def test_get_nonexistent_job(self, manager):
         """存在しないジョブの取得"""

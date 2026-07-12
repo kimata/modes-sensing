@@ -5,7 +5,23 @@ import Modal from './components/Modal'
 import Footer from './components/Footer'
 import ReceiverStatus from './components/ReceiverStatus'
 import { parseUrlParams, updateUrl, resetUrl, PERIOD_DAYS, type PeriodType } from './hooks/useUrlParams'
+import { clampRangeToData } from './utils/dateRange'
 import type { DataRangeResponse } from './types/api'
+
+// サブタイトル用の構造化データ
+interface DataSummary {
+  days: number
+  startDate: Date
+  count: number
+}
+
+// 日本語の年月日フォーマット（例: "2025年08月05日"）
+const formatJaDate = (date: Date): string => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}年${month}月${day}日`
+}
 
 function App() {
   // URL パラメータを解析
@@ -50,94 +66,67 @@ function App() {
   const [isInitialDateRangeSet, setIsInitialDateRangeSet] = useState(urlParams.hasUrlParams)
   const [modalImage, setModalImage] = useState<string | null>(null)
   const [dataRange, setDataRange] = useState<DataRangeResponse | null>(null)
-  const [dataRangeSubtitle, setDataRangeSubtitle] = useState<string>('')
+  const [dataSummary, setDataSummary] = useState<DataSummary | null>(null)
   const [limitAltitude, setLimitAltitude] = useState(getInitialLimitAltitude)
 
-  // データ範囲を取得し、初期日付範囲を調整
+  // データ範囲を取得し、初期日付範囲を調整（初回マウント時のみ実行）
   useEffect(() => {
+    let cancelled = false
+
     const fetchDataRange = async () => {
       try {
         const response = await fetch('/modes-sensing/api/data-range')
+        if (cancelled) return
+
         if (response.ok) {
           const range: DataRangeResponse = await response.json()
+          if (cancelled) return
+
           setDataRange(range)
 
           // 初期日付範囲をデータ範囲に基づいて調整
-          if (range.earliest && range.latest && !isInitialDateRangeSet) {
+          // （URL パラメータで明示指定されている場合はスキップ）
+          if (range.earliest && range.latest && !urlParams.hasUrlParams) {
             const currentRange = getInitialDate()
-            const dataEarliest = new Date(range.earliest)
-            const dataLatest = new Date(range.latest)
+            const clamped = clampRangeToData(currentRange.start, currentRange.end, range, {
+              preservePeriodMs: 7 * 24 * 60 * 60 * 1000
+            })
 
-            let adjustedStart = new Date(currentRange.start)
-            let adjustedEnd = new Date(currentRange.end)
-            let needsAdjustment = false
-
-
-            // 終了日時が利用可能なデータの最新日時を超えている場合
-            if (adjustedEnd > dataLatest) {
-              adjustedEnd = new Date(dataLatest)
-              adjustedEnd.setSeconds(0, 0)
-              needsAdjustment = true
+            if (clamped.adjusted) {
+              setDateRange({ start: clamped.start, end: clamped.end })
             }
-
-            // 開始日時が利用可能なデータの最古日時を下回っている場合
-            if (adjustedStart < dataEarliest) {
-              adjustedStart = new Date(dataEarliest)
-              adjustedStart.setSeconds(0, 0)
-              needsAdjustment = true
-            }
-
-            // 7日間の期間を維持しようとする
-            const sevenDaysMs = 7 * 24 * 60 * 60 * 1000
-            const recalculatedStart = new Date(adjustedEnd.getTime() - sevenDaysMs)
-            if (recalculatedStart >= dataEarliest) {
-              adjustedStart = recalculatedStart
-              adjustedStart.setSeconds(0, 0)
-              needsAdjustment = true
-            }
-
-            if (needsAdjustment) {
-              setDateRange({ start: adjustedStart, end: adjustedEnd })
-            }
-
-            setIsInitialDateRangeSet(true)
           }
 
-          // サブタイトルを生成（参考ファイルのフォーマットに従う）
+          // サブタイトル用の構造化データを設定
           if (range.earliest && range.latest) {
             const earliest = new Date(range.earliest)
             const latest = new Date(range.latest)
-
-            // 日数を計算
             const daysDiff = Math.floor((latest.getTime() - earliest.getTime()) / (24 * 60 * 60 * 1000)) + 1
 
-            // 開始日をフォーマット（年月日のみ）
-            const startDateFormatted = earliest.toLocaleDateString('ja-JP', {
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit'
-            }).replace(/\//g, '年').replace(/年(\d+)年/, '年$1月') + '日'
-
-            // 件数をカンマ区切りでフォーマット
-            const countFormatted = range.count ? range.count.toLocaleString('ja-JP') : '0'
-            const daysFormatted = daysDiff.toLocaleString('ja-JP')
-
-            setDataRangeSubtitle(`過去${daysFormatted}日間（${startDateFormatted}〜）、計 ${countFormatted} 件のデータが記録されています`)
+            setDataSummary({
+              days: daysDiff,
+              startDate: earliest,
+              count: range.count ?? 0
+            })
           }
-        } else {
-          // データ範囲の取得に失敗した場合も初期化を完了させる
-          setIsInitialDateRangeSet(true)
         }
       } catch (error) {
         console.error('データ範囲の取得に失敗しました:', error)
-        // エラー時も初期化を完了させる
-        setIsInitialDateRangeSet(true)
+      } finally {
+        // 成功・失敗にかかわらず初期化を完了させる
+        if (!cancelled) {
+          setIsInitialDateRangeSet(true)
+        }
       }
     }
 
     fetchDataRange()
+
+    return () => {
+      cancelled = true
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isInitialDateRangeSet])
+  }, [])
 
   // 期間変更ハンドラ（クイック選択・カスタム両対応）
   const handlePeriodChange = useCallback((period: PeriodType, start: Date, end: Date) => {
@@ -193,51 +182,17 @@ function App() {
             </a>
           </h1>
 
-          {dataRangeSubtitle && (
+          {dataSummary && (
             <p className="text-base text-gray-600 text-center mt-2 mb-8 flex flex-wrap justify-center gap-1 items-baseline">
-              {/* 複数の改行ポイントで文字列を分割 */}
-              {(() => {
-                // 「、」と「が」で分割して改行可能なセグメントを作成
-                const text = dataRangeSubtitle
-                const segments = []
-
-                // まず「が」で分割
-                const mainParts = text.split('が')
-                const beforeGa = mainParts[0] // 「〜が」より前
-                const afterGa = mainParts[1] // 「が」より後
-
-                // 「が」より前の部分を「、」でさらに分割
-                const beforeGaParts = beforeGa.split('、')
-
-                // 最初の部分: 「過去4日間（2025年08月05日〜）」
-                if (beforeGaParts.length > 0) {
-                  segments.push(
-                    <span key="part1" style={{ whiteSpace: 'nowrap' }}>
-                      {beforeGaParts[0]}、
-                    </span>
-                  )
-                }
-
-                // 真ん中の部分: 「計 85,090 件のデータ」
-                if (beforeGaParts.length > 1) {
-                  segments.push(
-                    <span key="part2" style={{ whiteSpace: 'nowrap' }}>
-                      {beforeGaParts[1]}が
-                    </span>
-                  )
-                }
-
-                // 最後の部分: 「記録されています」
-                if (afterGa) {
-                  segments.push(
-                    <span key="part3" style={{ whiteSpace: 'nowrap' }}>
-                      {afterGa}
-                    </span>
-                  )
-                }
-
-                return segments
-              })()}
+              <span style={{ whiteSpace: 'nowrap' }}>
+                過去{dataSummary.days.toLocaleString('ja-JP')}日間（{formatJaDate(dataSummary.startDate)}〜）、
+              </span>
+              <span style={{ whiteSpace: 'nowrap' }}>
+                計 {dataSummary.count.toLocaleString('ja-JP')} 件のデータが
+              </span>
+              <span style={{ whiteSpace: 'nowrap' }}>
+                記録されています
+              </span>
             </p>
           )}
 

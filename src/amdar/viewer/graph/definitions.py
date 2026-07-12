@@ -16,6 +16,7 @@ from amdar.viewer.graph.plotting.contour import plot_contour_2d, plot_contour_3d
 from amdar.viewer.graph.plotting.density import plot_density, plot_heatmap
 from amdar.viewer.graph.plotting.scatter import plot_scatter_2d, plot_scatter_3d
 from amdar.viewer.graph.plotting.temperature import plot_temperature
+from amdar.viewer.graph.plotting.vertical_profile import plot_vertical_profile
 from amdar.viewer.graph.plotting.wind import plot_wind_direction
 
 
@@ -37,4 +38,7 @@ GRAPH_DEF_MAP: dict[GraphName, GraphDefinition] = {
     "heatmap": GraphDefinition(func=plot_heatmap, size=(2400, 1600), file="heatmap.png"),
     "temperature": GraphDefinition(func=plot_temperature, size=(2400, 1600), file="temperature.png"),
     "wind_direction": GraphDefinition(func=plot_wind_direction, size=(2400, 1600), file="wind_direction.png"),
+    "vertical_profile": GraphDefinition(
+        func=plot_vertical_profile, size=(2400, 1600), file="vertical_profile.png"
+    ),
 }

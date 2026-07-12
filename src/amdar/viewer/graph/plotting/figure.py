@@ -47,7 +47,8 @@ def setup_3d_layout(ax) -> None:
 def convert_figure_to_image(fig) -> PIL.Image.Image:
     """Figure を PIL.Image に変換し、Figure はクローズする。"""
     buf = io.BytesIO()
-    matplotlib.pyplot.savefig(buf, format="png", dpi=GRAPH_IMAGE_DPI, facecolor="white", transparent=False)
+    # pyplot.savefig はカレント figure に依存するため、対象 figure の savefig を直接使う
+    fig.savefig(buf, format="png", dpi=GRAPH_IMAGE_DPI, facecolor="white", transparent=False)
 
     buf.seek(0)
     img = PIL.Image.open(buf).copy()

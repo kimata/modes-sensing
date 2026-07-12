@@ -14,6 +14,7 @@ Options:
 from __future__ import annotations
 
 import logging
+import os
 import signal
 import sys
 from dataclasses import dataclass
@@ -44,17 +45,18 @@ def _term() -> NoReturn:
     sys.exit(0)
 
 
-def _sig_handler(num: int, frame: FrameType | None) -> None:
-    logging.warning("receive signal %d", num)
-
-    if num in (signal.SIGTERM, signal.SIGINT):
-        _term()
-
-
 URL_PREFIX = "/modes-sensing"
 
 
-def create_app(config: amdar.config.Config) -> flask.Flask:
+def create_app(config: amdar.config.Config, use_reloader: bool = False) -> flask.Flask:
+    """Flask アプリケーションを作成する。
+
+    Args:
+        config: アプリケーション設定
+        use_reloader: Werkzeug リローダーを使う場合 True。リローダー使用時は
+            親プロセス（監視側）でバックグラウンド処理を初期化しない
+            （二重初期化の防止）。
+    """
     # NOTE: アクセスログは無効にする
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
@@ -67,6 +69,7 @@ def create_app(config: amdar.config.Config) -> flask.Flask:
     import amdar.viewer.api.graph_routes
     import amdar.viewer.api.materialized_view_refresh
     import amdar.viewer.api.progress_estimation
+    import amdar.viewer.graph.pool
     import amdar.viewer.graph.service
 
     # my_lib.webapp の実行環境を構築（URL prefix と静的ファイル配信パスを束ねる）
@@ -74,7 +77,8 @@ def create_app(config: amdar.config.Config) -> flask.Flask:
 
     app = flask.Flask("modes-sensing")
 
-    flask_cors.CORS(app)
+    # 本番は同一オリジン配信のため CORS は不要。開発時の Vite からのみ許可する
+    flask_cors.CORS(app, origins=[r"http://localhost:\d+", r"http://127\.0\.0\.1:\d+"])
 
     app.config["CONFIG"] = config
 
@@ -88,12 +92,23 @@ def create_app(config: amdar.config.Config) -> flask.Flask:
 
     my_lib.webapp.config.show_handler_list(app)
 
+    # リローダー使用時、バックグラウンド初期化は再起動後の子プロセス
+    # （WERKZEUG_RUN_MAIN=true）でのみ行う（親プロセスとの二重初期化を防止）
+    if use_reloader and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        logging.info("Skipping background initialization in reloader parent process")
+        return app
+
+    # グラフ生成サービスとプロセスプールを初期化する。
+    # プールはバックグラウンドスレッド開始前に生成する（スレッド起動後の
+    # fork はロック保持状態を子プロセスに引き継ぐ恐れがあるため）
+    cache_dir = config.webapp.cache_dir_path
+    amdar.viewer.graph.service.graph_service.initialize(config, cache_dir)
+    amdar.viewer.graph.pool.process_pool.get_pool()
+
     # マテリアライズドビューの定期リフレッシュを開始
     amdar.viewer.api.materialized_view_refresh.materialized_view_refresher.initialize(config)
 
-    # グラフ生成サービス・履歴管理・キャッシュ事前生成を初期化
-    cache_dir = config.webapp.cache_dir_path
-    amdar.viewer.graph.service.graph_service.initialize(config, cache_dir)
+    # 履歴管理・キャッシュ事前生成を初期化
     amdar.viewer.api.progress_estimation.generation_time_history.initialize(cache_dir)
     amdar.viewer.api.cache_pregeneration.cache_pregenerator.initialize()
 
@@ -104,7 +119,6 @@ def main() -> None:
     """CLI エントリポイント"""
     import atexit
     import contextlib
-    import os
 
     import docopt
 
@@ -121,7 +135,16 @@ def main() -> None:
 
     config = amdar.config.load_config(config_file)
 
-    app = create_app(config)
+    # Flaskアプリケーションを実行
+    # テスト環境（TEST=true）ではリローダーを無効にする
+    # リローダーはマルチプロセス処理（非同期グラフ生成）と相互作用の問題を起こすため
+    is_test_mode = os.environ.get("TEST", "").lower() == "true"
+    use_reloader = not is_test_mode and debug_mode
+
+    if is_test_mode:
+        logging.info("Test mode detected, disabling Flask reloader for multiprocessing compatibility")
+
+    app = create_app(config, use_reloader=use_reloader)
 
     # プロセスグループリーダーとして実行（リローダープロセスの適切な管理のため）
     with contextlib.suppress(PermissionError):
@@ -172,15 +195,6 @@ def main() -> None:
 
     signal.signal(signal.SIGTERM, enhanced_sig_handler)
     signal.signal(signal.SIGINT, enhanced_sig_handler)
-
-    # Flaskアプリケーションを実行
-    # テスト環境（TEST=true）ではリローダーを無効にする
-    # リローダーはマルチプロセス処理（非同期グラフ生成）と相互作用の問題を起こすため
-    is_test_mode = os.environ.get("TEST", "").lower() == "true"
-    use_reloader = not is_test_mode and debug_mode
-
-    if is_test_mode:
-        logging.info("Test mode detected, disabling Flask reloader for multiprocessing compatibility")
 
     try:
         app.run(host="0.0.0.0", port=port, threaded=True, use_reloader=use_reloader, debug=debug_mode)  # noqa: S104

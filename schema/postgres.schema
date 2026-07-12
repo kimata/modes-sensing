@@ -1,10 +1,18 @@
 -- PostgreSQL Schema for modes-sensing
--- meteorological_data テーブルとインデックス、マテリアライズドビュー
+-- meteorological_data テーブルとインデックス、増分集約テーブル
+--
+-- 注意:
+--   * このファイルはアプリケーションが接続時に適用する（CREATE ... IF NOT EXISTS のみ）。
+--   * 旧スキーマ（time TIMESTAMP + マテリアライズドビュー）からの移行は
+--     scripts/migrate_timestamptz_and_aggregates.sql を使用すること。
+--   * _execute_schema() がセミコロン区切りで実行するため、DO ブロック等は記述しないこと。
+--     （セミコロンを含むコメントも記述しないこと）
 
 -- メインテーブル
+-- time はタイムゾーン付き（TIMESTAMPTZ）。アプリケーションは aware datetime を渡す。
 CREATE TABLE IF NOT EXISTS meteorological_data (
     id SERIAL PRIMARY KEY,
-    time TIMESTAMP NOT NULL,
+    time TIMESTAMPTZ NOT NULL,
     callsign TEXT NOT NULL,
     distance REAL,
     altitude REAL,
@@ -18,87 +26,49 @@ CREATE TABLE IF NOT EXISTS meteorological_data (
     method TEXT
 );
 
--- 基本インデックス
-CREATE INDEX IF NOT EXISTS idx_time ON meteorological_data (time);
-CREATE INDEX IF NOT EXISTS idx_altitude ON meteorological_data (altitude);
-
--- 複合インデックス（グラフ表示用）
+-- 複合インデックス（時間範囲 + 高度、グラフ表示用）
+-- time 単独の範囲検索もこのインデックスのプレフィックスでカバーされる
 CREATE INDEX IF NOT EXISTS idx_time_alt ON meteorological_data (time, altitude);
-
--- 温度・高度データ用複合インデックス（グラフ生成の高速化）
--- 等高線、ヒートマップ、散布図の生成で使用
-CREATE INDEX IF NOT EXISTS idx_time_distance_temp_alt
-ON meteorological_data (time, distance, temperature, altitude)
-WHERE distance <= 100 AND temperature > -100;
 
 -- BRIN インデックス（時系列データに効果的、メモリ効率良い）
 -- 大量の時系列データでの範囲検索で効果的、メモリ使用量が少ない
 CREATE INDEX IF NOT EXISTS idx_time_brin ON meteorological_data USING BRIN (time);
 
--- マテリアライズドビュー: 30分×250m高度帯からの代表点サンプリング
--- 14日〜90日の期間表示に使用
+-- 集約テーブル: 30分×250m高度帯からの代表点サンプリング
+-- 14日〜90日の期間表示に使用（旧マテリアライズドビューの置き換え、増分更新）
 -- 平均ではなく実際のデータ点を保持することで描画品質を維持
-CREATE MATERIALIZED VIEW IF NOT EXISTS halfhourly_altitude_grid AS
-SELECT DISTINCT ON (time_bucket, altitude_bin)
-    date_trunc('hour', time)
-        + (floor(EXTRACT(minute FROM time) / 30) * interval '30 minutes') AS time_bucket,
-    (floor(altitude / 250) * 250)::int AS altitude_bin,
-    time,
-    altitude,
-    temperature,
-    wind_x,
-    wind_y,
-    wind_speed,
-    wind_angle
-FROM meteorological_data
-WHERE distance <= 100
-  AND temperature > -100
-  AND altitude IS NOT NULL
-  AND altitude >= 0
-  AND altitude <= 13000
-ORDER BY time_bucket, altitude_bin, time DESC;
+CREATE TABLE IF NOT EXISTS halfhourly_altitude_grid (
+    time_bucket TIMESTAMPTZ NOT NULL,
+    altitude_bin INTEGER NOT NULL,
+    time TIMESTAMPTZ NOT NULL,
+    altitude REAL,
+    temperature REAL,
+    wind_x REAL,
+    wind_y REAL,
+    wind_speed REAL,
+    wind_angle REAL
+);
 
--- 30分集約ビューのインデックス
-CREATE INDEX IF NOT EXISTS idx_halfhourly_grid_time
-ON halfhourly_altitude_grid (time_bucket);
-
-CREATE INDEX IF NOT EXISTS idx_halfhourly_grid_time_alt
-ON halfhourly_altitude_grid (time_bucket, altitude_bin);
-
--- CONCURRENT リフレッシュ用のユニークインデックス
+-- (time_bucket, altitude_bin) のユニークインデックス
+-- time_bucket 単独の範囲検索もこのインデックスのプレフィックスでカバーされる
 CREATE UNIQUE INDEX IF NOT EXISTS idx_halfhourly_grid_unique
 ON halfhourly_altitude_grid (time_bucket, altitude_bin);
 
--- マテリアライズドビュー: 3時間×250m高度帯からの代表点サンプリング
--- 90日以上の長期間表示に使用
+-- 集約テーブル: 3時間×250m高度帯からの代表点サンプリング
+-- 90日以上の長期間表示に使用（旧マテリアライズドビューの置き換え、増分更新）
 -- 平均ではなく実際のデータ点を保持することで描画品質を維持
-CREATE MATERIALIZED VIEW IF NOT EXISTS threehour_altitude_grid AS
-SELECT DISTINCT ON (time_bucket, altitude_bin)
-    date_trunc('hour', time)
-        - (EXTRACT(hour FROM time)::int % 3) * interval '1 hour' AS time_bucket,
-    (floor(altitude / 250) * 250)::int AS altitude_bin,
-    time,
-    altitude,
-    temperature,
-    wind_x,
-    wind_y,
-    wind_speed,
-    wind_angle
-FROM meteorological_data
-WHERE distance <= 100
-  AND temperature > -100
-  AND altitude IS NOT NULL
-  AND altitude >= 0
-  AND altitude <= 13000
-ORDER BY time_bucket, altitude_bin, time DESC;
+CREATE TABLE IF NOT EXISTS threehour_altitude_grid (
+    time_bucket TIMESTAMPTZ NOT NULL,
+    altitude_bin INTEGER NOT NULL,
+    time TIMESTAMPTZ NOT NULL,
+    altitude REAL,
+    temperature REAL,
+    wind_x REAL,
+    wind_y REAL,
+    wind_speed REAL,
+    wind_angle REAL
+);
 
--- 3時間集約ビューのインデックス
-CREATE INDEX IF NOT EXISTS idx_threehour_grid_time
-ON threehour_altitude_grid (time_bucket);
-
-CREATE INDEX IF NOT EXISTS idx_threehour_grid_time_alt
-ON threehour_altitude_grid (time_bucket, altitude_bin);
-
--- CONCURRENT リフレッシュ用のユニークインデックス
+-- (time_bucket, altitude_bin) のユニークインデックス
 CREATE UNIQUE INDEX IF NOT EXISTS idx_threehour_grid_unique
 ON threehour_altitude_grid (time_bucket, altitude_bin);

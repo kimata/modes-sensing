@@ -7,6 +7,9 @@
     - グラフ生成は :class:`amdar.viewer.graph.service.GraphService` に委譲。
       matplotlib はサブプロセスで実行されるため、タイマースレッドから安全に呼べる。
     - キャッシュが TTL の残り時間で十分カバーできる場合は再生成をスキップする。
+    - stop() 後は再スケジュールされず、再度 initialize() することで再開できる。
+
+アプリ全体ではモジュールレベルの :data:`cache_pregenerator` インスタンスを共有する。
 """
 
 from __future__ import annotations
@@ -15,7 +18,6 @@ import datetime
 import logging
 import threading
 import time
-from typing import ClassVar
 
 import my_lib.time
 
@@ -45,40 +47,27 @@ _INITIAL_DELAY_SECONDS = 10
 
 
 class CachePregenerator:
-    """キャッシュ事前生成スケジューラ（シングルトン）。"""
+    """キャッシュ事前生成スケジューラ。"""
 
-    _instance: ClassVar[CachePregenerator | None] = None
-    _lock: ClassVar[threading.Lock] = threading.Lock()
-
-    _timer: threading.Timer | None
-    _running: bool
-    _initialized: bool
-
-    def __new__(cls) -> CachePregenerator:
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    instance = object.__new__(cls)
-                    instance._timer = None
-                    instance._running = False
-                    instance._initialized = False
-                    cls._instance = instance
-        assert cls._instance is not None  # noqa: S101 (シングルトンパターン)
-        return cls._instance
+    def __init__(self) -> None:
+        self._timer: threading.Timer | None = None
+        self._running = False
+        self._initialized = False
+        self._stop_requested = False
+        self._lock = threading.Lock()
 
     def initialize(self) -> None:
-        """事前生成を開始する（多重呼び出しは無視）。
+        """事前生成を開始する（多重呼び出しは無視、stop() 後の再開は可能）。
 
         前提: :func:`amdar.viewer.graph.service.graph_service.initialize` が
         事前に呼ばれていること。
         """
-        if self._initialized:
-            return
         with self._lock:
             if self._initialized:
                 return
             self._initialized = True
-            self._schedule_next(delay=_INITIAL_DELAY_SECONDS)
+            self._stop_requested = False
+            self._schedule_next_locked(delay=_INITIAL_DELAY_SECONDS)
             logging.info(
                 "CachePregenerator initialized: interval=%d sec, graphs=%d",
                 PREGENERATION_INTERVAL_SECONDS,
@@ -86,9 +75,13 @@ class CachePregenerator:
             )
 
     def stop(self) -> None:
-        """事前生成を停止する。"""
+        """事前生成を停止する。
+
+        実行中でも、完了後の再スケジュールは行われない。
+        """
         with self._lock:
-            self._running = False
+            self._stop_requested = True
+            self._initialized = False
             if self._timer:
                 self._timer.cancel()
                 self._timer = None
@@ -103,8 +96,9 @@ class CachePregenerator:
     # 内部メソッド
     # ------------------------------------------------------------------
 
-    def _schedule_next(self, delay: float | None = None) -> None:
-        if not self._initialized:
+    def _schedule_next_locked(self, delay: float | None = None) -> None:
+        """次回の事前生成をスケジュールする（呼び出し側で _lock を保持していること）。"""
+        if self._stop_requested or not self._initialized:
             return
         interval = delay if delay is not None else PREGENERATION_INTERVAL_SECONDS
         self._timer = threading.Timer(interval, self._run_pregeneration)
@@ -140,7 +134,9 @@ class CachePregenerator:
             logging.exception("[PREGEN] Error during pregeneration")
         finally:
             self._running = False
-            self._schedule_next()
+            # stop() 済みの場合は再スケジュールしない（停止フラグをロック下で確認）
+            with self._lock:
+                self._schedule_next_locked()
 
     def _generate_graphs(
         self,
@@ -153,6 +149,8 @@ class CachePregenerator:
 
         generated = 0
         for graph_name in _PREGENERATION_GRAPHS:
+            if self._stop_requested:
+                break
             try:
                 if self._cache_still_fresh(cache_dir, graph_name, time_start, time_end, limit_altitude):
                     generated += 1
@@ -200,4 +198,5 @@ class CachePregenerator:
         return False
 
 
+# モジュールレベルの共有インスタンス
 cache_pregenerator = CachePregenerator()

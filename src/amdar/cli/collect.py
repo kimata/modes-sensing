@@ -22,7 +22,6 @@ import pathlib
 import queue
 import signal
 import threading
-import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -75,6 +74,7 @@ def execute(
     count: int = 0,
 ) -> None:
     signal.signal(signal.SIGTERM, _sig_handler)
+    signal.signal(signal.SIGINT, _sig_handler)
 
     # 統合バッファ（Mode-S → VDL2 の高度補完用）
     # auto_cleanup=True: リアルタイム受信では位置追加時に古いエントリを自動破棄する
@@ -172,8 +172,8 @@ def execute(
     try:
         # 定期的にバッファ統計をログ出力
         def _log_buffer_stats() -> None:
-            while not stop_event.is_set():
-                time.sleep(60)
+            # stop_event で中断可能な待機（time.sleep だと停止が遅延する）
+            while not stop_event.wait(60):
                 stats = shared_buffer.get_stats()
                 logging.info(
                     "Buffer stats: aircraft=%d, entries=%d, callsign_mappings=%d",
@@ -189,13 +189,16 @@ def execute(
         database_postgresql.store_queue(
             conn, measurement_queue, liveness_file, db_config, config.slack, count
         )
+    except KeyboardInterrupt:
+        # SIGINT がシグナルハンドラ登録前に届いた場合などに備え、
+        # KeyboardInterrupt でも finally の停止処理へ確実に合流させる
+        logging.warning("KeyboardInterrupt を受信しました。停止処理を行います")
     except Exception:
         logging.exception("Failed to store data")
     finally:
         stop_event.set()
-
-    modes_receiver.term()
-    vdl2_receiver.term()
+        modes_receiver.term()
+        vdl2_receiver.term()
 
 
 def main() -> None:

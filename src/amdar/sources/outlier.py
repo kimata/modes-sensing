@@ -34,6 +34,18 @@ DEFAULT_DEVIATION_THRESHOLD: float = 20.0
 DEFAULT_SIGMA_THRESHOLD: float = 4.0
 DEFAULT_TOLERANCE_FACTOR: float = 2.5
 
+# 回帰モデル・numpy 配列キャッシュを再構築する履歴追加件数の閾値
+REGRESSION_REBUILD_INTERVAL: int = 50
+
+
+@dataclass
+class _RegressionData:
+    """回帰モデルと特徴量配列のキャッシュ"""
+
+    model: sklearn.linear_model.LinearRegression
+    altitudes: npt.NDArray[np.floating[Any]]
+    temperatures: npt.NDArray[np.floating[Any]]
+
 
 @dataclass
 class _HistoryData:
@@ -88,6 +100,11 @@ class OutlierDetector:
         self._tolerance_factor = tolerance_factor
         # Mode-S 受信スレッドと VDL2 受信スレッドから共有されるため排他制御する
         self._lock = threading.Lock()
+        # 回帰モデル・特徴量配列のキャッシュ
+        # （毎判定でのリスト化・配列構築・fit() を避けるため、
+        #   REGRESSION_REBUILD_INTERVAL 件追加されるまで再利用する）
+        self._regression_cache: _RegressionData | None = None
+        self._adds_since_rebuild = 0
 
     def add_history(self, altitude: float, temperature: float) -> None:
         """履歴データを追加
@@ -98,11 +115,58 @@ class OutlierDetector:
         """
         with self._lock:
             self._history.append(_HistoryData(altitude=altitude, temperature=temperature))
+            self._adds_since_rebuild += 1
 
     def clear_history(self) -> None:
         """履歴データをクリア"""
         with self._lock:
             self._history.clear()
+            self._regression_cache = None
+            self._adds_since_rebuild = 0
+
+    def _get_regression_data(self) -> _RegressionData | None:
+        """回帰モデルと特徴量配列を取得する（必要時のみ再構築）
+
+        前回構築から REGRESSION_REBUILD_INTERVAL 件以上履歴が追加された
+        場合のみ再構築します。fit() はロック外で実行し、履歴のスナップ
+        ショット取得とキャッシュ更新のみロック下で行います。
+
+        Returns:
+            _RegressionData、または履歴が不足している場合 None
+        """
+        with self._lock:
+            if len(self._history) < self._min_samples:
+                return None
+            cached = self._regression_cache
+            if cached is not None and self._adds_since_rebuild < REGRESSION_REBUILD_INTERVAL:
+                return cached
+            history_snapshot = list(self._history)
+
+        # 履歴データから特徴量を抽出
+        valid_data = [
+            data for data in history_snapshot if data.altitude is not None and data.temperature is not None
+        ]
+
+        if len(valid_data) < self._min_samples:
+            return None
+
+        altitudes = np.array([[data.altitude] for data in valid_data])
+        temperatures = np.array([data.temperature for data in valid_data])
+
+        regression_model = sklearn.linear_model.LinearRegression()
+        regression_model.fit(altitudes, temperatures)
+
+        rebuilt = _RegressionData(
+            model=regression_model,
+            altitudes=altitudes,
+            temperatures=temperatures,
+        )
+
+        with self._lock:
+            self._regression_cache = rebuilt
+            self._adds_since_rebuild = 0
+
+        return rebuilt
 
     @property
     def history_count(self) -> int:
@@ -128,38 +192,23 @@ class OutlierDetector:
         Returns:
             外れ値の場合 True、正常値の場合 False
         """
-        # 判定中に他スレッドの add_history で deque が変更されないよう、
-        # 履歴のスナップショットをロック下で取得する
-        with self._lock:
-            if len(self._history) < self._min_samples:
-                return False
-            history_snapshot = list(self._history)
-
         try:
-            # 履歴データから特徴量を抽出
-            valid_data = [
-                data
-                for data in history_snapshot
-                if data.altitude is not None and data.temperature is not None
-            ]
-
-            if len(valid_data) < self._min_samples:
+            # 回帰モデルと特徴量配列を取得（キャッシュ利用）
+            regression_data = self._get_regression_data()
+            if regression_data is None:
                 return False
-
-            altitudes = np.array([[data.altitude] for data in valid_data])
-            temperatures = np.array([data.temperature for data in valid_data])
-
-            # 第一段階：線形回帰で高度-温度関係を学習
-            regression_model = sklearn.linear_model.LinearRegression()
-            regression_model.fit(altitudes, temperatures)
 
             # 物理的相関チェック
-            if self._is_physically_reasonable(altitude, temperature, regression_model):
+            if self._is_physically_reasonable(altitude, temperature, regression_data.model):
                 return False  # 物理的に妥当なので外れ値ではない
 
             # 第二段階：高度近傍ベースの異常検知
             return self._detect_outlier_by_altitude_neighbors(
-                altitude, temperature, altitudes, temperatures, callsign
+                altitude,
+                temperature,
+                regression_data.altitudes,
+                regression_data.temperatures,
+                callsign,
             )
 
         except Exception as e:

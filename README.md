@@ -188,8 +188,7 @@ src/
     │   ├── aggregator.py          # ADS-B 高度バッファ
     │   └── outlier.py             # 外れ値検出
     ├── database/
-    │   ├── postgresql.py          # PostgreSQL インターフェース
-    │   └── sqlite.py              # SQLite（開発用）
+    │   └── postgresql.py          # PostgreSQL インターフェース
     └── viewer/
         └── api/
             ├── graph.py           # グラフ生成
@@ -360,18 +359,31 @@ GET /modes-sensing/api/data-range
 → {"earliest": "2025-01-01T00:00:00Z", "latest": "2025-01-07T00:00:00Z", "count": 12345}
 ```
 
+### 受信品質・監視
+
+```
+GET /modes-sensing/api/receiver-quality
+→ {"mode_s": {"last_hour": 12, "last_24h": 345, "last_received": "...", "age_seconds": 60},
+   "vdl2": {...}, "aggregates": {"halfhourly_altitude_grid": 100, ...}}
+
+GET /modes-sensing/api/metrics
+→ Prometheus text format (version 0.0.4) のメトリクス
+  （観測数、最終観測からの経過秒、集約テーブル行数、ジョブ数、キャッシュファイル数）
+```
+
 ## グラフの種類
 
-| graph_name       | 説明                     | 用途             |
-| ---------------- | ------------------------ | ---------------- |
-| `scatter_2d`     | 時間-高度-温度 2D 散布図 | 全体傾向の把握   |
-| `scatter_3d`     | 3次元散布図              | 立体的データ分布 |
-| `heatmap`        | 補間した温度分布         | 連続的温度変化   |
-| `contour_2d`     | 等温線                   | 温度層境界       |
-| `contour_3d`     | 3次元等温面              | 複雑な温度構造   |
-| `density`        | 高度-温度分布密度        | データ集中度分析 |
-| `temperature`    | 時間-温度時系列          | 温度変化追跡     |
-| `wind_direction` | 高度別風向・風速         | 風パターン分析   |
+| graph_name         | 説明                                         | 用途               |
+| ------------------ | -------------------------------------------- | ------------------ |
+| `scatter_2d`       | 時間-高度-温度 2D 散布図                     | 全体傾向の把握     |
+| `scatter_3d`       | 3次元散布図                                  | 立体的データ分布   |
+| `heatmap`          | 補間した温度分布                             | 連続的温度変化     |
+| `contour_2d`       | 等温線                                       | 温度層境界         |
+| `contour_3d`       | 3次元等温面                                  | 複雑な温度構造     |
+| `density`          | 高度-温度分布密度                            | データ集中度分析   |
+| `temperature`      | 時間-温度時系列                              | 温度変化追跡       |
+| `wind_direction`   | 高度別風向・風速                             | 風パターン分析     |
+| `vertical_profile` | 気温鉛直プロファイル+ホドグラフ（末尾3時間） | 大気鉛直構造の把握 |
 
 ## 技術詳細
 

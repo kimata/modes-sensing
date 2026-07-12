@@ -13,6 +13,7 @@ Options:
 from __future__ import annotations
 
 import contextlib
+import datetime
 import logging
 import pathlib
 import queue
@@ -37,7 +38,6 @@ from amdar.constants import DEFAULT_DISTANCE_KM, get_db_schema_path, sanitize_co
 from amdar.core.types import MethodType, WindData
 
 if TYPE_CHECKING:
-    import datetime
     import multiprocessing
     from collections.abc import Sequence
 
@@ -54,6 +54,9 @@ class TerminationRequestedError(Exception):
 
 # スキーマファイルのパス
 _SCHEMA_FILE = get_db_schema_path("postgres.schema")
+
+# PostgreSQL SQLSTATE: invalid_catalog_name（データベースが存在しない）
+_PGCODE_INVALID_CATALOG_NAME = "3D000"
 
 
 @dataclass
@@ -88,6 +91,39 @@ class MethodLastReceived:
 
 
 @dataclass(frozen=True)
+class MethodObservationCounts:
+    """受信方式別の観測数"""
+
+    mode_s: int
+    vdl2: int
+
+
+@dataclass(frozen=True)
+class AggregateRowCounts:
+    """集約テーブルの行数"""
+
+    halfhourly_altitude_grid: int
+    threehour_altitude_grid: int
+
+    def to_dict(self) -> dict[str, int]:
+        """API レスポンス用に辞書に変換する"""
+        return {
+            "halfhourly_altitude_grid": self.halfhourly_altitude_grid,
+            "threehour_altitude_grid": self.threehour_altitude_grid,
+        }
+
+
+@dataclass(frozen=True)
+class ReceiverQualityResult:
+    """受信品質スナップショット（/api/metrics, /api/receiver-quality 用）"""
+
+    last_hour: MethodObservationCounts
+    last_24h: MethodObservationCounts
+    last_received: MethodLastReceived
+    aggregate_rows: AggregateRowCounts
+
+
+@dataclass(frozen=True)
 class AggregationLevel:
     """集約レベルの設定"""
 
@@ -99,19 +135,19 @@ class AggregationLevel:
 
 @dataclass(frozen=True)
 class MaterializedViewsStatus:
-    """マテリアライズドビューの存在状態"""
+    """集約テーブル（旧マテリアライズドビュー）の存在状態"""
 
     halfhourly_altitude_grid: bool = False
     threehour_altitude_grid: bool = False
 
     def get(self, table_name: str) -> bool:
-        """テーブル名でビューの存在状態を取得する
+        """テーブル名で存在状態を取得する
 
         Args:
             table_name: テーブル名 ("halfhourly_altitude_grid" または "threehour_altitude_grid")
 
         Returns:
-            ビューが存在する場合 True
+            テーブルが存在する場合 True
         """
         if table_name == "halfhourly_altitude_grid":
             return self.halfhourly_altitude_grid
@@ -122,7 +158,7 @@ class MaterializedViewsStatus:
 
 @dataclass
 class MaterializedViewStats:
-    """マテリアライズドビューの統計情報"""
+    """集約テーブルの統計情報"""
 
     row_count: int
     earliest: datetime.datetime | None
@@ -142,7 +178,7 @@ class MaterializedViewStats:
 
 @dataclass
 class AllMaterializedViewStats:
-    """全マテリアライズドビューの統計情報"""
+    """全集約テーブルの統計情報"""
 
     halfhourly_altitude_grid: MaterializedViewStats
     threehour_altitude_grid: MaterializedViewStats
@@ -157,9 +193,9 @@ class AllMaterializedViewStats:
 
 @dataclass
 class MaterializedViewRefreshResult:
-    """マテリアライズドビュー更新結果
+    """集約テーブル更新結果
 
-    各ビューの更新にかかった時間（秒）を保持する。
+    各テーブルの更新にかかった時間（秒）を保持する。
     -1 はエラーを示す。
     """
 
@@ -192,11 +228,25 @@ class NumpyFetchResult:
     wind_angle: NDArray[np.float64] | None = None
 
 
+def _to_local_wall_time(dt: datetime.datetime) -> datetime.datetime:
+    """aware datetime をローカルタイム（JST）の naive datetime に変換する
+
+    numpy の datetime64 はタイムゾーンを保持できないため、
+    グラフ表示用にローカルタイムの壁時計時刻へ変換してから格納する
+    （TIMESTAMPTZ 移行前の naive JST 格納時代と同じ表示になる）。
+    """
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(my_lib.time.get_zoneinfo()).replace(tzinfo=None)
+
+
 def _convert_rows_to_numpy_arrays(
     rows: Sequence[tuple[Any, ...]],
     include_wind: bool = False,
 ) -> NumpyFetchResult:
     """行データをNumPy配列に変換する共通関数
+
+    time はローカルタイム（JST）の壁時計時刻として datetime64 に格納される。
 
     Args:
         rows: データベースから取得した行のリスト
@@ -206,41 +256,39 @@ def _convert_rows_to_numpy_arrays(
         NumpyFetchResult: NumPy配列形式のデータ
 
     """
-    import numpy
-
     row_count = len(rows)
     if row_count == 0:
         return NumpyFetchResult(
-            time=numpy.array([], dtype="datetime64[us]"),
-            altitude=numpy.array([], dtype=numpy.float64),
-            temperature=numpy.array([], dtype=numpy.float64),
+            time=np.array([], dtype="datetime64[us]"),
+            altitude=np.array([], dtype=np.float64),
+            temperature=np.array([], dtype=np.float64),
             count=0,
-            wind_x=numpy.array([], dtype=numpy.float64) if include_wind else None,
-            wind_y=numpy.array([], dtype=numpy.float64) if include_wind else None,
-            wind_speed=numpy.array([], dtype=numpy.float64) if include_wind else None,
-            wind_angle=numpy.array([], dtype=numpy.float64) if include_wind else None,
+            wind_x=np.array([], dtype=np.float64) if include_wind else None,
+            wind_y=np.array([], dtype=np.float64) if include_wind else None,
+            wind_speed=np.array([], dtype=np.float64) if include_wind else None,
+            wind_angle=np.array([], dtype=np.float64) if include_wind else None,
         )
 
     # タプルのリストからNumPy配列に一括変換
     # 時間、高度、温度を事前確保した配列に直接書き込み
-    times = numpy.empty(row_count, dtype="datetime64[us]")
-    altitudes = numpy.empty(row_count, dtype=numpy.float64)
-    temperatures = numpy.empty(row_count, dtype=numpy.float64)
+    times = np.empty(row_count, dtype="datetime64[us]")
+    altitudes = np.empty(row_count, dtype=np.float64)
+    temperatures = np.empty(row_count, dtype=np.float64)
 
     if include_wind:
-        wind_x = numpy.empty(row_count, dtype=numpy.float64)
-        wind_y = numpy.empty(row_count, dtype=numpy.float64)
-        wind_speed = numpy.empty(row_count, dtype=numpy.float64)
-        wind_angle = numpy.empty(row_count, dtype=numpy.float64)
+        wind_x = np.empty(row_count, dtype=np.float64)
+        wind_y = np.empty(row_count, dtype=np.float64)
+        wind_speed = np.empty(row_count, dtype=np.float64)
+        wind_angle = np.empty(row_count, dtype=np.float64)
 
         for i, row in enumerate(rows):
-            times[i] = row[0]
-            altitudes[i] = row[1] if row[1] is not None else numpy.nan
-            temperatures[i] = row[2] if row[2] is not None else numpy.nan
-            wind_x[i] = row[3] if row[3] is not None else numpy.nan
-            wind_y[i] = row[4] if row[4] is not None else numpy.nan
-            wind_speed[i] = row[5] if row[5] is not None else numpy.nan
-            wind_angle[i] = row[6] if row[6] is not None else numpy.nan
+            times[i] = _to_local_wall_time(row[0])
+            altitudes[i] = row[1] if row[1] is not None else np.nan
+            temperatures[i] = row[2] if row[2] is not None else np.nan
+            wind_x[i] = row[3] if row[3] is not None else np.nan
+            wind_y[i] = row[4] if row[4] is not None else np.nan
+            wind_speed[i] = row[5] if row[5] is not None else np.nan
+            wind_angle[i] = row[6] if row[6] is not None else np.nan
 
         return NumpyFetchResult(
             time=times,
@@ -254,9 +302,9 @@ def _convert_rows_to_numpy_arrays(
         )
 
     for i, row in enumerate(rows):
-        times[i] = row[0]
-        altitudes[i] = row[1] if row[1] is not None else numpy.nan
-        temperatures[i] = row[2] if row[2] is not None else numpy.nan
+        times[i] = _to_local_wall_time(row[0])
+        altitudes[i] = row[1] if row[1] is not None else np.nan
+        temperatures[i] = row[2] if row[2] is not None else np.nan
 
     return NumpyFetchResult(
         time=times,
@@ -299,21 +347,126 @@ VALID_METEOROLOGICAL_COLUMNS: tuple[str, ...] = (
 _should_terminate = threading.Event()
 
 
-def _to_naive_datetime(dt: datetime.datetime) -> datetime.datetime:
-    """タイムゾーン情報を削除して naive datetime に変換
+# ===============================
+# 集約テーブル定義（増分更新）
+# ===============================
 
-    PostgreSQL 内の naive datetime（サーバーローカルタイム=JST）との比較用。
+# バケット計算の基準タイムゾーン（既存データとのバケット境界の連続性のため JST 固定）
+_BUCKET_TZ = amdar.constants.AGGREGATE_BUCKET_TIMEZONE
+
+
+def _halfhourly_bucket_expr() -> str:
+    """30分バケットの time_bucket 計算式（JST 基準、timestamptz を返す）"""
+    return (
+        f"(date_trunc('hour', time AT TIME ZONE '{_BUCKET_TZ}') "
+        f"+ (floor(EXTRACT(minute FROM time AT TIME ZONE '{_BUCKET_TZ}') / 30) "
+        f"* interval '30 minutes')) AT TIME ZONE '{_BUCKET_TZ}'"
+    )
+
+
+def _threehour_bucket_expr() -> str:
+    """3時間バケットの time_bucket 計算式（JST 基準、timestamptz を返す）"""
+    return (
+        f"(date_trunc('hour', time AT TIME ZONE '{_BUCKET_TZ}') "
+        f"- (mod(EXTRACT(hour FROM time AT TIME ZONE '{_BUCKET_TZ}')::int, 3) "
+        f"* interval '1 hour')) AT TIME ZONE '{_BUCKET_TZ}'"
+    )
+
+
+@dataclass(frozen=True)
+class AggregateTableSpec:
+    """集約テーブルの定義
+
+    Attributes:
+        table: テーブル名
+        bucket_expr: time_bucket を計算する SQL 式
+        bucket_seconds: バケット幅（秒）
+        refresh_window_seconds: 増分更新ウィンドウ（秒）
+    """
+
+    table: str
+    bucket_expr: str
+    bucket_seconds: int
+    refresh_window_seconds: int
+
+
+_AGGREGATE_TABLE_SPECS: tuple[AggregateTableSpec, ...] = (
+    AggregateTableSpec(
+        table="halfhourly_altitude_grid",
+        bucket_expr=_halfhourly_bucket_expr(),
+        bucket_seconds=amdar.constants.AGGREGATE_HALFHOURLY_BUCKET_SECONDS,
+        refresh_window_seconds=amdar.constants.AGGREGATE_HALFHOURLY_REFRESH_WINDOW_SECONDS,
+    ),
+    AggregateTableSpec(
+        table="threehour_altitude_grid",
+        bucket_expr=_threehour_bucket_expr(),
+        bucket_seconds=amdar.constants.AGGREGATE_THREEHOUR_BUCKET_SECONDS,
+        refresh_window_seconds=amdar.constants.AGGREGATE_THREEHOUR_REFRESH_WINDOW_SECONDS,
+    ),
+)
+
+# 集約テーブル名の一覧
+AGGREGATE_TABLES: tuple[str, ...] = tuple(spec.table for spec in _AGGREGATE_TABLE_SPECS)
+
+# 集約テーブルのカラム（INSERT / SELECT の順序）
+_AGGREGATE_COLUMNS = (
+    "time_bucket, altitude_bin, time, altitude, temperature, wind_x, wind_y, wind_speed, wind_angle"
+)
+
+
+def _to_naive_datetime(dt: datetime.datetime) -> datetime.datetime:
+    """DEPRECATED: aware datetime をそのまま返すシム
+
+    time カラムの TIMESTAMPTZ 移行により naive 変換は不要になった。
+    aware datetime をそのままプレースホルダに渡せばよい。
+    呼び出し側の除去が完了するまでの互換用として残している。
 
     Args:
         dt: タイムゾーン付きの datetime
 
     Returns:
-        タイムゾーン情報を削除した naive datetime
+        引数をそのまま返す（変換しない）
     """
-    return dt.replace(tzinfo=None)
+    return dt
 
 
-def open(host: str, port: int, database: str, user: str, password: str) -> PgConnection:
+def _is_database_missing_error(error: psycopg2.OperationalError, database: str) -> bool:
+    """接続エラーが「データベースが存在しない」ことを示すか判定する
+
+    SQLSTATE 3D000 (invalid_catalog_name) で判定する。ただし psycopg2 は
+    接続時のエラーに pgcode を設定しないため、その場合はサーバーの
+    FATAL メッセージ（database "<name>" does not exist）で判定する。
+
+    Args:
+        error: 接続時に発生した OperationalError
+        database: 接続しようとしたデータベース名
+
+    Returns:
+        データベースが存在しないエラーの場合 True
+    """
+    if getattr(error, "pgcode", None) is not None:
+        return error.pgcode == _PGCODE_INVALID_CATALOG_NAME
+    return f'database "{database}" does not exist' in str(error)
+
+
+def open(
+    host: str, port: int, database: str, user: str, password: str, apply_schema: bool = True
+) -> PgConnection:
+    """データベースに接続する
+
+    データベースが存在しない場合は作成する。
+
+    Args:
+        host: ホスト名
+        port: ポート番号
+        database: データベース名
+        user: ユーザー名
+        password: パスワード
+        apply_schema: True の場合、接続時にスキーマファイル（DDL）を適用する
+
+    Returns:
+        データベース接続
+    """
     connection_params: dict[str, Any] = {
         "host": host,
         "port": port,
@@ -330,31 +483,43 @@ def open(host: str, port: int, database: str, user: str, password: str) -> PgCon
     try:
         conn = psycopg2.connect(**connection_params)
     except psycopg2.OperationalError as e:
-        if "does not exist" in str(e):
-            # データベースが存在しない場合、postgresデータベースに接続して作成
-            admin_params = connection_params.copy()
-            admin_params["database"] = "postgres"
+        if not _is_database_missing_error(e, database):
+            raise
 
-            admin_conn = psycopg2.connect(**admin_params)
+        # postgres データベースに接続してデータベースを作成
+        admin_params = connection_params.copy()
+        admin_params["database"] = "postgres"
+
+        admin_conn = psycopg2.connect(**admin_params)
+        try:
             admin_conn.autocommit = True
-
             with admin_conn.cursor() as cur:
                 # データベース名をエスケープしてSQLインジェクションを防ぐ
                 cur.execute(f"CREATE DATABASE {psycopg2.extensions.quote_ident(database, admin_conn)}")
-
+        finally:
             admin_conn.close()
 
-            # 新しく作成したデータベースに接続
-            conn = psycopg2.connect(**connection_params)
-        else:
-            raise
+        # 新しく作成したデータベースに接続
+        conn = psycopg2.connect(**connection_params)
 
     conn.autocommit = True
 
-    # 外部スキーマファイルからスキーマを読み込んで実行
-    _execute_schema(conn)
+    if apply_schema:
+        # 外部スキーマファイルからスキーマを読み込んで実行
+        _execute_schema(conn)
 
     return conn
+
+
+def apply_schema(conn: PgConnection) -> None:
+    """スキーマファイル（schema/postgres.schema）を適用する
+
+    open(apply_schema=False) で接続した場合などに、明示的にスキーマを適用するために使用する。
+
+    Args:
+        conn: データベース接続
+    """
+    _execute_schema(conn)
 
 
 def _execute_schema(conn: PgConnection) -> None:
@@ -621,6 +786,71 @@ def store_term() -> None:
     _should_terminate.set()
 
 
+def _build_raw_data_filter(
+    time_start: datetime.datetime,
+    time_end: datetime.datetime,
+    distance: float,
+    max_altitude: float | None,
+) -> tuple[str, list[Any]]:
+    """グラフ用生データクエリの WHERE 句とパラメータを構築する
+
+    集約テーブルと同じ品質フィルタ（温度閾値、高度 0〜13000m）を適用し、
+    期間 14 日前後（生データ / 集約テーブル）で表示データの条件が変わらないようにする。
+
+    Args:
+        time_start: 開始時刻（aware datetime）
+        time_end: 終了時刻（aware datetime）
+        distance: 距離フィルタ
+        max_altitude: 最大高度フィルタ（None の場合は品質フィルタの上限のみ）
+
+    Returns:
+        (WHERE 句, パラメータリスト)
+    """
+    altitude_max = (
+        amdar.constants.GRAPH_ALT_MAX
+        if max_altitude is None
+        else min(max_altitude, amdar.constants.GRAPH_ALT_MAX)
+    )
+    where = (
+        "time >= %s AND time <= %s AND distance <= %s "
+        "AND altitude IS NOT NULL AND altitude >= %s AND altitude <= %s "
+        "AND temperature > %s"
+    )
+    params: list[Any] = [
+        time_start,
+        time_end,
+        distance,
+        amdar.constants.GRAPH_ALT_MIN,
+        altitude_max,
+        amdar.constants.GRAPH_TEMPERATURE_THRESHOLD,
+    ]
+    return where, params
+
+
+def _build_aggregate_filter(
+    time_start: datetime.datetime,
+    time_end: datetime.datetime,
+    max_altitude: float | None,
+) -> tuple[str, list[Any]]:
+    """集約テーブルクエリの WHERE 句とパラメータを構築する"""
+    where = "time_bucket >= %s AND time_bucket <= %s"
+    params: list[Any] = [time_start, time_end]
+    if max_altitude is not None:
+        where += " AND altitude <= %s"
+        params.append(max_altitude)
+    return where, params
+
+
+def _warn_if_row_limit_reached(row_count: int, context: str) -> None:
+    """行数が上限に達した場合に警告を出す"""
+    if row_count >= amdar.constants.RAW_FETCH_ROW_LIMIT:
+        logging.warning(
+            "行数が上限（%s 行）に達したため、結果が切り詰められている可能性があります（%s）",
+            f"{amdar.constants.RAW_FETCH_ROW_LIMIT:,}",
+            context,
+        )
+
+
 def fetch_by_time(
     conn: PgConnection,
     time_start: datetime.datetime,
@@ -632,16 +862,19 @@ def fetch_by_time(
     """
     指定された時間範囲と距離でデータを取得する
 
+    集約テーブルと同じ品質フィルタ（温度閾値、高度 0〜13000m）を適用する。
+    取得行数は RAW_FETCH_ROW_LIMIT で制限される。
+
     Args:
         conn: データベース接続
-        time_start: 開始時刻
-        time_end: 終了時刻
+        time_start: 開始時刻（aware datetime）
+        time_end: 終了時刻（aware datetime）
         distance: 距離フィルタ
         columns: 取得するカラムのリスト。Noneの場合はデフォルト['time', 'altitude', 'temperature', 'distance']
         max_altitude: 最大高度フィルタ（Noneの場合はフィルタなし）
 
     Returns:
-        取得されたデータのリスト
+        取得されたデータのリスト（time は aware datetime）
 
     """
     if columns is None:
@@ -650,47 +883,18 @@ def fetch_by_time(
     # カラム名をサニタイズ（SQLインジェクション対策）
     columns_str = sanitize_columns(columns, VALID_METEOROLOGICAL_COLUMNS)
 
+    where, params = _build_raw_data_filter(time_start, time_end, distance, max_altitude)
+
     start = time.perf_counter()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        # クエリを最適化：インデックスを効率的に使用し、不要なデータを事前フィルタ
-        if max_altitude is not None:
-            query = (
-                f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
-                f"WHERE time >= %s AND time <= %s AND distance <= %s "
-                f"AND altitude IS NOT NULL AND altitude <= %s "
-                f"ORDER BY time"
-            )
-            # データベースはnaive datetime（サーバローカルタイム=JST）で保存されているため、
-            # クエリ時もタイムゾーン情報を除去してnaive datetimeとして比較する
-            cur.execute(
-                query,
-                (
-                    _to_naive_datetime(time_start),
-                    _to_naive_datetime(time_end),
-                    distance,
-                    max_altitude,
-                ),
-            )
-        else:
-            query = (
-                f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
-                f"WHERE time >= %s AND time <= %s AND distance <= %s "
-                f"AND altitude IS NOT NULL "
-                f"ORDER BY time"
-            )
-            # データベースはnaive datetime（サーバローカルタイム=JST）で保存されているため、
-            # クエリ時もタイムゾーン情報を除去してnaive datetimeとして比較する
-            cur.execute(
-                query,
-                (
-                    _to_naive_datetime(time_start),
-                    _to_naive_datetime(time_end),
-                    distance,
-                ),
-            )
-        # fetchallではなく大きなデータセット向けにitersize指定でメモリ効率化
-        cur.itersize = 10000  # 大量データ取得時のメモリ効率化
+        query = (
+            f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
+            f"WHERE {where} ORDER BY time LIMIT %s"
+        )
+        cur.execute(query, (*params, amdar.constants.RAW_FETCH_ROW_LIMIT))
         data = cur.fetchall()
+
+        _warn_if_row_limit_reached(len(data), "fetch_by_time")
 
         logging.info(
             "Elapsed time: %.2f sec (selected %d columns, %s rows)",
@@ -715,11 +919,13 @@ def fetch_by_time_numpy(
 
     RealDictCursor を使わず、タプル形式で取得してNumPy配列に直接変換することで
     大量データの取得を高速化する。ORDER BY も省略してパフォーマンスを向上。
+    集約テーブルと同じ品質フィルタ（温度閾値、高度 0〜13000m）を適用する。
+    取得行数は RAW_FETCH_ROW_LIMIT で制限される。
 
     Args:
         conn: データベース接続
-        time_start: 開始時刻
-        time_end: 終了時刻
+        time_start: 開始時刻（aware datetime）
+        time_end: 終了時刻（aware datetime）
         distance: 距離フィルタ
         max_altitude: 最大高度フィルタ（Noneの場合はフィルタなし）
         include_wind: 風データを含めるか
@@ -736,41 +942,21 @@ def fetch_by_time_numpy(
         columns = "time, altitude, temperature"
         col_count = 3
 
+    where, params = _build_raw_data_filter(time_start, time_end, distance, max_altitude)
+
     start = time.perf_counter()
     with conn.cursor() as cur:
         # ORDER BY を省略（グラフ描画には時間順序が不要）
-        if max_altitude is not None:
-            query = (
-                f"SELECT {columns} FROM meteorological_data "  # noqa: S608
-                f"WHERE time >= %s AND time <= %s AND distance <= %s "
-                f"AND altitude IS NOT NULL AND altitude <= %s"
-            )
-            cur.execute(
-                query,
-                (
-                    _to_naive_datetime(time_start),
-                    _to_naive_datetime(time_end),
-                    distance,
-                    max_altitude,
-                ),
-            )
-        else:
-            query = (
-                f"SELECT {columns} FROM meteorological_data "  # noqa: S608
-                f"WHERE time >= %s AND time <= %s AND distance <= %s "
-                f"AND altitude IS NOT NULL"
-            )
-            cur.execute(
-                query,
-                (
-                    _to_naive_datetime(time_start),
-                    _to_naive_datetime(time_end),
-                    distance,
-                ),
-            )
+        query = (
+            f"SELECT {columns} FROM meteorological_data "  # noqa: S608
+            f"WHERE {where} LIMIT %s"
+        )
+        cur.execute(query, (*params, amdar.constants.RAW_FETCH_ROW_LIMIT))
 
         # タプル形式で全データ取得
         rows = cur.fetchall()
+
+        _warn_if_row_limit_reached(len(rows), "fetch_by_time_numpy")
 
         result = _convert_rows_to_numpy_arrays(rows, include_wind)
 
@@ -794,10 +980,13 @@ def fetch_aggregated_numpy(
     """
     期間に応じて適切な集約レベルのデータをNumPy配列として取得する（高速版）
 
+    NOTE: 集約テーブル使用時、結果の time 列には time_bucket（バケット開始時刻）が
+    入る（fetch_aggregated_by_time は代表点の実測定時刻を返す点が異なる）。
+
     Args:
         conn: データベース接続
-        time_start: 開始時刻
-        time_end: 終了時刻
+        time_start: 開始時刻（aware datetime）
+        time_end: 終了時刻（aware datetime）
         max_altitude: 最大高度フィルタ（Noneの場合はフィルタなし）
         include_wind: 風データを含めるか
 
@@ -816,8 +1005,7 @@ def fetch_aggregated_numpy(
         level.altitude_bin,
     )
 
-    # 生データの場合は既存の関数を使用
-    if level.table == "meteorological_data":
+    def _fallback_to_raw() -> NumpyFetchResult:
         return fetch_by_time_numpy(
             conn,
             time_start,
@@ -827,21 +1015,15 @@ def fetch_aggregated_numpy(
             include_wind=include_wind,
         )
 
-    # マテリアライズドビューが存在するか確認
-    view_exists = check_materialized_views_exist(conn)
-    if not view_exists.get(level.table):
-        logging.warning(
-            "Materialized view %s does not exist, falling back to raw data",
-            level.table,
-        )
-        return fetch_by_time_numpy(
-            conn,
-            time_start,
-            time_end,
-            distance=DEFAULT_DISTANCE_KM,
-            max_altitude=max_altitude,
-            include_wind=include_wind,
-        )
+    # 生データの場合は既存の関数を使用
+    if level.table == "meteorological_data":
+        return _fallback_to_raw()
+
+    # 集約テーブルが存在するか確認
+    table_exists = check_materialized_views_exist(conn)
+    if not table_exists.get(level.table):
+        logging.warning("Aggregate table %s does not exist, falling back to raw data", level.table)
+        return _fallback_to_raw()
 
     # カラム選択（time_bucket を time として取得）
     if include_wind:
@@ -851,55 +1033,19 @@ def fetch_aggregated_numpy(
         columns = "time_bucket AS time, altitude, temperature"
         col_count = 3
 
+    where, params = _build_aggregate_filter(time_start, time_end, max_altitude)
+
     start = time.perf_counter()
     try:
         with conn.cursor() as cur:
-            if max_altitude is not None:
-                query = f"""
-                    SELECT {columns}
-                    FROM {level.table}
-                    WHERE time_bucket >= %s
-                      AND time_bucket <= %s
-                      AND altitude <= %s
-                """  # noqa: S608
-                cur.execute(
-                    query,
-                    (
-                        _to_naive_datetime(time_start),
-                        _to_naive_datetime(time_end),
-                        max_altitude,
-                    ),
-                )
-            else:
-                query = f"""
-                    SELECT {columns}
-                    FROM {level.table}
-                    WHERE time_bucket >= %s
-                      AND time_bucket <= %s
-                """  # noqa: S608
-                cur.execute(
-                    query,
-                    (
-                        _to_naive_datetime(time_start),
-                        _to_naive_datetime(time_end),
-                    ),
-                )
+            query = f"SELECT {columns} FROM {level.table} WHERE {where}"  # noqa: S608
+            cur.execute(query, params)
 
             rows = cur.fetchall()
 
             if len(rows) == 0:
-                logging.warning(
-                    "No data in materialized view %s, falling back to raw data",
-                    level.table,
-                )
-                return fetch_by_time_numpy(
-                    conn,
-                    time_start,
-                    time_end,
-                    distance=DEFAULT_DISTANCE_KM,
-                    max_altitude=max_altitude,
-                    include_wind=include_wind,
-                )
+                logging.warning("No data in aggregate table %s, falling back to raw data", level.table)
+                return _fallback_to_raw()
 
             result = _convert_rows_to_numpy_arrays(rows, include_wind)
 
@@ -915,18 +1061,11 @@ def fetch_aggregated_numpy(
 
     except psycopg2.Error as e:
         logging.warning(
-            "Error fetching from materialized view %s: %s, falling back to raw data",
+            "Error fetching from aggregate table %s: %s, falling back to raw data",
             level.table,
             str(e),
         )
-        return fetch_by_time_numpy(
-            conn,
-            time_start,
-            time_end,
-            distance=DEFAULT_DISTANCE_KM,
-            max_altitude=max_altitude,
-            include_wind=include_wind,
-        )
+        return _fallback_to_raw()
 
 
 def fetch_latest(
@@ -961,18 +1100,18 @@ def fetch_latest(
             query = (
                 f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
                 f"WHERE altitude IS NOT NULL AND temperature IS NOT NULL "
-                f"AND temperature > {amdar.constants.GRAPH_TEMPERATURE_THRESHOLD} AND distance <= %s "
+                f"AND temperature > %s AND distance <= %s "
                 f"ORDER BY time DESC LIMIT %s"
             )
-            cur.execute(query, (distance, limit))
+            cur.execute(query, (amdar.constants.GRAPH_TEMPERATURE_THRESHOLD, distance, limit))
         else:
             query = (
                 f"SELECT {columns_str} FROM meteorological_data "  # noqa: S608
                 f"WHERE altitude IS NOT NULL AND temperature IS NOT NULL "
-                f"AND temperature > {amdar.constants.GRAPH_TEMPERATURE_THRESHOLD} "
+                f"AND temperature > %s "
                 f"ORDER BY time DESC LIMIT %s"
             )
-            cur.execute(query, (limit,))
+            cur.execute(query, (amdar.constants.GRAPH_TEMPERATURE_THRESHOLD, limit))
 
         data = cur.fetchall()
 
@@ -986,9 +1125,27 @@ def fetch_latest(
         return data
 
 
+# fetch_data_range の TTL キャッシュ
+# COUNT(*) の全件スキャンを毎回実行しないため、一定時間結果を保持する
+_data_range_cache_lock = threading.Lock()
+_data_range_cache: DataRangeResult | None = None
+_data_range_cache_time: float = 0.0
+
+
+def _clear_data_range_cache() -> None:
+    """fetch_data_range のキャッシュをクリアする（主にテスト用）"""
+    global _data_range_cache, _data_range_cache_time
+    with _data_range_cache_lock:
+        _data_range_cache = None
+        _data_range_cache_time = 0.0
+
+
 def fetch_data_range(conn: PgConnection) -> DataRangeResult:
     """
     データベースの最古・最新データの日時とレコード数を取得する
+
+    COUNT(*) の全件スキャンを伴うため、結果は DATA_RANGE_CACHE_TTL_SECONDS の間
+    モジュールレベルでキャッシュされる。
 
     Args:
         conn: データベース接続
@@ -997,6 +1154,15 @@ def fetch_data_range(conn: PgConnection) -> DataRangeResult:
         DataRangeResult: earliest, latest, countを含むデータ
 
     """
+    global _data_range_cache, _data_range_cache_time
+
+    with _data_range_cache_lock:
+        if (
+            _data_range_cache is not None
+            and (time.time() - _data_range_cache_time) < amdar.constants.DATA_RANGE_CACHE_TTL_SECONDS
+        ):
+            return _data_range_cache
+
     query = """
     SELECT
         MIN(time) as earliest,
@@ -1016,14 +1182,20 @@ def fetch_data_range(conn: PgConnection) -> DataRangeResult:
     )
 
     if result and result["earliest"] and result["latest"]:
-        return DataRangeResult(
+        data_range = DataRangeResult(
             earliest=result["earliest"],
             latest=result["latest"],
             count=result["count"],
         )
     else:
         # データがない場合
-        return DataRangeResult(earliest=None, latest=None, count=0)
+        data_range = DataRangeResult(earliest=None, latest=None, count=0)
+
+    with _data_range_cache_lock:
+        _data_range_cache = data_range
+        _data_range_cache_time = time.time()
+
+    return data_range
 
 
 def fetch_last_received_by_method(conn: PgConnection) -> MethodLastReceived:
@@ -1068,6 +1240,113 @@ def fetch_last_received_by_method(conn: PgConnection) -> MethodLastReceived:
     return MethodLastReceived(mode_s=mode_s_time, vdl2=vdl2_time)
 
 
+def fetch_observation_counts_by_method(conn: PgConnection, hours: int) -> MethodObservationCounts:
+    """
+    直近 N 時間の観測数を受信方式（Mode S / VDL2）別に取得する
+
+    Args:
+        conn: データベース接続
+        hours: 集計対象の直近時間数
+
+    Returns:
+        MethodObservationCounts: mode_s, vdl2 の観測数
+
+    """
+    since = my_lib.time.now() - datetime.timedelta(hours=hours)
+
+    query = """
+    SELECT
+        method,
+        COUNT(*) as count
+    FROM meteorological_data
+    WHERE time >= %s AND method IN ('mode-s', 'vdl2')
+    GROUP BY method
+    """
+
+    start = time.perf_counter()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(query, (since,))
+        results = cur.fetchall()
+
+    logging.info(
+        "Elapsed time: %.2f sec (observation counts query, last %d hours)",
+        time.perf_counter() - start,
+        hours,
+    )
+
+    mode_s_count = 0
+    vdl2_count = 0
+
+    for row in results:
+        if row["method"] == amdar.constants.MODE_S_METHOD:
+            mode_s_count = row["count"]
+        elif row["method"] == amdar.constants.VDL2_METHOD:
+            vdl2_count = row["count"]
+
+    return MethodObservationCounts(mode_s=mode_s_count, vdl2=vdl2_count)
+
+
+# fetch_receiver_quality の TTL キャッシュ
+# /api/metrics のスクレイプ毎に集計クエリを実行しないため、一定時間結果を保持する
+_receiver_quality_cache_lock = threading.Lock()
+_receiver_quality_cache: ReceiverQualityResult | None = None
+_receiver_quality_cache_time: float = 0.0
+
+
+def _clear_receiver_quality_cache() -> None:
+    """fetch_receiver_quality のキャッシュをクリアする（主にテスト用）"""
+    global _receiver_quality_cache, _receiver_quality_cache_time
+    with _receiver_quality_cache_lock:
+        _receiver_quality_cache = None
+        _receiver_quality_cache_time = 0.0
+
+
+def fetch_receiver_quality(conn: PgConnection) -> ReceiverQualityResult:
+    """
+    受信品質スナップショット（観測数・最終受信時刻・集約テーブル行数）を取得する
+
+    集計クエリを伴うため、結果は RECEIVER_QUALITY_CACHE_TTL_SECONDS の間
+    モジュールレベルでキャッシュされる。
+
+    Args:
+        conn: データベース接続
+
+    Returns:
+        ReceiverQualityResult: 受信品質スナップショット
+
+    """
+    global _receiver_quality_cache, _receiver_quality_cache_time
+
+    with _receiver_quality_cache_lock:
+        if (
+            _receiver_quality_cache is not None
+            and (time.time() - _receiver_quality_cache_time)
+            < amdar.constants.RECEIVER_QUALITY_CACHE_TTL_SECONDS
+        ):
+            return _receiver_quality_cache
+
+    last_hour = fetch_observation_counts_by_method(conn, hours=1)
+    last_24h = fetch_observation_counts_by_method(conn, hours=24)
+    last_received = fetch_last_received_by_method(conn)
+    view_stats = get_materialized_view_stats(conn)
+
+    result = ReceiverQualityResult(
+        last_hour=last_hour,
+        last_24h=last_24h,
+        last_received=last_received,
+        aggregate_rows=AggregateRowCounts(
+            halfhourly_altitude_grid=view_stats.halfhourly_altitude_grid.row_count,
+            threehour_altitude_grid=view_stats.threehour_altitude_grid.row_count,
+        ),
+    )
+
+    with _receiver_quality_cache_lock:
+        _receiver_quality_cache = result
+        _receiver_quality_cache_time = time.time()
+
+    return result
+
+
 def get_aggregation_level(days: float) -> AggregationLevel:
     """
     期間に応じた適切な集約レベルを取得する
@@ -1094,14 +1373,17 @@ def fetch_aggregated_by_time(
     """
     期間に応じて適切な集約レベルのデータを取得する
 
+    NOTE: 集約テーブル使用時、結果の time 列には代表点の実測定時刻が入る
+    （fetch_aggregated_numpy は time_bucket を time として返す点が異なる）。
+
     Args:
         conn: データベース接続
-        time_start: 開始時刻
-        time_end: 終了時刻
+        time_start: 開始時刻（aware datetime）
+        time_end: 終了時刻（aware datetime）
         max_altitude: 最大高度フィルタ（Noneの場合はフィルタなし）
 
     Returns:
-        取得されたデータのリスト（生データ形式に変換済み）
+        取得されたデータのリスト（生データ形式に変換済み、time は aware datetime）
 
     """
     days = (time_end - time_start).total_seconds() / 86400
@@ -1126,89 +1408,46 @@ def fetch_aggregated_by_time(
         "wind_angle",
     ]
 
-    # 生データの場合は既存の関数を使用
-    if level.table == "meteorological_data":
+    def _fallback_to_raw() -> Sequence[dict[str, Any]]:
         return fetch_by_time(
             conn,
             time_start,
             time_end,
-            distance=DEFAULT_DISTANCE_KM,  # 集約ビューは既にdistance<=100でフィルタ済み
+            distance=DEFAULT_DISTANCE_KM,  # 集約テーブルは既にdistance<=100でフィルタ済み
             columns=fallback_columns,
             max_altitude=max_altitude,
         )
 
-    # マテリアライズドビューが存在するか確認
-    view_exists = check_materialized_views_exist(conn)
-    if not view_exists.get(level.table):
-        logging.warning(
-            "Materialized view %s does not exist, falling back to raw data",
-            level.table,
-        )
-        return fetch_by_time(
-            conn,
-            time_start,
-            time_end,
-            distance=DEFAULT_DISTANCE_KM,
-            columns=fallback_columns,
-            max_altitude=max_altitude,
-        )
+    # 生データの場合は既存の関数を使用
+    if level.table == "meteorological_data":
+        return _fallback_to_raw()
+
+    # 集約テーブルが存在するか確認
+    table_exists = check_materialized_views_exist(conn)
+    if not table_exists.get(level.table):
+        logging.warning("Aggregate table %s does not exist, falling back to raw data", level.table)
+        return _fallback_to_raw()
+
+    where, params = _build_aggregate_filter(time_start, time_end, max_altitude)
 
     # サンプリングデータを取得（実際のデータ点を使用）
     start = time.perf_counter()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            if max_altitude is not None:
-                query = f"""
-                    SELECT
-                        time,
-                        altitude,
-                        temperature,
-                        wind_x,
-                        wind_y,
-                        wind_speed,
-                        wind_angle
-                    FROM {level.table}
-                    WHERE time_bucket >= %s
-                      AND time_bucket <= %s
-                      AND altitude <= %s
-                    ORDER BY time
-                """  # noqa: S608
-                # データベースはnaive datetime（サーバローカルタイム=JST）で保存されているため、
-                # クエリ時もタイムゾーン情報を除去してnaive datetimeとして比較する
-                cur.execute(
-                    query,
-                    (
-                        _to_naive_datetime(time_start),
-                        _to_naive_datetime(time_end),
-                        max_altitude,
-                    ),
-                )
-            else:
-                query = f"""
-                    SELECT
-                        time,
-                        altitude,
-                        temperature,
-                        wind_x,
-                        wind_y,
-                        wind_speed,
-                        wind_angle
-                    FROM {level.table}
-                    WHERE time_bucket >= %s
-                      AND time_bucket <= %s
-                    ORDER BY time
-                """  # noqa: S608
-                # データベースはnaive datetime（サーバローカルタイム=JST）で保存されているため、
-                # クエリ時もタイムゾーン情報を除去してnaive datetimeとして比較する
-                cur.execute(
-                    query,
-                    (
-                        _to_naive_datetime(time_start),
-                        _to_naive_datetime(time_end),
-                    ),
-                )
-
-            cur.itersize = 10000
+            query = f"""
+                SELECT
+                    time,
+                    altitude,
+                    temperature,
+                    wind_x,
+                    wind_y,
+                    wind_speed,
+                    wind_angle
+                FROM {level.table}
+                WHERE {where}
+                ORDER BY time
+            """  # noqa: S608
+            cur.execute(query, params)
             data = cur.fetchall()
 
             logging.info(
@@ -1220,117 +1459,248 @@ def fetch_aggregated_by_time(
 
             # データが空の場合は生データにフォールバック
             if not data:
-                logging.warning(
-                    "No data in materialized view %s, falling back to raw data",
-                    level.table,
-                )
-                return fetch_by_time(
-                    conn,
-                    time_start,
-                    time_end,
-                    distance=DEFAULT_DISTANCE_KM,
-                    columns=fallback_columns,
-                    max_altitude=max_altitude,
-                )
+                logging.warning("No data in aggregate table %s, falling back to raw data", level.table)
+                return _fallback_to_raw()
 
             return data
 
     except psycopg2.Error as e:
         logging.warning(
-            "Error fetching from materialized view %s: %s, falling back to raw data",
+            "Error fetching from aggregate table %s: %s, falling back to raw data",
             level.table,
             str(e),
         )
-        return fetch_by_time(
-            conn,
-            time_start,
-            time_end,
-            distance=DEFAULT_DISTANCE_KM,
-            columns=fallback_columns,
-            max_altitude=max_altitude,
-        )
+        return _fallback_to_raw()
 
 
-def _refresh_single_view(conn: PgConnection, view: str) -> float:
-    """単一のマテリアライズドビューを更新する
+def _align_to_bucket_start(dt: datetime.datetime, bucket_seconds: int) -> datetime.datetime:
+    """datetime をバケット境界（JST 基準）に切り下げる
+
+    増分更新の DELETE / INSERT で同じバケット境界を使うことで、
+    バケット途中のデータだけが再集約されて重複キーになるのを防ぐ。
+
+    Args:
+        dt: aware datetime
+        bucket_seconds: バケット幅（秒）
 
     Returns:
-        更新にかかった時間（秒）。エラー時は -1
+        バケット開始時刻に切り下げた aware datetime（JST）
+    """
+    zone = my_lib.time.get_zoneinfo()
+    local = dt.astimezone(zone)
+    midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    seconds_into_day = (local - midnight).total_seconds()
+    aligned_seconds = int(seconds_into_day // bucket_seconds) * bucket_seconds
+    return midnight + datetime.timedelta(seconds=aligned_seconds)
+
+
+def _build_aggregate_insert_sql(spec: AggregateTableSpec, with_time_filter: bool) -> str:
+    """集約テーブルへの INSERT ... SELECT 文を構築する
+
+    パラメータ順: (distance, temperature 閾値, 高度下限, 高度上限 [, time 下限])
+    """
+    time_filter = "AND time >= %s" if with_time_filter else ""
+    altitude_bin = amdar.constants.AGGREGATE_ALTITUDE_BIN_METERS
+    return f"""
+        INSERT INTO {spec.table} ({_AGGREGATE_COLUMNS})
+        SELECT DISTINCT ON (time_bucket, altitude_bin)
+            {spec.bucket_expr} AS time_bucket,
+            (floor(altitude / {altitude_bin}) * {altitude_bin})::int AS altitude_bin,
+            time,
+            altitude,
+            temperature,
+            wind_x,
+            wind_y,
+            wind_speed,
+            wind_angle
+        FROM meteorological_data
+        WHERE distance <= %s
+          AND temperature > %s
+          AND altitude IS NOT NULL
+          AND altitude >= %s
+          AND altitude <= %s
+          {time_filter}
+        ORDER BY time_bucket, altitude_bin, time DESC
+    """  # noqa: S608
+
+
+def _aggregate_quality_filter_params() -> tuple[Any, ...]:
+    """集約 SELECT の品質フィルタパラメータ"""
+    return (
+        DEFAULT_DISTANCE_KM,
+        amdar.constants.GRAPH_TEMPERATURE_THRESHOLD,
+        amdar.constants.GRAPH_ALT_MIN,
+        amdar.constants.GRAPH_ALT_MAX,
+    )
+
+
+def _refresh_aggregate_table_incremental(conn: PgConnection, spec: AggregateTableSpec) -> float:
+    """集約テーブルを増分更新する
+
+    直近ウィンドウ（refresh_window_seconds）のバケットを削除して再集約する。
+    DELETE と INSERT は1トランザクションで実行する。
+
+    Returns:
+        更新にかかった時間（秒）
+
+    Raises:
+        psycopg2.Error: 更新に失敗した場合
     """
     start = time.perf_counter()
-    try:
-        with conn.cursor() as cur:
-            # CONCURRENTLYを使用すると、更新中もビューを読み取り可能
-            # ただし、初回はインデックスが必要
-            cur.execute(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view}")
-        elapsed = time.perf_counter() - start
-        logging.info("Refreshed %s in %.2f sec", view, elapsed)
-        return elapsed
-    except psycopg2.DatabaseError as e:
-        # CONCURRENTLY が使えない場合（ユニークインデックスがない）は通常のREFRESH
-        # エラーコード 55000 = OBJECT_NOT_IN_PREREQUISITE_STATE
-        if getattr(e, "pgcode", None) == "55000":
-            conn.rollback()  # エラー後のロールバック
-            with conn.cursor() as cur:
-                cur.execute(f"REFRESH MATERIALIZED VIEW {view}")
-            elapsed = time.perf_counter() - start
-            logging.info("Refreshed %s (non-concurrent) in %.2f sec", view, elapsed)
-            return elapsed
-        raise
-    except Exception:
-        logging.exception("Failed to refresh %s", view)
-        return -1
+    window_start = _align_to_bucket_start(
+        my_lib.time.now() - datetime.timedelta(seconds=spec.refresh_window_seconds),
+        spec.bucket_seconds,
+    )
+
+    insert_sql = _build_aggregate_insert_sql(spec, with_time_filter=True)
+
+    # conn は autocommit のため、明示的に BEGIN/COMMIT で1トランザクションにする
+    with conn.cursor() as cur:
+        cur.execute("BEGIN")
+        try:
+            cur.execute(
+                f"DELETE FROM {spec.table} WHERE time_bucket >= %s",  # noqa: S608
+                (window_start,),
+            )
+            cur.execute(insert_sql, (*_aggregate_quality_filter_params(), window_start))
+            inserted = cur.rowcount
+            cur.execute("COMMIT")
+        except Exception:
+            with contextlib.suppress(Exception):
+                cur.execute("ROLLBACK")
+            raise
+
+    elapsed = time.perf_counter() - start
+    logging.info(
+        "Refreshed %s incrementally (window >= %s, %d rows) in %.2f sec",
+        spec.table,
+        window_start,
+        inserted,
+        elapsed,
+    )
+    return elapsed
+
+
+def _rebuild_aggregate_table(conn: PgConnection, spec: AggregateTableSpec) -> float:
+    """集約テーブルを全量再構築する（TRUNCATE + 全期間 INSERT）
+
+    Returns:
+        再構築にかかった時間（秒）
+
+    Raises:
+        psycopg2.Error: 再構築に失敗した場合
+    """
+    start = time.perf_counter()
+    insert_sql = _build_aggregate_insert_sql(spec, with_time_filter=False)
+
+    with conn.cursor() as cur:
+        cur.execute("BEGIN")
+        try:
+            cur.execute(f"TRUNCATE {spec.table}")
+            cur.execute(insert_sql, _aggregate_quality_filter_params())
+            inserted = cur.rowcount
+            cur.execute("COMMIT")
+        except Exception:
+            with contextlib.suppress(Exception):
+                cur.execute("ROLLBACK")
+            raise
+
+    elapsed = time.perf_counter() - start
+    logging.info("Rebuilt %s (%d rows) in %.2f sec", spec.table, inserted, elapsed)
+    return elapsed
 
 
 def refresh_materialized_views(conn: PgConnection) -> MaterializedViewRefreshResult:
     """
-    全てのマテリアライズドビューを更新する
+    全ての集約テーブルを増分更新する
+
+    名前は互換性のため維持している（旧実装ではマテリアライズドビューを
+    REFRESH していたが、現在は増分集約テーブルの更新を行う）。
+    各テーブルは独立に更新され、片方の失敗はもう片方の更新を妨げない。
 
     Args:
         conn: データベース接続
 
     Returns:
-        各ビューの更新にかかった時間（秒）
-
+        各テーブルの更新にかかった時間（秒）。エラー時は -1
     """
+    results: dict[str, float] = {}
+    for spec in _AGGREGATE_TABLE_SPECS:
+        try:
+            results[spec.table] = _refresh_aggregate_table_incremental(conn, spec)
+        except Exception:
+            logging.exception("Failed to refresh %s", spec.table)
+            with contextlib.suppress(Exception):
+                conn.rollback()
+            results[spec.table] = -1.0
+
     return MaterializedViewRefreshResult(
-        halfhourly_altitude_grid=_refresh_single_view(conn, "halfhourly_altitude_grid"),
-        threehour_altitude_grid=_refresh_single_view(conn, "threehour_altitude_grid"),
+        halfhourly_altitude_grid=results["halfhourly_altitude_grid"],
+        threehour_altitude_grid=results["threehour_altitude_grid"],
+    )
+
+
+def rebuild_aggregate_tables(conn: PgConnection) -> MaterializedViewRefreshResult:
+    """
+    全ての集約テーブルを全量再構築する（TRUNCATE + 全期間 INSERT）
+
+    初期構築やデータ修復時に使用する。データ量によっては長時間かかる。
+    各テーブルは独立に再構築され、片方の失敗はもう片方を妨げない。
+
+    Args:
+        conn: データベース接続
+
+    Returns:
+        各テーブルの再構築にかかった時間（秒）。エラー時は -1
+    """
+    results: dict[str, float] = {}
+    for spec in _AGGREGATE_TABLE_SPECS:
+        try:
+            results[spec.table] = _rebuild_aggregate_table(conn, spec)
+        except Exception:
+            logging.exception("Failed to rebuild %s", spec.table)
+            with contextlib.suppress(Exception):
+                conn.rollback()
+            results[spec.table] = -1.0
+
+    return MaterializedViewRefreshResult(
+        halfhourly_altitude_grid=results["halfhourly_altitude_grid"],
+        threehour_altitude_grid=results["threehour_altitude_grid"],
     )
 
 
 def check_materialized_views_exist(conn: PgConnection) -> MaterializedViewsStatus:
     """
-    マテリアライズドビューの存在を確認する
+    集約テーブル（旧マテリアライズドビュー）の存在を確認する
+
+    名前は互換性のため維持している。to_regclass による1回のクエリで
+    テーブル・ビューいずれの形態でも存在を検出する。
 
     Args:
         conn: データベース接続
 
     Returns:
-        マテリアライズドビューの存在状態
+        集約テーブルの存在状態
 
     """
-    views = ["halfhourly_altitude_grid", "threehour_altitude_grid"]
-    results: dict[str, bool] = {}
-
     with conn.cursor() as cur:
-        for view in views:
-            cur.execute(
-                "SELECT EXISTS (SELECT 1 FROM pg_matviews WHERE matviewname = %s)",
-                (view,),
-            )
-            row = cur.fetchone()
-            exists = row[0] if row else False
-            results[view] = exists
+        cur.execute(
+            "SELECT to_regclass(%s) IS NOT NULL, to_regclass(%s) IS NOT NULL",
+            AGGREGATE_TABLES,
+        )
+        row = cur.fetchone()
+
+    if row is None:
+        return MaterializedViewsStatus()
 
     return MaterializedViewsStatus(
-        halfhourly_altitude_grid=results.get("halfhourly_altitude_grid", False),
-        threehour_altitude_grid=results.get("threehour_altitude_grid", False),
+        halfhourly_altitude_grid=bool(row[0]),
+        threehour_altitude_grid=bool(row[1]),
     )
 
 
-def _fetch_view_stats(conn: PgConnection, view: str) -> MaterializedViewStats:
-    """単一のマテリアライズドビューの統計情報を取得する"""
+def _fetch_view_stats(conn: PgConnection, table: str) -> MaterializedViewStats:
+    """単一の集約テーブルの統計情報を取得する"""
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
@@ -1339,7 +1709,7 @@ def _fetch_view_stats(conn: PgConnection, view: str) -> MaterializedViewStats:
                     COUNT(*) as row_count,
                     MIN(time_bucket) as earliest,
                     MAX(time_bucket) as latest
-                FROM {view}
+                FROM {table}
                 """  # noqa: S608
             )
             result = cur.fetchone()
@@ -1351,19 +1721,19 @@ def _fetch_view_stats(conn: PgConnection, view: str) -> MaterializedViewStats:
                 )
             return MaterializedViewStats(row_count=0, earliest=None, latest=None)
     except Exception:
-        logging.exception("Failed to get stats for %s", view)
+        logging.exception("Failed to get stats for %s", table)
         return MaterializedViewStats(row_count=0, earliest=None, latest=None, error=True)
 
 
 def get_materialized_view_stats(conn: PgConnection) -> AllMaterializedViewStats:
     """
-    マテリアライズドビューの統計情報を取得する
+    集約テーブルの統計情報を取得する
 
     Args:
         conn: データベース接続
 
     Returns:
-        各ビューの統計情報
+        各テーブルの統計情報
 
     """
     return AllMaterializedViewStats(

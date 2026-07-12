@@ -14,17 +14,17 @@ Options:
 from __future__ import annotations
 
 import logging
-import math
 import pathlib
 import queue
 import socket
 import threading
 import time
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypedDict, cast
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 import my_lib.footprint
 import my_lib.notify.slack
+import my_lib.time
 import pyModeS
 
 if TYPE_CHECKING:
@@ -36,39 +36,73 @@ if TYPE_CHECKING:
 
 import amdar.constants
 import amdar.core.geo
+import amdar.core.physics
 import amdar.sources.outlier
 from amdar.core.types import WeatherObservation
 from amdar.core.types import WindData as CoreWindData
 from amdar.database.postgresql import MeasurementData as MeteorologicalData
 
+_FRAGMENT_BUF_SIZE: int = 100
+"""フラグメントの最大保持件数"""
 
-class MessageFragment(TypedDict, total=False):
-    """メッセージフラグメント"""
+_FOOTPRINT_UPDATE_INTERVAL_SECONDS: float = 5.0
+"""Liveness ファイル更新のスロットル間隔（秒）"""
+
+
+@dataclass
+class _MessageFragment:
+    """ICAO ごとのメッセージフラグメント（リアルタイム受信・ファイル解析共用）"""
 
     icao: str
-    adsb_pos: tuple[float, float | None, float | None]
-    adsb_sign: tuple[str]
-    bds50: tuple[float | None, float | None, float | None]
-    bds60: tuple[float | None, float | None, float | None]
-    # BDS44: (temperature, wind_speed, wind_direction)
-    # 温度(℃), 風速(kt), 風向(度, 真北基準)
-    bds44: tuple[float, float, float]
+    callsign: str | None = None
+    altitude_ft: float | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    # BDS 5,0: (trackangle, groundspeed, trueair)
+    bds50: tuple[float, float, float] | None = None
+    # BDS 6,0: (heading, indicatedair, mach)
+    bds60: tuple[float, float, float] | None = None
+    # BDS 4,4: (temperature, wind_speed, wind_direction)
+    bds44: tuple[float, float, float] | None = None
+    updated_at: float = 0.0
+    """最終更新時刻（time.time()、TTL 失効判定用）"""
 
 
-_FRAGMENT_BUF_SIZE: int = 100
+@dataclass
+class _ReceiverState:
+    """モジュールの可変状態
 
-_fragment_list: list[MessageFragment] = []
+    start() で初期化され、ワーカースレッドから参照されます。
+    """
 
-_should_terminate = threading.Event()
+    fragments: dict[str, _MessageFragment] = field(default_factory=dict)
+    """ICAO -> フラグメントのマッピング（リアルタイム受信用）"""
 
-# receiver専用Livenessファイルパス（start()で設定される）
-_receiver_liveness_file: pathlib.Path | None = None
+    should_terminate: threading.Event = field(default_factory=threading.Event)
+    """終了フラグ"""
 
-# Slack通知設定（start()で設定される）
-_slack_config: my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.SlackEmptyConfig | None = None
+    liveness_file: pathlib.Path | None = None
+    """receiver 専用 Liveness ファイルパス（start() で設定される）"""
 
-# 共有 IntegratedBuffer（VDL2 との高度補完用）
-_shared_buffer: IntegratedBuffer | None = None
+    slack_config: my_lib.notify.slack.SlackErrorOnlyConfig | my_lib.notify.slack.SlackEmptyConfig | None = (
+        None
+    )
+    """Slack 通知設定（start() で設定される）"""
+
+    shared_buffer: IntegratedBuffer | None = None
+    """共有 IntegratedBuffer（VDL2 との高度補完用）"""
+
+    last_footprint_update: float = 0.0
+    """Liveness ファイルの最終更新時刻（time.time()）"""
+
+
+_state = _ReceiverState()
+
+
+def reset() -> None:
+    """モジュール状態を初期化する（テスト用）"""
+    global _state
+    _state = _ReceiverState()
 
 
 @dataclass
@@ -100,21 +134,96 @@ class WeatherRecord:
         return self.wind_speed_kt is not None and self.wind_direction_deg is not None
 
 
-@dataclass
-class _FileParseFragment:
-    """ICAO ごとのメッセージフラグメント（ファイル解析用）"""
+def _decode_bds44(message: str) -> tuple[float, float, float] | None:
+    """BDS 4,4 から (temperature, wind_speed, wind_direction) を取得する
 
-    icao: str
-    callsign: str | None = None
-    altitude_ft: float | None = None
-    latitude: float | None = None
-    longitude: float | None = None
-    # BDS 5,0: (trackangle, groundspeed, trueair)
-    bds50: tuple[float | None, float | None, float | None] | None = None
-    # BDS 6,0: (heading, indicatedair, mach)
-    bds60: tuple[float | None, float | None, float | None] | None = None
-    # BDS 4,4: (temperature, wind_speed, wind_direction)
-    bds44: tuple[float, float, float] | None = None
+    Returns:
+        (気温 [℃], 風速 [kt], 風向 [度]) または欠損時 None
+    """
+    temperature = pyModeS.bds.bds44.temp44(message)
+    wind_data = pyModeS.bds.bds44.wind44(message)
+    if temperature is None or wind_data is None:
+        return None
+    wind_speed, wind_direction = wind_data
+    if wind_speed is None or wind_direction is None:
+        return None
+    return float(temperature), float(wind_speed), float(wind_direction)
+
+
+def _decode_bds50(message: str) -> tuple[float, float, float] | None:
+    """BDS 5,0 から (trackangle, groundspeed, trueair) を取得する
+
+    Returns:
+        (対地進行方向 [度], 対地速度 [kt], 真気速度 [kt]) または欠損時 None
+    """
+    trackangle = pyModeS.commb.trk50(message)
+    groundspeed = pyModeS.commb.gs50(message)
+    trueair = pyModeS.commb.tas50(message)
+    if trackangle is None or groundspeed is None or trueair is None:
+        return None
+    return float(trackangle), float(groundspeed), float(trueair)
+
+
+def _decode_bds60(message: str) -> tuple[float, float, float] | None:
+    """BDS 6,0 から (heading, indicatedair, mach) を取得する
+
+    Returns:
+        (機首方位 [度], 指示対気速度 [kt], マッハ数) または欠損時 None
+    """
+    heading = pyModeS.commb.hdg60(message)
+    indicatedair = pyModeS.commb.ias60(message)
+    mach = pyModeS.commb.mach60(message)
+    if heading is None or indicatedair is None or mach is None:
+        return None
+    return float(heading), float(indicatedair), float(mach)
+
+
+def _calc_bds50_60_weather(
+    latitude: float,
+    longitude: float,
+    bds50: tuple[float, float, float],
+    bds60: tuple[float, float, float],
+    callsign: str | None = None,
+) -> tuple[float, CoreWindData] | None:
+    """BDS 5,0/6,0 ペアから気温と風を計算する
+
+    マッハ数が 0 以下、または温度が異常値閾値未満の場合はレコードを
+    破棄するため None を返します。
+
+    Args:
+        latitude: 緯度 [度]
+        longitude: 経度 [度]
+        bds50: (trackangle [度], groundspeed [kt], trueair [kt])
+        bds60: (heading [度], indicatedair [kt], mach)
+        callsign: コールサイン（ログ用）
+
+    Returns:
+        (気温 [℃], WindData) または破棄時 None
+    """
+    trackangle, groundspeed, trueair = bds50
+    heading, _indicatedair, mach = bds60
+
+    if mach <= 0:
+        logging.warning("マッハ数が不正なので捨てます．(callsign: %s, mach: %s)", callsign, mach)
+        return None
+
+    trueair_ms = trueair * amdar.constants.KNOTS_TO_MS
+    groundspeed_ms = groundspeed * amdar.constants.KNOTS_TO_MS
+
+    temperature = amdar.core.physics.calc_temperature(trueair_ms, mach)
+    if temperature < amdar.constants.GRAPH_TEMPERATURE_THRESHOLD:
+        logging.warning(
+            "温度が異常なので捨てます．(callsign: %s, temperature: %.1f, trueair: %s, mach: %s)",
+            callsign,
+            temperature,
+            trueair_ms,
+            mach,
+        )
+        return None
+
+    wind = amdar.core.physics.calc_wind(latitude, longitude, trackangle, groundspeed_ms, heading, trueair_ms)
+
+    return temperature, wind
 
 
 def parse_weather_records_from_file(
@@ -137,7 +246,7 @@ def parse_weather_records_from_file(
 
     """
     # ICAO ごとのフラグメントを管理
-    fragments: dict[str, _FileParseFragment] = {}
+    fragments: dict[str, _MessageFragment] = {}
     results: list[WeatherRecord] = []
 
     with file_path.open() as f:
@@ -157,130 +266,116 @@ def parse_weather_records_from_file(
 
                 # フラグメントを取得または作成
                 if icao not in fragments:
-                    fragments[icao] = _FileParseFragment(icao=icao)
+                    fragments[icao] = _MessageFragment(icao=icao)
                 frag = fragments[icao]
 
                 # DF=17,18: ADS-B
                 if dformat in (17, 18) and len(msg) == 28:
-                    code = pyModeS.typecode(msg)  # pyright: ignore[reportPrivateImportUsage]
-                    if code is None:
-                        continue
-
-                    # 位置情報（高度含む）
-                    if (5 <= code <= 18) or (20 <= code <= 22):
-                        altitude = pyModeS.adsb.altitude(msg)
-                        if altitude and altitude > 0:
-                            frag.altitude_ft = float(altitude)
-                            try:
-                                lat, lon = pyModeS.adsb.position_with_ref(msg, ref_lat, ref_lon)
-                                if lat is not None and lon is not None:
-                                    frag.latitude = lat
-                                    frag.longitude = lon
-                            except Exception:
-                                logging.debug("位置計算に失敗: %s", msg)
-
-                    # コールサイン
-                    elif 1 <= code <= 4:
-                        callsign = pyModeS.adsb.callsign(msg).rstrip("_")
-                        if callsign:
-                            frag.callsign = callsign
+                    _update_fragment_from_adsb_file(frag, msg, ref_lat, ref_lon)
 
                 # DF=20,21: Comm-B
                 elif dformat in (20, 21) and len(msg) == 28:
-                    # BDS 4,4 を優先（直接気象データ）
-                    if pyModeS.bds.bds44.is44(msg):
-                        temperature = pyModeS.bds.bds44.temp44(msg)
-                        wind_data = pyModeS.bds.bds44.wind44(msg)
-                        if temperature is not None and wind_data is not None:
-                            wind_speed, wind_direction = wind_data
-                            if wind_speed is not None and wind_direction is not None:
-                                frag.bds44 = (temperature, wind_speed, wind_direction)
-
-                                # BDS 4,4 + 高度でペアリング
-                                if frag.altitude_ft is not None:
-                                    record = WeatherRecord(
-                                        icao=icao,
-                                        altitude_ft=frag.altitude_ft,
-                                        callsign=frag.callsign,
-                                        latitude=frag.latitude,
-                                        longitude=frag.longitude,
-                                        temperature_c=temperature,
-                                        wind_speed_kt=wind_speed,
-                                        wind_direction_deg=wind_direction,
-                                        data_source="bds44",
-                                    )
-                                    results.append(record)
-                                    frag.bds44 = None  # 使用済み
-                                continue
-
-                    # BDS 5,0
-                    if pyModeS.bds.bds50.is50(msg):
-                        trackangle = pyModeS.commb.trk50(msg)
-                        groundspeed = pyModeS.commb.gs50(msg)
-                        trueair = pyModeS.commb.tas50(msg)
-                        if all(v is not None for v in (trackangle, groundspeed, trueair)):
-                            frag.bds50 = (trackangle, groundspeed, trueair)
-
-                    # BDS 6,0
-                    elif pyModeS.bds.bds60.is60(msg):
-                        heading = pyModeS.commb.hdg60(msg)
-                        indicatedair = pyModeS.commb.ias60(msg)
-                        mach = pyModeS.commb.mach60(msg)
-                        if all(v is not None for v in (heading, indicatedair, mach)):
-                            frag.bds60 = (heading, indicatedair, mach)
-
-                    # BDS 5,0 + 6,0 + 高度 + 位置でペアリング
-                    if (
-                        frag.bds50 is not None
-                        and frag.bds60 is not None
-                        and frag.altitude_ft is not None
-                        and frag.latitude is not None
-                        and frag.longitude is not None
-                    ):
-                        trackangle, groundspeed, trueair = frag.bds50
-                        heading, indicatedair, mach = frag.bds60
-
-                        # None チェックは上で済んでいるが、型ガードのため明示的にキャスト
-                        trackangle_f = float(trackangle)  # type: ignore[arg-type]
-                        groundspeed_f = float(groundspeed)  # type: ignore[arg-type]
-                        trueair_f = float(trueair)  # type: ignore[arg-type]
-                        heading_f = float(heading)  # type: ignore[arg-type]
-                        mach_f = float(mach)  # type: ignore[arg-type]
-
-                        # 気温と風を計算（既存の関数を使用）
-                        temperature_c = _calc_temperature(trueair_f * amdar.constants.KNOTS_TO_MS, mach_f)
-                        wind = _calc_wind(
-                            frag.latitude,
-                            frag.longitude,
-                            trackangle_f,
-                            groundspeed_f * amdar.constants.KNOTS_TO_MS,
-                            heading_f,
-                            trueair_f * amdar.constants.KNOTS_TO_MS,
-                        )
-
-                        # 異常値チェック
-                        if temperature_c >= amdar.constants.GRAPH_TEMPERATURE_THRESHOLD:
-                            record = WeatherRecord(
-                                icao=icao,
-                                altitude_ft=frag.altitude_ft,
-                                callsign=frag.callsign,
-                                latitude=frag.latitude,
-                                longitude=frag.longitude,
-                                temperature_c=temperature_c,
-                                wind_speed_kt=wind.speed / amdar.constants.KNOTS_TO_MS,  # m/s -> kt
-                                wind_direction_deg=wind.angle,
-                                data_source="bds50_60",
-                            )
-                            results.append(record)
-
-                        # フラグメントをリセット
-                        frag.bds50 = None
-                        frag.bds60 = None
+                    record = _parse_commb_for_file(frag, msg)
+                    if record is not None:
+                        results.append(record)
 
             except Exception:
                 logging.debug("メッセージ解析に失敗: %s", msg)
 
     return results
+
+
+def _update_fragment_from_adsb_file(
+    frag: _MessageFragment,
+    msg: str,
+    ref_lat: float,
+    ref_lon: float,
+) -> None:
+    """ADS-B メッセージからフラグメントを更新する（ファイル解析用）"""
+    code = pyModeS.typecode(msg)  # pyright: ignore[reportPrivateImportUsage]
+    if code is None:
+        return
+
+    # 位置情報（高度含む）
+    if (5 <= code <= 18) or (20 <= code <= 22):
+        altitude = pyModeS.adsb.altitude(msg)
+        if altitude and altitude > 0:
+            frag.altitude_ft = float(altitude)
+            try:
+                lat, lon = pyModeS.adsb.position_with_ref(msg, ref_lat, ref_lon)
+                if lat is not None and lon is not None:
+                    frag.latitude = lat
+                    frag.longitude = lon
+            except Exception:
+                logging.debug("位置計算に失敗: %s", msg)
+
+    # コールサイン
+    elif 1 <= code <= 4:
+        callsign = pyModeS.adsb.callsign(msg).rstrip("_")
+        if callsign:
+            frag.callsign = callsign
+
+
+def _parse_commb_for_file(frag: _MessageFragment, msg: str) -> WeatherRecord | None:
+    """Comm-B メッセージを解析し、ペアリング可能なら WeatherRecord を返す（ファイル解析用）"""
+    # BDS 4,4 を優先（直接気象データ）
+    if pyModeS.bds.bds44.is44(msg):
+        decoded = _decode_bds44(msg)
+        if decoded is None or frag.altitude_ft is None:
+            return None
+        temperature, wind_speed, wind_direction = decoded
+        return WeatherRecord(
+            icao=frag.icao,
+            altitude_ft=frag.altitude_ft,
+            callsign=frag.callsign,
+            latitude=frag.latitude,
+            longitude=frag.longitude,
+            temperature_c=temperature,
+            wind_speed_kt=wind_speed,
+            wind_direction_deg=wind_direction,
+            data_source="bds44",
+        )
+
+    if pyModeS.bds.bds50.is50(msg):
+        decoded = _decode_bds50(msg)
+        if decoded is not None:
+            frag.bds50 = decoded
+    elif pyModeS.bds.bds60.is60(msg):
+        decoded = _decode_bds60(msg)
+        if decoded is not None:
+            frag.bds60 = decoded
+
+    # BDS 5,0 + 6,0 + 高度 + 位置でペアリング
+    if (
+        frag.bds50 is None
+        or frag.bds60 is None
+        or frag.altitude_ft is None
+        or frag.latitude is None
+        or frag.longitude is None
+    ):
+        return None
+
+    weather = _calc_bds50_60_weather(frag.latitude, frag.longitude, frag.bds50, frag.bds60, frag.callsign)
+
+    # フラグメントをリセット（使用済み）
+    frag.bds50 = None
+    frag.bds60 = None
+
+    if weather is None:
+        return None
+
+    temperature_c, wind = weather
+    return WeatherRecord(
+        icao=frag.icao,
+        altitude_ft=frag.altitude_ft,
+        callsign=frag.callsign,
+        latitude=frag.latitude,
+        longitude=frag.longitude,
+        temperature_c=temperature_c,
+        wind_speed_kt=wind.speed / amdar.constants.KNOTS_TO_MS,  # m/s -> kt
+        wind_direction_deg=wind.angle,
+        data_source="bds50_60",
+    )
 
 
 def _receive_lines(sock: socket.socket) -> Generator[str, None, None]:
@@ -298,131 +393,6 @@ def _receive_lines(sock: socket.socket) -> Generator[str, None, None]:
             yield line.decode()
 
 
-def _calc_temperature(trueair: float, mach: float) -> float:
-    k = 1.403  # 比熱比(空気)
-    M = 28.966e-3  # 分子量(空気) [kg/mol]
-    R = 8.314472  # 気体定数
-
-    K = M / k / R
-
-    return (trueair / mach) * (trueair / mach) * K - 273.15
-
-
-def _calc_wind(
-    latitude: float,
-    longitude: float,
-    trackangle: float,
-    groundspeed: float,
-    heading: float,
-    trueair: float,
-) -> CoreWindData:
-    magnetic_declination = amdar.core.geo.calc_magnetic_declination(latitude, longitude)
-
-    ground_dir = math.pi / 2 - math.radians(trackangle)
-    ground_x = groundspeed * math.cos(ground_dir)
-    ground_y = groundspeed * math.sin(ground_dir)
-    air_dir = math.pi / 2 - math.radians(heading) + math.radians(magnetic_declination)
-    air_x = trueair * math.cos(air_dir)
-    air_y = trueair * math.sin(air_dir)
-
-    wind_x = ground_x - air_x
-    wind_y = ground_y - air_y
-
-    return CoreWindData(
-        x=wind_x,
-        y=wind_y,
-        # NOTE: 北を 0 として，風が来る方の角度
-        angle=math.degrees(
-            (math.pi / 2 - math.atan2(wind_y, wind_x) + 2 * math.pi + math.pi) % (2 * math.pi)
-        ),
-        speed=math.sqrt(wind_x * wind_x + wind_y * wind_y),
-    )
-
-
-def _calc_meteorological_data(
-    callsign: str,
-    altitude: float,
-    latitude: float,
-    longitude: float,
-    trackangle: float,
-    groundspeed: float,
-    trueair: float,
-    heading: float,
-    indicatedair: float,
-    mach: float,
-    distance: float,
-) -> WeatherObservation:
-    altitude_m = altitude * amdar.constants.FEET_TO_METERS  # 単位換算: feet → meter
-    groundspeed_ms = groundspeed * amdar.constants.KNOTS_TO_MS  # 単位換算: knot → m/s
-    trueair_ms = trueair * amdar.constants.KNOTS_TO_MS
-
-    temperature = _calc_temperature(trueair_ms, mach)
-    wind = _calc_wind(latitude, longitude, trackangle, groundspeed_ms, heading, trueair_ms)
-
-    if temperature < amdar.constants.GRAPH_TEMPERATURE_THRESHOLD:
-        logging.warning(
-            "温度が異常なので捨てます．(callsign: %s, temperature: %.1f, "
-            "altitude: %s, trueair: %s, mach: %s)",
-            callsign,
-            temperature,
-            altitude_m,
-            trueair_ms,
-            mach,
-        )
-    return WeatherObservation(
-        callsign=callsign,
-        altitude=altitude_m,
-        latitude=latitude,
-        longitude=longitude,
-        temperature=temperature,
-        wind=wind,
-        distance=distance,
-        method=amdar.constants.MODE_S_METHOD,
-        data_source="bds50_60",
-    )
-
-
-def _calc_meteorological_data_from_bds44(
-    callsign: str,
-    altitude: float,
-    latitude: float,
-    longitude: float,
-    temperature: float,
-    wind_speed: float,
-    wind_direction: float,
-    distance: float,
-) -> WeatherObservation:
-    """BDS44 の直接気象データから WeatherObservation を生成する
-
-    Args:
-        callsign: コールサイン
-        altitude: 高度 (feet)
-        latitude: 緯度
-        longitude: 経度
-        temperature: 気温 (℃) - BDS44 から直接取得
-        wind_speed: 風速 (kt) - BDS44 から直接取得（真の風）
-        wind_direction: 風向 (度, 真北基準) - BDS44 から直接取得
-        distance: 基準点からの距離 (km)
-
-    Returns:
-        WeatherObservation
-
-    """
-    # from_imperial を使用して航空単位系から変換
-    return WeatherObservation.from_imperial(
-        callsign=callsign,
-        altitude_ft=altitude,
-        latitude=latitude,
-        longitude=longitude,
-        temperature_c=temperature,
-        wind_speed_kt=wind_speed,
-        wind_direction_deg=wind_direction,
-        distance=distance,
-        method=amdar.constants.MODE_S_METHOD,
-        data_source="bds44",
-    )
-
-
 def _round_floats(obj: Any, ndigits: int = 1) -> Any:
     match obj:
         case float():
@@ -437,100 +407,44 @@ def _round_floats(obj: Any, ndigits: int = 1) -> Any:
             return obj
 
 
-def _is_fragment_complete(fragment: MessageFragment) -> tuple[bool, str]:
-    """フラグメントが完全かどうかを判定する
+def _prune_fragments(now: float) -> None:
+    """TTL を超過したフラグメントを破棄する"""
+    expired = [
+        icao
+        for icao, frag in _state.fragments.items()
+        if now - frag.updated_at > amdar.constants.FRAGMENT_TTL_SECONDS
+    ]
+    for icao in expired:
+        del _state.fragments[icao]
 
-    Returns:
-        (bool, str): (完全かどうか, データソース種別)
-        データソース種別: "bds50_60" または "bds44"
 
+def _get_fragment(icao: str) -> _MessageFragment:
+    """フラグメントを取得または作成する
+
+    期限切れフラグメントの破棄と件数上限の維持も行います。
     """
-    # 共通の必須フィールド
-    base_required = ["adsb_pos", "adsb_sign"]
-    if not all(packet_type in fragment for packet_type in base_required):
-        return False, ""
+    now = time.time()
+    _prune_fragments(now)
 
-    # BDS44 ルート: 直接気象データを持つ（BDS50/BDS60 より優先）
-    if "bds44" in fragment:
-        return True, "bds44"
+    frag = _state.fragments.get(icao)
+    if frag is None:
+        frag = _MessageFragment(icao=icao, updated_at=now)
+        _state.fragments[icao] = frag
 
-    # BDS50/BDS60 ルート: 従来の計算方式
-    if "bds50" in fragment and "bds60" in fragment:
-        return True, "bds50_60"
+        # 件数上限を超えた場合は最も古いフラグメントから破棄する
+        while len(_state.fragments) > _FRAGMENT_BUF_SIZE:
+            oldest_icao = min(_state.fragments, key=lambda k: _state.fragments[k].updated_at)
+            del _state.fragments[oldest_icao]
 
-    return False, ""
+    frag.updated_at = now
+    return frag
 
 
-def _process_complete_fragment(
-    fragment: MessageFragment,
+def _emit_observation(
+    observation: WeatherObservation,
     data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
-    area_config: Area,
-    data_source: str,
 ) -> None:
-    """完全なフラグメントを処理してキューに送信する
-
-    Args:
-        fragment: メッセージフラグメント
-        data_queue: データ送信キュー
-        area_config: エリア設定
-        data_source: データソース種別 ("bds44" または "bds50_60")
-
-    """
-    # TypedDict の各キーを .get() で安全に取得
-    adsb_pos = fragment.get("adsb_pos")
-    adsb_sign = fragment.get("adsb_sign")
-
-    # 共通の必須フィールドチェック
-    if adsb_pos is None or adsb_sign is None:
-        return
-    if adsb_pos[1] is None or adsb_pos[2] is None:
-        return
-
-    distance = amdar.core.geo.haversine_distance(
-        area_config.lat.ref,
-        area_config.lon.ref,
-        adsb_pos[1],
-        adsb_pos[2],
-    )
-
-    # データソースに応じて気象データを生成
-    if data_source == "bds44":
-        bds44 = fragment.get("bds44")
-        if bds44 is None:
-            return
-
-        logging.debug("BDS44 から気象データを生成")
-        meteorological_data = _calc_meteorological_data_from_bds44(
-            callsign=adsb_sign[0],
-            altitude=adsb_pos[0],
-            latitude=adsb_pos[1],
-            longitude=adsb_pos[2],
-            temperature=bds44[0],
-            wind_speed=bds44[1],
-            wind_direction=bds44[2],
-            distance=distance,
-        )
-    else:  # bds50_60
-        bds50 = fragment.get("bds50")
-        bds60 = fragment.get("bds60")
-
-        if bds50 is None or bds60 is None:
-            return
-        if any(v is None for v in bds50) or any(v is None for v in bds60):
-            return
-
-        # NOTE: 上記の None チェック後でもタプル要素の型は絞り込まれないため type: ignore が必要
-        meteorological_data = _calc_meteorological_data(
-            *adsb_sign,
-            *adsb_pos,  # type: ignore[arg-type]
-            *bds50,  # type: ignore[arg-type]
-            *bds60,  # type: ignore[arg-type]
-            distance,
-        )
-
-    # WeatherObservation として処理（temperature は必ず設定されている）
-    observation = meteorological_data
-
+    """観測データを検証し、正常値をキューに送信する"""
     # 温度が None の場合はスキップ
     if observation.temperature is None:
         logging.debug("温度データなしのためスキップ")
@@ -538,7 +452,7 @@ def _process_complete_fragment(
 
     # 温度異常値は外れ値検出の対象外
     if observation.temperature < amdar.constants.GRAPH_TEMPERATURE_THRESHOLD:
-        logging.debug("温度異常値のため外れ値検出をスキップ")
+        logging.debug("温度異常値のためスキップ")
         return
 
     # 外れ値検出
@@ -559,46 +473,75 @@ def _process_complete_fragment(
     detector.add_history(observation.altitude, observation.temperature)
 
 
-def _add_new_fragment(icao: str, packet_type: str, data: tuple[Any, ...]) -> None:
-    """新しいフラグメントをリストに追加する"""
-    global _fragment_list
-
-    # packet_type は動的キーなので、一度 dict として組み立ててから cast する
-    new_fragment: dict[str, Any] = {"icao": icao, packet_type: data}
-    _fragment_list.append(cast(MessageFragment, new_fragment))
-    if len(_fragment_list) >= _FRAGMENT_BUF_SIZE:
-        _fragment_list.pop(0)
-
-
-def _message_pairing(
-    icao: str,
-    packet_type: str,
-    data: tuple[Any, ...],
+def _try_emit_weather(
+    frag: _MessageFragment,
     data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
     area_config: Area,
 ) -> None:
-    """メッセージフラグメントをペアリングして気象データを生成する"""
-    global _fragment_list
+    """フラグメントが完全なら気象データを生成してキューに送信する
 
-    if not all(value is not None for value in data):
-        logging.warning("データに欠損があるので捨てます．(type: %s, data: %s)", packet_type, data)
+    完全なフラグメントは処理後に破棄されます。
+    """
+    if frag.callsign is None or frag.altitude_ft is None or frag.latitude is None or frag.longitude is None:
         return
 
-    fragment = next((f for f in _fragment_list if f.get("icao") == icao), None)
-
-    if fragment is None:
-        _add_new_fragment(icao, packet_type, data)
+    # BDS44 ルート: 直接気象データを持つ（BDS50/BDS60 より優先）
+    if frag.bds44 is not None:
+        data_source = "bds44"
+    elif frag.bds50 is not None and frag.bds60 is not None:
+        data_source = "bds50_60"
+    else:
         return
 
-    # packet_type は動的キーなので dict として書き込む
-    cast(dict[str, Any], fragment)[packet_type] = data
+    # 完全なフラグメントは処理後に破棄する
+    _state.fragments.pop(frag.icao, None)
 
-    is_complete, data_source = _is_fragment_complete(fragment)
-    if not is_complete:
-        return
+    distance = amdar.core.geo.haversine_distance(
+        area_config.lat.ref,
+        area_config.lon.ref,
+        frag.latitude,
+        frag.longitude,
+    )
 
-    _process_complete_fragment(fragment, data_queue, area_config, data_source)
-    _fragment_list.remove(fragment)
+    if data_source == "bds44":
+        logging.debug("BDS44 から気象データを生成")
+        temperature, wind_speed, wind_direction = frag.bds44  # type: ignore[misc]
+        observation = WeatherObservation.from_imperial(
+            callsign=frag.callsign,
+            altitude_ft=frag.altitude_ft,
+            latitude=frag.latitude,
+            longitude=frag.longitude,
+            temperature_c=temperature,
+            wind_speed_kt=wind_speed,
+            wind_direction_deg=wind_direction,
+            distance=distance,
+            method=amdar.constants.MODE_S_METHOD,
+            data_source="bds44",
+        )
+    else:
+        weather = _calc_bds50_60_weather(
+            frag.latitude,
+            frag.longitude,
+            frag.bds50,  # type: ignore[arg-type]
+            frag.bds60,  # type: ignore[arg-type]
+            frag.callsign,
+        )
+        if weather is None:
+            return
+        temperature_c, wind = weather
+        observation = WeatherObservation(
+            callsign=frag.callsign,
+            altitude=frag.altitude_ft * amdar.constants.FEET_TO_METERS,
+            latitude=frag.latitude,
+            longitude=frag.longitude,
+            temperature=temperature_c,
+            wind=wind,
+            distance=distance,
+            method=amdar.constants.MODE_S_METHOD,
+            data_source="bds50_60",
+        )
+
+    _emit_observation(observation, data_queue)
 
 
 def _process_adsb_position(
@@ -608,27 +551,31 @@ def _process_adsb_position(
     area_config: Area,
 ) -> None:
     """ADS-B位置情報メッセージを処理する"""
-    global _shared_buffer
-
     altitude = pyModeS.adsb.altitude(message)
     if altitude is None or altitude == 0:
         return
 
     latitude, longitude = pyModeS.adsb.position_with_ref(message, area_config.lat.ref, area_config.lon.ref)
-    _message_pairing(icao, "adsb_pos", (altitude, latitude, longitude), data_queue, area_config)
+
+    if latitude is None or longitude is None:
+        logging.warning(
+            "データに欠損があるので捨てます．(type: adsb_pos, data: %s)",
+            (altitude, latitude, longitude),
+        )
+    else:
+        frag = _get_fragment(icao)
+        frag.altitude_ft = float(altitude)
+        frag.latitude = latitude
+        frag.longitude = longitude
+        _try_emit_weather(frag, data_queue, area_config)
 
     # 共有バッファに ADS-B 位置情報をフィード（VDL2 高度補完用）
-    if _shared_buffer is not None and altitude > 0:
-        import my_lib.time
-
+    if _state.shared_buffer is not None and altitude > 0:
         altitude_m = float(altitude) * amdar.constants.FEET_TO_METERS
         # フラグメントからコールサインを取得
-        callsign = None
-        for frag in _fragment_list:
-            if frag.get("icao") == icao and "adsb_sign" in frag:
-                callsign = frag["adsb_sign"][0]
-                break
-        _shared_buffer.add_adsb_position(
+        current = _state.fragments.get(icao)
+        callsign = current.callsign if current is not None else None
+        _state.shared_buffer.add_adsb_position(
             icao=icao,
             callsign=callsign,
             timestamp=my_lib.time.now(),
@@ -657,7 +604,9 @@ def _process_adsb_message(
     # コールサイン（typecode 1-4）
     elif 1 <= code <= 4:
         callsign = pyModeS.adsb.callsign(message).rstrip("_")
-        _message_pairing(icao, "adsb_sign", (callsign,), data_queue, area_config)
+        frag = _get_fragment(icao)
+        frag.callsign = callsign
+        _try_emit_weather(frag, data_queue, area_config)
 
 
 def _process_commb_message(
@@ -670,26 +619,32 @@ def _process_commb_message(
     # BDS44: Meteorological routine air report（直接気象データを持つ）
     if pyModeS.bds.bds44.is44(message):
         logging.debug("receive BDS44 (MRAR)")
-        temperature = pyModeS.bds.bds44.temp44(message)
-        wind_speed, wind_direction = pyModeS.bds.bds44.wind44(message)
-        if temperature is not None and wind_speed is not None and wind_direction is not None:
-            _message_pairing(
-                icao, "bds44", (temperature, wind_speed, wind_direction), data_queue, area_config
-            )
+        decoded = _decode_bds44(message)
+        if decoded is None:
+            return
+        frag = _get_fragment(icao)
+        frag.bds44 = decoded
+        _try_emit_weather(frag, data_queue, area_config)
 
     elif pyModeS.bds.bds50.is50(message):
         logging.debug("receive BDS50")
-        trackangle = pyModeS.commb.trk50(message)
-        groundspeed = pyModeS.commb.gs50(message)
-        trueair = pyModeS.commb.tas50(message)
-        _message_pairing(icao, "bds50", (trackangle, groundspeed, trueair), data_queue, area_config)
+        decoded = _decode_bds50(message)
+        if decoded is None:
+            logging.warning("データに欠損があるので捨てます．(type: bds50)")
+            return
+        frag = _get_fragment(icao)
+        frag.bds50 = decoded
+        _try_emit_weather(frag, data_queue, area_config)
 
     elif pyModeS.bds.bds60.is60(message):
         logging.debug("receive BDS60")
-        heading = pyModeS.commb.hdg60(message)
-        indicatedair = pyModeS.commb.ias60(message)
-        mach = pyModeS.commb.mach60(message)
-        _message_pairing(icao, "bds60", (heading, indicatedair, mach), data_queue, area_config)
+        decoded = _decode_bds60(message)
+        if decoded is None:
+            logging.warning("データに欠損があるので捨てます．(type: bds60)")
+            return
+        frag = _get_fragment(icao)
+        frag.bds60 = decoded
+        _try_emit_weather(frag, data_queue, area_config)
 
 
 def _process_message(
@@ -729,31 +684,59 @@ def _calculate_retry_delay(retry_count: int) -> float:
 
 def _wait_with_interrupt(delay: float) -> None:
     """中断可能な待機を行う"""
-    for _ in range(int(delay * 10)):
-        if _should_terminate.is_set():
-            break
-        time.sleep(0.1)
+    _state.should_terminate.wait(delay)
+
+
+def _update_liveness_throttled() -> None:
+    """Liveness ファイルをスロットル付きで更新する
+
+    受信1行ごとのファイル書き込みを避けるため、
+    _FOOTPRINT_UPDATE_INTERVAL_SECONDS に1回だけ更新します。
+    """
+    if _state.liveness_file is None:
+        return
+
+    now = time.time()
+    if now - _state.last_footprint_update < _FOOTPRINT_UPDATE_INTERVAL_SECONDS:
+        return
+
+    _state.last_footprint_update = now
+    my_lib.footprint.update(_state.liveness_file)
 
 
 def _process_socket_messages(
     sock: socket.socket,
     data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
     area_config: Area,
-) -> None:
-    """ソケットからメッセージを受信して処理する"""
-    for line in _receive_lines(sock):
-        if _should_terminate.is_set():
-            break
+) -> bool:
+    """ソケットからメッセージを受信して処理する
 
-        try:
-            _process_message(line, data_queue, area_config)
+    Returns:
+        1行以上データを受信した場合 True
+    """
+    received = False
+    try:
+        for line in _receive_lines(sock):
+            received = True
 
-            # データ受信成功時にLivenessファイル更新
-            if _receiver_liveness_file is not None:
-                my_lib.footprint.update(_receiver_liveness_file)
+            if _state.should_terminate.is_set():
+                break
 
-        except Exception:
-            logging.exception("メッセージ処理に失敗しました")
+            try:
+                _process_message(line, data_queue, area_config)
+
+                # データ受信時にLivenessファイル更新（スロットル付き）
+                _update_liveness_throttled()
+
+            except Exception:
+                logging.exception("メッセージ処理に失敗しました")
+
+    except TimeoutError:
+        logging.warning("ソケットタイムアウトが発生しました")
+    except (OSError, ConnectionError) as e:
+        logging.warning("受信中に接続エラーが発生しました: %s", e)
+
+    return received
 
 
 def _handle_connection(
@@ -765,7 +748,7 @@ def _handle_connection(
     """TCP接続を確立しメッセージを処理する
 
     Returns:
-        接続が正常に閉じられた場合True、エラーの場合False
+        この接続で1行以上データを受信した場合True
 
     """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -773,13 +756,12 @@ def _handle_connection(
         sock.connect((host, port))
         logging.info("%s:%d に接続しました", host, port)
 
-        _process_socket_messages(sock, data_queue, area_config)
+        received = _process_socket_messages(sock, data_queue, area_config)
 
-        if _should_terminate.is_set():
-            return True
+        if not _state.should_terminate.is_set():
+            logging.warning("リモートホストによって接続が閉じられました")
 
-        logging.warning("リモートホストによって接続が閉じられました")
-        return True
+        return received
 
 
 def _worker(
@@ -791,50 +773,57 @@ def _worker(
     """再接続機能付きワーカー
 
     TCP接続が切断された場合、指数バックオフで再接続を試みます。
-    最大リトライ回数に達した場合のみワーカーを終了します。
+    データを1行も受信できずに終了した接続（即クローズ・タイムアウト含む）は
+    失敗としてカウントし、最大リトライ回数に達した場合のみワーカーを終了します。
     """
     logging.info("受信ワーカーを開始します")
-    _should_terminate.clear()
+    _state.should_terminate.clear()
     retry_count = 0
 
-    while not _should_terminate.is_set():
+    while not _state.should_terminate.is_set():
+        error: Exception | None = None
+        received = False
+
         try:
-            _handle_connection(host, port, data_queue, area_config)
-            retry_count = 0  # 接続成功でリセット
-
-            if _should_terminate.is_set():
-                break
-
-        except TimeoutError:
-            logging.warning("ソケットタイムアウトが発生しました")
-
+            received = _handle_connection(host, port, data_queue, area_config)
         except (OSError, ConnectionError) as e:
-            retry_count += 1
-            if retry_count > amdar.constants.MODES_RECEIVER_MAX_RETRIES:
-                max_retries = amdar.constants.MODES_RECEIVER_MAX_RETRIES
-                error_message = f"最大再接続回数（{max_retries}回）に達しました。処理を終了します"
-                logging.error(error_message)
-                if _slack_config is not None:
-                    my_lib.notify.slack.error(
-                        _slack_config,
-                        "Mode-S受信エラー",
-                        f"{error_message}\n接続先: {host}:{port}\n最後のエラー: {e}",
-                    )
-                break
-
-            delay = _calculate_retry_delay(retry_count)
-            logging.warning(
-                "接続に失敗しました（%d/%d回目）: %s。%.1f秒後に再試行します...",
-                retry_count,
-                amdar.constants.MODES_RECEIVER_MAX_RETRIES,
-                e,
-                delay,
-            )
-            _wait_with_interrupt(delay)
-
+            # NOTE: connect 時のタイムアウト（TimeoutError）もここで捕捉される
+            error = e
         except Exception:
             logging.exception("受信ワーカーで予期しないエラーが発生しました")
             break
+
+        if _state.should_terminate.is_set():
+            break
+
+        if received:
+            # データを受信できた接続のみ成功として扱う
+            retry_count = 0
+            continue
+
+        retry_count += 1
+        if retry_count > amdar.constants.MODES_RECEIVER_MAX_RETRIES:
+            max_retries = amdar.constants.MODES_RECEIVER_MAX_RETRIES
+            error_message = f"最大再接続回数（{max_retries}回）に達しました。処理を終了します"
+            logging.error(error_message)
+            if _state.slack_config is not None:
+                last_error = str(error) if error is not None else "データを受信できませんでした"
+                my_lib.notify.slack.error(
+                    _state.slack_config,
+                    "Mode-S受信エラー",
+                    f"{error_message}\n接続先: {host}:{port}\n最後のエラー: {last_error}",
+                )
+            break
+
+        delay = _calculate_retry_delay(retry_count)
+        logging.warning(
+            "接続に失敗しました（%d/%d回目）: %s。%.1f秒後に再試行します...",
+            retry_count,
+            amdar.constants.MODES_RECEIVER_MAX_RETRIES,
+            error if error is not None else "受信データなし",
+            delay,
+        )
+        _wait_with_interrupt(delay)
 
     logging.warning("受信ワーカーを停止します")
 
@@ -866,10 +855,9 @@ def start(
         開始されたスレッド
 
     """
-    global _receiver_liveness_file, _slack_config, _shared_buffer
-    _receiver_liveness_file = config.liveness.file.receiver.modes
-    _slack_config = config.slack
-    _shared_buffer = buffer
+    _state.liveness_file = config.liveness.file.receiver.modes
+    _state.slack_config = config.slack
+    _state.shared_buffer = buffer
 
     thread = threading.Thread(
         target=_worker,
@@ -886,7 +874,7 @@ def start(
 
 
 def term() -> None:
-    _should_terminate.set()
+    _state.should_terminate.set()
 
 
 if __name__ == "__main__":
@@ -912,5 +900,5 @@ if __name__ == "__main__":
     while True:
         logging.info(measurement_queue.get())
 
-        if _should_terminate.is_set():
+        if _state.should_terminate.is_set():
             break

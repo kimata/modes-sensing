@@ -23,24 +23,20 @@ from __future__ import annotations
 
 import datetime
 import logging
-import math
 import pathlib
 import threading
 from collections import deque
 from dataclasses import dataclass, field
-from queue import Queue
-from typing import TYPE_CHECKING, NamedTuple, TypedDict
+from typing import NamedTuple, TypedDict
 
 import my_lib.time
 import pyModeS
 
 import amdar.constants
 import amdar.core.geo
+import amdar.core.physics
 import amdar.sources.outlier
-from amdar.core.types import AltitudeSourceType, DataSourceType, WeatherObservation, WindData
-
-if TYPE_CHECKING:
-    pass
+from amdar.core.types import AltitudeSourceType, WeatherObservation
 
 # auto_cleanup 有効時にクリーンアップを実行する最小間隔（秒）
 _AUTO_CLEANUP_INTERVAL_SECONDS = 10.0
@@ -53,20 +49,6 @@ class IntegratedBufferStats(TypedDict):
     total_entries: int
     callsign_mappings: int
     message_counter: int
-
-
-class RealtimeAggregatorStats(TypedDict, total=False):
-    """RealtimeAggregator の統計情報
-
-    total=False で outlier_history_count をオプショナルにする。
-    """
-
-    aircraft_count: int
-    total_entries: int
-    callsign_mappings: int
-    message_counter: int
-    output_queue_size: int
-    outlier_history_count: int
 
 
 class FileAggregatorStats(TypedDict):
@@ -252,6 +234,7 @@ class IntegratedBuffer:
         altitude_m: float,
         lat: float | None = None,
         lon: float | None = None,
+        message_index: int | None = None,
     ) -> None:
         """ADS-B の位置・高度情報を追加
 
@@ -262,6 +245,10 @@ class IntegratedBuffer:
             altitude_m: 高度 [m]
             lat: 緯度 [度]
             lon: 経度 [度]
+            message_index: メッセージの順序インデックス。
+                ファイル解析時に呼び出し側の行カウンタを渡すことで、
+                get_altitude_by_order の採番を統一する。
+                None の場合は内部カウンタを使用する。
         """
         if not icao:
             return
@@ -279,7 +266,7 @@ class IntegratedBuffer:
                 altitude_m=altitude_m,
                 latitude=lat,
                 longitude=lon,
-                message_index=self._message_counter,
+                message_index=message_index if message_index is not None else self._message_counter,
             )
             self._altitude_by_icao[icao].append(entry)
 
@@ -322,10 +309,16 @@ class IntegratedBuffer:
             if not entries:
                 return None
 
-            # ウィンドウ内のエントリをフィルタ
-            window_entries = [
-                e for e in entries if abs((e.timestamp - timestamp).total_seconds()) <= self.window_seconds
-            ]
+            # ウィンドウ内のエントリを抽出
+            # エントリは時刻昇順のため、末尾（新しい側）から走査し、
+            # ウィンドウより古いエントリに達したら打ち切る
+            window_entries = []
+            for e in reversed(entries):
+                diff = (e.timestamp - timestamp).total_seconds()
+                if diff < -self.window_seconds:
+                    break
+                if diff <= self.window_seconds:
+                    window_entries.append(e)
 
         if not window_entries:
             return None
@@ -456,347 +449,6 @@ class IntegratedBuffer:
             self._last_cleanup = None
 
 
-class RealtimeAggregator:
-    """リアルタイム受信用のアグリゲーター
-
-    ADS-B と VDL2 の両データソースからリアルタイムでデータを受信し、
-    統合された WeatherObservation を生成します。
-    外れ値検出機能を内蔵し、両データソースに対して統一的に適用します。
-    """
-
-    def __init__(
-        self,
-        window_seconds: float = 60.0,
-        ref_lat: float = amdar.constants.DEFAULT_REFERENCE_LATITUDE,
-        ref_lon: float = amdar.constants.DEFAULT_REFERENCE_LONGITUDE,
-        enable_outlier_filter: bool = True,
-    ):
-        """初期化
-
-        Args:
-            window_seconds: 補完ウィンドウ（秒）
-            ref_lat: 基準点緯度
-            ref_lon: 基準点経度
-            enable_outlier_filter: 外れ値検出を有効にするか
-        """
-        self._buffer = IntegratedBuffer(window_seconds=window_seconds)
-        self._ref_lat = ref_lat
-        self._ref_lon = ref_lon
-        self._output_queue: Queue[WeatherObservation] = Queue()
-        self._enable_outlier_filter = enable_outlier_filter
-        self._outlier_detector: amdar.sources.outlier.OutlierDetector | None = (
-            amdar.sources.outlier.OutlierDetector() if enable_outlier_filter else None
-        )
-
-    @property
-    def buffer(self) -> IntegratedBuffer:
-        """内部バッファへのアクセス"""
-        return self._buffer
-
-    @property
-    def output_queue(self) -> Queue[WeatherObservation]:
-        """出力キュー"""
-        return self._output_queue
-
-    @property
-    def outlier_detector(self) -> amdar.sources.outlier.OutlierDetector | None:
-        """外れ値検出器へのアクセス"""
-        return self._outlier_detector
-
-    def init_outlier_history(self, data: list[tuple[float, float]]) -> None:
-        """外れ値検出用の履歴データを初期化
-
-        Args:
-            data: (altitude, temperature) のタプルのリスト
-        """
-        if self._outlier_detector is None:
-            return
-        for altitude, temperature in data:
-            self._outlier_detector.add_history(altitude, temperature)
-        logging.info("RealtimeAggregator: 外れ値検出用履歴データを初期化しました: %d件", len(data))
-
-    def _check_outlier(
-        self,
-        altitude: float,
-        temperature: float | None,
-        callsign: str | None,
-        source: str,
-    ) -> bool:
-        """外れ値かどうかを判定
-
-        Args:
-            altitude: 高度 [m]
-            temperature: 気温 [°C]
-            callsign: コールサイン
-            source: データソース（ログ用）
-
-        Returns:
-            外れ値の場合 True、正常値または検出無効の場合 False
-        """
-        if self._outlier_detector is None:
-            return False
-        if temperature is None:
-            return False
-
-        is_outlier = self._outlier_detector.is_outlier(altitude, temperature, callsign or "")
-        if is_outlier:
-            logging.warning(
-                "%s 外れ値検出: callsign=%s, altitude=%.1fm, temperature=%.1f°C",
-                source,
-                callsign or "Unknown",
-                altitude,
-                temperature,
-            )
-        return is_outlier
-
-    def _add_to_outlier_history(self, altitude: float, temperature: float | None) -> None:
-        """正常値を外れ値検出用履歴に追加
-
-        Args:
-            altitude: 高度 [m]
-            temperature: 気温 [°C]
-        """
-        if self._outlier_detector is None:
-            return
-        if temperature is None:
-            return
-        self._outlier_detector.add_history(altitude, temperature)
-
-    def process_modes_position(
-        self,
-        icao: str,
-        callsign: str | None,
-        timestamp: datetime.datetime,
-        altitude_m: float,
-        lat: float | None = None,
-        lon: float | None = None,
-    ) -> None:
-        """Mode-S の位置・高度情報を処理
-
-        バッファに追加し、後続の VDL2 補完に使用できるようにします。
-
-        Args:
-            icao: ICAO アドレス
-            callsign: コールサイン
-            timestamp: データ取得時刻
-            altitude_m: 高度 [m]
-            lat: 緯度
-            lon: 経度
-        """
-        self._buffer.update_time(timestamp)
-        self._buffer.add_adsb_position(
-            icao=icao,
-            callsign=callsign,
-            timestamp=timestamp,
-            altitude_m=altitude_m,
-            lat=lat,
-            lon=lon,
-        )
-
-    def process_modes_weather(
-        self,
-        *,
-        icao: str,
-        callsign: str | None,
-        timestamp: datetime.datetime,
-        altitude_m: float,
-        lat: float | None = None,
-        lon: float | None = None,
-        temperature_c: float | None = None,
-        wind: WindData | None = None,
-        data_source: DataSourceType = "bds50_60",
-    ) -> WeatherObservation | None:
-        """Mode-S の気象データを処理
-
-        バッファ更新と WeatherObservation の生成を行います。
-
-        Args:
-            icao: ICAO アドレス
-            callsign: コールサイン
-            timestamp: データ取得時刻
-            altitude_m: 高度 [m]
-            lat: 緯度
-            lon: 経度
-            temperature_c: 気温 [℃]
-            wind: 風データ
-            data_source: データソース種別
-
-        Returns:
-            生成された WeatherObservation または None
-        """
-        self._buffer.update_time(timestamp)
-        self._buffer.add_adsb_position(
-            icao=icao,
-            callsign=callsign,
-            timestamp=timestamp,
-            altitude_m=altitude_m,
-            lat=lat,
-            lon=lon,
-        )
-
-        # 気象データがなければ None
-        if temperature_c is None and wind is None:
-            return None
-
-        # 距離を計算
-        distance = 0.0
-        if lat is not None and lon is not None:
-            distance = self._calculate_distance(lat, lon)
-
-        observation = WeatherObservation(
-            timestamp=timestamp,
-            icao=icao,
-            callsign=callsign,
-            altitude=altitude_m,
-            latitude=lat,
-            longitude=lon,
-            distance=distance,
-            temperature=temperature_c,
-            wind=wind,
-            method=amdar.constants.MODE_S_METHOD,
-            data_source=data_source,
-            altitude_source="adsb",
-        )
-
-        if not observation.is_valid():
-            return None
-
-        # 外れ値検出
-        if self._check_outlier(altitude_m, temperature_c, callsign, "Mode-S"):
-            return None
-
-        # 正常値を出力キューに追加し、履歴にも追加
-        self._output_queue.put(observation)
-        self._add_to_outlier_history(altitude_m, temperature_c)
-        return observation
-
-    def process_vdl2_weather(
-        self,
-        *,
-        icao: str | None,
-        callsign: str | None,
-        timestamp: datetime.datetime,
-        altitude_m: float | None = None,
-        lat: float | None = None,
-        lon: float | None = None,
-        temperature_c: float | None = None,
-        wind: WindData | None = None,
-        data_source: DataSourceType = "acars",
-    ) -> WeatherObservation | None:
-        """VDL2 の気象データを処理
-
-        高度がない場合は ADS-B バッファから補完を試みます。
-
-        Args:
-            icao: ICAO アドレス（XID から取得、ない場合あり）
-            callsign: コールサイン
-            timestamp: データ取得時刻
-            altitude_m: 高度 [m]（ない場合あり）
-            lat: 緯度
-            lon: 経度
-            temperature_c: 気温 [℃]
-            wind: 風データ
-            data_source: データソース種別
-
-        Returns:
-            生成された WeatherObservation または None（高度補完失敗時）
-        """
-        self._buffer.update_time(timestamp)
-
-        # 気象データがなければ処理不要
-        if temperature_c is None and wind is None:
-            return None
-
-        altitude_source: AltitudeSourceType = "acars"
-        final_altitude = altitude_m
-        final_lat = lat
-        final_lon = lon
-
-        # 高度がない場合、ADS-B から補完を試みる
-        if final_altitude is None or final_altitude <= 0:
-            identifier = icao or callsign
-            if identifier:
-                result = self._buffer.get_altitude_at(identifier, timestamp)
-                if result:
-                    final_altitude, interp_lat, interp_lon, altitude_source = (
-                        result.altitude_m,
-                        result.latitude,
-                        result.longitude,
-                        result.source,
-                    )
-                    # 位置も補完（VDL2 に位置がない場合）
-                    if final_lat is None:
-                        final_lat = interp_lat
-                    if final_lon is None:
-                        final_lon = interp_lon
-
-        # 高度がなければ破棄
-        if final_altitude is None or final_altitude <= 0:
-            logging.debug(
-                "VDL2 weather data discarded: no altitude available for %s/%s",
-                icao,
-                callsign,
-            )
-            return None
-
-        # 距離を計算
-        distance = 0.0
-        if final_lat is not None and final_lon is not None:
-            distance = self._calculate_distance(final_lat, final_lon)
-
-        observation = WeatherObservation(
-            timestamp=timestamp,
-            icao=icao,
-            callsign=callsign,
-            altitude=final_altitude,
-            latitude=final_lat,
-            longitude=final_lon,
-            distance=distance,
-            temperature=temperature_c,
-            wind=wind,
-            method=amdar.constants.VDL2_METHOD,
-            data_source=data_source,
-            altitude_source=altitude_source,
-        )
-
-        if not observation.is_valid():
-            return None
-
-        # 外れ値検出
-        if self._check_outlier(final_altitude, temperature_c, callsign, "VDL2"):
-            return None
-
-        # 正常値を出力キューに追加し、履歴にも追加
-        self._output_queue.put(observation)
-        self._add_to_outlier_history(final_altitude, temperature_c)
-        return observation
-
-    def _calculate_distance(self, lat: float, lon: float) -> float:
-        """基準点からの距離を計算 [km]"""
-        return amdar.core.geo.haversine_distance(self._ref_lat, self._ref_lon, lat, lon)
-
-    def get_stats(self) -> RealtimeAggregatorStats:
-        """統計情報を取得"""
-        buffer_stats = self._buffer.get_stats()
-        result = RealtimeAggregatorStats(
-            aircraft_count=buffer_stats["aircraft_count"],
-            total_entries=buffer_stats["total_entries"],
-            callsign_mappings=buffer_stats["callsign_mappings"],
-            message_counter=buffer_stats["message_counter"],
-            output_queue_size=self._output_queue.qsize(),
-        )
-        if self._outlier_detector is not None:
-            result["outlier_history_count"] = self._outlier_detector.history_count
-        return result
-
-    def clear(self) -> None:
-        """内部状態をクリア"""
-        self._buffer.clear()
-        if self._outlier_detector is not None:
-            self._outlier_detector.clear_history()
-        # キューはクリアしない（消費者が処理する）
-
-
 class FileAggregator:
     """ファイル解析用のアグリゲーター
 
@@ -832,49 +484,6 @@ class FileAggregator:
     def _calculate_distance(self, lat: float, lon: float) -> float:
         """基準点からの距離を計算 [km]"""
         return amdar.core.geo.haversine_distance(self._ref_lat, self._ref_lon, lat, lon)
-
-    def _calc_temperature(self, trueair_ms: float, mach: float) -> float:
-        """真気速度とマッハ数から気温を計算"""
-        if mach <= 0:
-            return -999.0
-        # 音速 = TAS / Mach
-        # 音速^2 = γ * R * T → T = 音速^2 / (γ * R)
-        # γ = 1.4, R = 287 J/(kg·K)
-        sound_speed = trueair_ms / mach
-        temperature_k = sound_speed**2 / (1.4 * 287)
-        return temperature_k - 273.15
-
-    def _calc_wind(
-        self,
-        lat: float,
-        lon: float,
-        trackangle: float,
-        groundspeed_ms: float,
-        heading: float,
-        trueair_ms: float,
-    ) -> WindData:
-        """風向・風速を計算"""
-        mag_dec = amdar.core.geo.calc_magnetic_declination(lat, lon)
-
-        ground_dir = math.pi / 2 - math.radians(trackangle)
-        ground_x = groundspeed_ms * math.cos(ground_dir)
-        ground_y = groundspeed_ms * math.sin(ground_dir)
-
-        air_dir = math.pi / 2 - math.radians(heading) + math.radians(mag_dec)
-        air_x = trueair_ms * math.cos(air_dir)
-        air_y = trueair_ms * math.sin(air_dir)
-
-        wind_x = ground_x - air_x
-        wind_y = ground_y - air_y
-
-        return WindData(
-            x=wind_x,
-            y=wind_y,
-            angle=math.degrees(
-                (math.pi / 2 - math.atan2(wind_y, wind_x) + 2 * math.pi + math.pi) % (2 * math.pi)
-            ),
-            speed=math.sqrt(wind_x * wind_x + wind_y * wind_y),
-        )
 
     def parse_modes_file(self, file_path: pathlib.Path) -> list[WeatherObservation]:
         """Mode-S ファイルを解析
@@ -941,6 +550,7 @@ class FileAggregator:
                                     logging.debug("Failed to calculate position for %s", icao)
 
                                 # バッファに登録（VDL2 補完用）
+                                # 行カウンタを渡して get_altitude_by_order の採番を統一する
                                 self._buffer.add_adsb_position(
                                     icao=icao,
                                     callsign=frag.callsign,
@@ -948,6 +558,7 @@ class FileAggregator:
                                     altitude_m=altitude_m,
                                     lat=frag.lat,
                                     lon=frag.lon,
+                                    message_index=msg_index,
                                 )
 
                         # コールサイン
@@ -964,6 +575,7 @@ class FileAggregator:
                                         altitude_m=frag.altitude_ft * amdar.constants.FEET_TO_METERS,
                                         lat=frag.lat,
                                         lon=frag.lon,
+                                        message_index=msg_index,
                                     )
 
                     # DF=20,21: Comm-B
@@ -1032,9 +644,18 @@ class FileAggregator:
                             groundspeed_ms = float(groundspeed) * amdar.constants.KNOTS_TO_MS
                             mach_f = float(mach)
 
-                            temperature_c = self._calc_temperature(trueair_ms, mach_f)
-                            if temperature_c >= amdar.constants.GRAPH_TEMPERATURE_THRESHOLD:
-                                wind = self._calc_wind(
+                            # マッハ数が 0 以下の場合は温度を計算できないためスキップ
+                            # （温度異常値としてレコードを捨てる従来動作と等価）
+                            temperature_c = (
+                                amdar.core.physics.calc_temperature(trueair_ms, mach_f)
+                                if mach_f > 0
+                                else None
+                            )
+                            if (
+                                temperature_c is not None
+                                and temperature_c >= amdar.constants.GRAPH_TEMPERATURE_THRESHOLD
+                            ):
+                                wind = amdar.core.physics.calc_wind(
                                     frag.lat,
                                     frag.lon,
                                     float(trackangle),
@@ -1093,11 +714,19 @@ class FileAggregator:
                 # ダミー時刻を進める（1メッセージ=10ms）
                 dummy_time = base_time + datetime.timedelta(milliseconds=msg_index * 10)
 
+                # JSON のパースは1行につき1回だけ行う
+                message = vdl2_parser.parse_json_line(line)
+                if message is None:
+                    continue
+
+                icao = vdl2_parser.get_icao_from_message(message)
+
                 # ACARS 気象データを解析
-                acars = vdl2_parser.parse_acars_weather(line)
+                acars = vdl2_parser.parse_acars_weather(message)
                 if acars is None:
                     # XID から位置情報を取得してバッファに登録
-                    xid = vdl2_parser.parse_xid_location(line)
+                    # 行カウンタを渡して get_altitude_by_order の採番を統一する
+                    xid = vdl2_parser.parse_xid_location(message)
                     if xid and xid.altitude_ft:
                         self._buffer.add_adsb_position(
                             icao=xid.icao,
@@ -1106,6 +735,7 @@ class FileAggregator:
                             altitude_m=xid.altitude_ft * amdar.constants.FEET_TO_METERS,
                             lat=xid.latitude,
                             lon=xid.longitude,
+                            message_index=msg_index,
                         )
                     continue
 
@@ -1121,7 +751,6 @@ class FileAggregator:
 
                 if altitude_ft is None or altitude_ft <= 0:
                     # ICAO またはコールサインで補完
-                    icao = vdl2_parser.get_icao_from_message(line)
                     identifier = icao or acars.flight
 
                     if identifier:
@@ -1155,7 +784,7 @@ class FileAggregator:
                 # WeatherObservation を生成（タイムスタンプは受信時刻を使用）
                 obs = WeatherObservation.from_imperial(
                     timestamp=dummy_time,
-                    icao=vdl2_parser.get_icao_from_message(line),
+                    icao=icao,
                     callsign=acars.flight,
                     altitude_ft=altitude_ft,
                     latitude=final_lat,

@@ -3,9 +3,9 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import localizedFormat from 'dayjs/plugin/localizedFormat'
 import 'dayjs/locale/ja'
-import { SignalIcon, SignalSlashIcon } from '@heroicons/react/24/outline'
+import { SignalIcon, SignalSlashIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
 import { useApi } from '../hooks/useApi'
-import type { LastReceived } from '../types'
+import type { ReceiverQualityResponse } from '../types'
 
 dayjs.extend(relativeTime)
 dayjs.extend(localizedFormat)
@@ -27,8 +27,8 @@ const RECEIVER_CONFIG = {
 
 function ReceiverStatus() {
   const [now, setNow] = useState(dayjs())
-  const { data: lastReceived, error } = useApi<LastReceived>(
-    '/modes-sensing/api/last-received',
+  const { data: quality, error } = useApi<ReceiverQualityResponse>(
+    '/modes-sensing/api/receiver-quality',
     { interval: 60000 } // 1分間隔でポーリング
   )
 
@@ -57,8 +57,8 @@ function ReceiverStatus() {
     }
   }
 
-  // エラー時またはデータ未取得時は何も表示しない
-  if (error || !lastReceived) {
+  // 初回ロード中（エラーもデータもない）は何も表示しない
+  if (!quality && !error) {
     return null
   }
 
@@ -68,55 +68,71 @@ function ReceiverStatus() {
         <SignalIcon className="w-6 h-6 inline-block mr-2" />
         受信状況
       </h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {(['mode_s', 'vdl2'] as const).map((key) => {
-          const config = RECEIVER_CONFIG[key]
-          const time = formatTime(lastReceived?.[key] ?? null, config.staleThresholdMinutes)
+      {error || !quality ? (
+        <div className="p-3 rounded border border-red-300 bg-red-50 text-red-700 flex items-center">
+          <ExclamationTriangleIcon className="w-5 h-5 mr-2" />
+          受信状況を取得できませんでした
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {(['mode_s', 'vdl2'] as const).map((key) => {
+            const config = RECEIVER_CONFIG[key]
+            const method = quality[key]
+            const time = formatTime(method.last_received, config.staleThresholdMinutes)
 
-          return (
-            <div
-              key={key}
-              className={`p-3 rounded border ${
-                time.isNever
-                  ? 'border-gray-300 bg-gray-100'
-                  : time.isStale
-                  ? 'border-yellow-400 bg-yellow-50'
-                  : 'border-green-400 bg-green-50'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-1">
-                <span className="font-medium">{config.label}</span>
-                {time.isNever ? (
-                  <SignalSlashIcon className="w-5 h-5 text-gray-400" />
-                ) : time.isStale ? (
-                  <SignalIcon className="w-5 h-5 text-yellow-500" />
-                ) : (
-                  <SignalIcon className="w-5 h-5 text-green-500" />
-                )}
-              </div>
-              <div className="text-sm text-gray-600">{config.description}</div>
-              <div className="mt-2">
-                <span
-                  className={`text-lg font-semibold ${
-                    time.isNever
-                      ? 'text-gray-500'
-                      : time.isStale
-                      ? 'text-yellow-700'
-                      : 'text-green-700'
-                  }`}
-                >
-                  {time.relative}
-                </span>
-                {!time.isNever && (
-                  <span className="text-sm text-gray-500 ml-2">
-                    ({time.absolute})
+            return (
+              <div
+                key={key}
+                className={`p-3 rounded border ${
+                  time.isNever
+                    ? 'border-gray-300 bg-gray-100'
+                    : time.isStale
+                    ? 'border-yellow-400 bg-yellow-50'
+                    : 'border-green-400 bg-green-50'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-medium">{config.label}</span>
+                  {time.isNever ? (
+                    <SignalSlashIcon className="w-5 h-5 text-gray-400" />
+                  ) : time.isStale ? (
+                    <SignalIcon className="w-5 h-5 text-yellow-500" />
+                  ) : (
+                    <SignalIcon className="w-5 h-5 text-green-500" />
+                  )}
+                </div>
+                <div className="text-sm text-gray-600">{config.description}</div>
+                <div className="mt-2">
+                  <span
+                    className={`text-lg font-semibold ${
+                      time.isNever
+                        ? 'text-gray-500'
+                        : time.isStale
+                        ? 'text-yellow-700'
+                        : 'text-green-700'
+                    }`}
+                  >
+                    {time.relative}
                   </span>
-                )}
+                  {!time.isNever && (
+                    <span className="text-sm text-gray-500 ml-2">
+                      ({time.absolute})
+                    </span>
+                  )}
+                </div>
+                <div className="mt-2 text-sm text-gray-600 flex flex-wrap gap-x-4">
+                  <span className="whitespace-nowrap">
+                    直近1時間: <span className="font-semibold">{method.last_hour.toLocaleString('ja-JP')}</span> 件
+                  </span>
+                  <span className="whitespace-nowrap">
+                    24時間: <span className="font-semibold">{method.last_24h.toLocaleString('ja-JP')}</span> 件
+                  </span>
+                </div>
               </div>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

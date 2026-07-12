@@ -13,6 +13,14 @@
 export type JobStatusValue = "pending" | "processing" | "completed" | "failed" | "timeout";
 
 /**
+ * サーバーが保持していない（不明な）ジョブのステータス
+ * 対応: graph_routes.py get_jobs_status_batch / job_events
+ */
+export interface UnknownJobStatus {
+    status: "unknown";
+}
+
+/**
  * ジョブ情報（POST /api/graph/job レスポンスの要素）
  * 対応: graph.py create_graph_job
  */
@@ -60,11 +68,28 @@ export interface BatchJobStatusInfo {
 }
 
 /**
- * 一括ステータスレスポンス（POST /api/graph/jobs/status）
+ * 一括ステータスの各エントリ
+ * 不明な job_id は {"status": "unknown"} として含まれる
+ */
+export type BatchJobStatusEntry = BatchJobStatusInfo | UnknownJobStatus;
+
+/**
+ * 一括ステータスレスポンス（GET /api/graph/jobs/status?job_ids=...）
  * 対応: graph.py get_jobs_status_batch
  */
 export interface BatchStatusResponse {
-    jobs: Record<string, BatchJobStatusInfo>;
+    jobs: Record<string, BatchJobStatusEntry>;
+}
+
+/**
+ * SSE ステータスイベントのペイロード
+ * （GET /api/graph/job/events?job_ids=... の event: status）
+ *
+ * 各エントリは JobStatusDict（job_id を含む）または {"status": "unknown"}。
+ * バッチステータスと同じフィールドを参照するため BatchJobStatusEntry として扱う。
+ */
+export interface SseStatusEventData {
+    jobs: Record<string, BatchJobStatusEntry>;
 }
 
 /**
@@ -84,6 +109,27 @@ export interface DataRangeResponse {
 export interface LastReceivedResponse {
     mode_s: string | null;
     vdl2: string | null;
+}
+
+/**
+ * 受信方式毎の受信品質
+ * 対応: data_routes.py receiver_quality
+ */
+export interface MethodQuality {
+    last_hour: number;
+    last_24h: number;
+    last_received: string | null;
+    age_seconds: number | null;
+}
+
+/**
+ * 受信品質レスポンス（GET /api/receiver-quality）
+ * 対応: data_routes.py receiver_quality
+ */
+export interface ReceiverQualityResponse {
+    mode_s: MethodQuality;
+    vdl2: MethodQuality;
+    aggregates: Record<string, number>;
 }
 
 /**

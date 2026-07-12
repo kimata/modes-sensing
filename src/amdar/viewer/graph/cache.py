@@ -11,26 +11,29 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import functools
 import hashlib
 import logging
+import os
 import pathlib
+import tempfile
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import my_lib.git_util
 
 from amdar.constants import (
+    CACHE_CLEANUP_INTERVAL_SECONDS,
     CACHE_START_TIME_TOLERANCE_SECONDS,
     CACHE_TTL_SECONDS,
     ETAG_TIME_ROUND_SECONDS,
     GraphName,
 )
 
-if TYPE_CHECKING:
-    pass
+# 期限切れ掃除の前回実行時刻（頻繁なフルスキャンを避けるためのスロットル）
+_last_cleanup_time: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -218,21 +221,72 @@ def get_cached_image(
 ) -> tuple[bytes | None, str | None]:
     """キャッシュから画像を取得する。
 
+    1 回の走査でキャッシュ検索を行う。期限切れファイルの削除は
+    前回実行から :data:`CACHE_CLEANUP_INTERVAL_SECONDS` 以内ならスキップする。
+
     Returns:
         (画像データ, キャッシュファイル名)。ヒットしなければ (None, None)。
     """
-    deleted = cleanup_expired_cache(cache_dir)
-    if deleted > 0:
-        logging.info("[CACHE] Cleaned up %d expired files", deleted)
+    global _last_cleanup_time
 
-    cache_info = find_matching_cache(cache_dir, graph_name, time_start, time_end, limit_altitude)
-    if cache_info is None:
+    if not cache_dir.exists():
         return None, None
 
+    current_time = time.time()
+    do_cleanup = current_time - _last_cleanup_time >= CACHE_CLEANUP_INTERVAL_SECONDS
+    if do_cleanup:
+        _last_cleanup_time = current_time
+
+    git_commit = get_git_commit_hash()
+    request_period = int((time_end - time_start).total_seconds())
+    request_start_ts = int(time_start.timestamp())
+
+    matched: CacheFileInfo | None = None
+    deleted_count = 0
+
+    for cache_file in cache_dir.glob("*.png"):
+        info = parse_cache_filename(cache_file)
+        if info is None:
+            continue
+
+        if current_time - info.created_at > CACHE_TTL_SECONDS:
+            if do_cleanup:
+                try:
+                    cache_file.unlink()
+                    deleted_count += 1
+                except OSError as e:
+                    logging.warning("[CACHE] Failed to delete %s: %s", cache_file.name, e)
+            continue
+
+        if matched is not None:
+            continue
+        if info.graph_name != graph_name:
+            continue
+        if info.period_seconds != request_period:
+            continue
+        if info.limit_altitude != limit_altitude:
+            continue
+        if info.git_commit != git_commit:
+            continue
+        if abs(info.start_ts - request_start_ts) <= CACHE_START_TIME_TOLERANCE_SECONDS:
+            matched = info
+
+    if deleted_count > 0:
+        logging.info("[CACHE] Cleaned up %d expired files", deleted_count)
+
+    if matched is None:
+        return None, None
+
+    logging.info(
+        "[CACHE] HIT: %s (start_diff: %d sec, age: %.0f sec)",
+        matched.path.name,
+        abs(matched.start_ts - request_start_ts),
+        current_time - matched.created_at,
+    )
     try:
-        return cache_info.path.read_bytes(), cache_info.path.name
+        return matched.path.read_bytes(), matched.path.name
     except OSError as e:
-        logging.warning("[CACHE] Failed to read %s: %s", cache_info.path.name, e)
+        logging.warning("[CACHE] Failed to read %s: %s", matched.path.name, e)
         return None, None
 
 
@@ -244,12 +298,23 @@ def save_to_cache(
     limit_altitude: bool,
     image_bytes: bytes,
 ) -> str | None:
-    """画像をキャッシュに保存する。"""
+    """画像をキャッシュに保存する（同一ディレクトリの一時ファイル経由で原子的に書き込む）。"""
     try:
         cache_dir.mkdir(parents=True, exist_ok=True)
         filename = generate_cache_filename(graph_name, time_start, time_end, limit_altitude)
         cache_file = cache_dir / filename
-        cache_file.write_bytes(image_bytes)
+
+        fd, tmp_name = tempfile.mkstemp(dir=cache_dir, suffix=".tmp")
+        tmp_path = pathlib.Path(tmp_name)
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(image_bytes)
+            tmp_path.replace(cache_file)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                tmp_path.unlink()
+            raise
+
         logging.info("[CACHE] Saved: %s (%d bytes)", filename, len(image_bytes))
         return filename
     except OSError as e:

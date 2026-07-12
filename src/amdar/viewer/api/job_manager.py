@@ -1,8 +1,8 @@
 """
 メモリ内ジョブ管理システム
 
-グラフ生成の非同期処理を管理するためのシングルトンクラス。
-外部依存（Redis等）なしで動作する。
+グラフ生成の非同期処理を管理する。アプリ全体ではモジュールレベルの
+:data:`job_manager` インスタンスを共有する。外部依存（Redis等）なしで動作する。
 
 機能:
 - ジョブの登録・状態管理
@@ -72,38 +72,26 @@ class Job:
 
 class JobManager:
     """
-    スレッドセーフなジョブ管理クラス（シングルトン）
+    スレッドセーフなジョブ管理クラス
+
+    アプリ全体では本モジュールの :data:`job_manager` インスタンスを共有する。
 
     使用例:
-        manager = JobManager()
-        job_id = manager.create_job("scatter_2d", start, end, False)
-        manager.update_status(job_id, JobStatus.PROCESSING, progress=50)
-        job = manager.get_job(job_id)
+        job_id = job_manager.create_job("scatter_2d", start, end, False)
+        job_manager.update_status(job_id, JobStatus.PROCESSING, progress=50)
+        job = job_manager.get_job(job_id)
     """
 
-    _instance: JobManager | None = None
-    _lock = threading.Lock()
-
-    # インスタンス属性の型アノテーション
-    _jobs: dict[str, Job]
-    _jobs_lock: threading.RLock
-    _cleanup_started: bool
-
-    def __new__(cls) -> JobManager:
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    instance = super().__new__(cls)
-                    instance._jobs = {}
-                    instance._jobs_lock = threading.RLock()
-                    instance._cleanup_started = False
-                    cls._instance = instance
-        return cls._instance
+    def __init__(self) -> None:
+        self._jobs: dict[str, Job] = {}
+        self._jobs_lock = threading.RLock()
+        self._cleanup_started = False
+        self._cleanup_lock = threading.Lock()
 
     def _ensure_cleanup_thread(self) -> None:
         """クリーンアップスレッドが起動していなければ起動"""
         if not self._cleanup_started:
-            with self._lock:
+            with self._cleanup_lock:
                 if not self._cleanup_started:
                     self._start_cleanup_thread()
                     self._cleanup_started = True
@@ -132,12 +120,22 @@ class JobManager:
         """
         self._ensure_cleanup_thread()
 
-        # 指定されたIDが既に存在し、完了済みならそのまま返す
+        # 指定されたIDが既に存在し、進行中または完了済みならそのまま返す
+        # （進行中ジョブを上書きすると started_at や結果が失われるため）
         if job_id is not None:
             with self._jobs_lock:
                 existing = self._jobs.get(job_id)
-                if existing and existing.status == JobStatus.COMPLETED:
-                    logging.info("Reusing existing completed job %s for graph %s", job_id, graph_name)
+                if existing and existing.status in (
+                    JobStatus.PENDING,
+                    JobStatus.PROCESSING,
+                    JobStatus.COMPLETED,
+                ):
+                    logging.info(
+                        "Reusing existing %s job %s for graph %s",
+                        existing.status.value,
+                        job_id,
+                        graph_name,
+                    )
                     return job_id
 
         final_job_id = job_id if job_id is not None else str(uuid.uuid4())
@@ -305,3 +303,7 @@ class JobManager:
                 stats[status_name] = stats.get(status_name, 0) + 1
             stats["total"] = len(self._jobs)
             return stats
+
+
+# モジュールレベルの共有インスタンス
+job_manager = JobManager()

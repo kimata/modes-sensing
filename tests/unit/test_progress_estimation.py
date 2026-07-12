@@ -58,11 +58,17 @@ class TestGetDefaultGenerationTime:
 class TestGenerationTimeHistory:
     """GenerationTimeHistory のテスト"""
 
-    def test_singleton(self):
-        """シングルトンパターン"""
+    def test_module_level_instance(self):
+        """モジュールレベルの共有インスタンスが存在する"""
+        assert isinstance(
+            progress_estimation.generation_time_history, progress_estimation.GenerationTimeHistory
+        )
+
+    def test_instances_are_independent(self):
+        """通常のクラスとして独立したインスタンスを生成できる"""
         history1 = progress_estimation.GenerationTimeHistory()
         history2 = progress_estimation.GenerationTimeHistory()
-        assert history1 is history2
+        assert history1 is not history2
 
     def test_make_key(self):
         """キー生成"""
@@ -173,8 +179,51 @@ class TestGenerationTimeHistory:
         history._cache_file = cache_file
         history._history = {"test_key": 3.5}
 
-        history._save()
+        history._save(dict(history._history))
 
         assert cache_file.exists()
         data = json.loads(cache_file.read_text())
         assert data["test_key"] == 3.5
+
+    def test_load_invalid_format(self, tmp_path):
+        """dict[str, float] 以外の履歴ファイルは破棄して空で開始"""
+        import json
+
+        cache_file = tmp_path / "generation_times.json"
+        cache_file.write_text(json.dumps({"key": "not-a-number"}))
+
+        history = progress_estimation.GenerationTimeHistory()
+        history._cache_file = cache_file
+        history._history = {"existing": 1.0}
+
+        history._load()
+        assert history._history == {}
+
+        # トップレベルが dict でない場合も破棄
+        cache_file.write_text(json.dumps([1, 2, 3]))
+        history._history = {"existing": 1.0}
+        history._load()
+        assert history._history == {}
+
+    def test_record_skips_write_when_unchanged(self, tmp_path):
+        """値が変化しない場合はファイルに書き込まない"""
+        cache_file = tmp_path / "generation_times.json"
+
+        history = progress_estimation.GenerationTimeHistory()
+        history._cache_file = cache_file
+        history._initialized = True
+
+        history.record("scatter_2d", 24, False, 5.0)
+        assert cache_file.exists()
+        first_mtime = cache_file.stat().st_mtime_ns
+
+        # 同じ値を記録 → 書き込まれない
+        history.record("scatter_2d", 24, False, 5.0)
+        assert cache_file.stat().st_mtime_ns == first_mtime
+
+        # 違う値を記録 → 書き込まれる
+        history.record("scatter_2d", 24, False, 6.0)
+        import json
+
+        data = json.loads(cache_file.read_text())
+        assert data["scatter_2d|24|false"] == 6.0

@@ -26,6 +26,7 @@ import my_lib.config
 import my_lib.logger
 
 import amdar.config
+import amdar.constants
 import amdar.sources.vdl2.receiver as vdl2_receiver
 
 if TYPE_CHECKING:
@@ -84,8 +85,8 @@ def _main() -> None:
 
     # 基準点の取得
     filter_config = config_dict.get("filter", {}).get("area", {})
-    ref_lat = filter_config.get("lat", {}).get("ref", 35.682677)
-    ref_lon = filter_config.get("lon", {}).get("ref", 139.762230)
+    ref_lat = filter_config.get("lat", {}).get("ref", amdar.constants.DEFAULT_REFERENCE_LATITUDE)
+    ref_lon = filter_config.get("lon", {}).get("ref", amdar.constants.DEFAULT_REFERENCE_LONGITUDE)
 
     logging.info("VDL2 host: %s:%d", host, port)
     logging.info("Reference point: %.6f, %.6f", ref_lat, ref_lon)

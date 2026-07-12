@@ -130,16 +130,10 @@ class TestJobStatusDictSchema:
 
 
 class TestJobManagerIntegration:
-    """JobManager の get_job_status_dict メソッドの整合性テスト"""
+    """JobManager の get_job_status_dict メソッドの整合性テスト
 
-    def setup_method(self) -> None:
-        """各テストの前にJobManagerをリセット"""
-        # シングルトンのインスタンスをリセット
-        JobManager._instance = None
-
-    def teardown_method(self) -> None:
-        """各テストの後にJobManagerをリセット"""
-        JobManager._instance = None
+    JobManager は通常のクラスになったため、テスト毎に独立したインスタンスを生成する。
+    """
 
     def test_get_job_status_dict_returns_correct_structure(self) -> None:
         """get_job_status_dict が正しい構造を返すことを検証"""

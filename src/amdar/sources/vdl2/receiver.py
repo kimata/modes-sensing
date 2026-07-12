@@ -17,7 +17,7 @@ import pathlib
 import queue
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import my_lib.footprint
@@ -32,13 +32,6 @@ if TYPE_CHECKING:
     import amdar.database.postgresql
     from amdar.sources.aggregator import IntegratedBuffer
 
-_should_terminate = threading.Event()
-_liveness_file: pathlib.Path | None = None
-
-# フラグメントバッファ（航空機ごと）
-_fragment_buffer: dict[str, _AircraftFragment] = {}
-_fragment_lock = threading.Lock()
-
 
 @dataclass
 class _AircraftFragment:
@@ -49,6 +42,35 @@ class _AircraftFragment:
     xid_timestamp: float = 0.0
     acars_data: amdar.sources.vdl2.parser.AcarsWeatherData | None = None
     acars_timestamp: float = 0.0
+
+
+@dataclass
+class _ReceiverState:
+    """モジュールの可変状態
+
+    start() で初期化され、ワーカースレッドから参照されます。
+    """
+
+    should_terminate: threading.Event = field(default_factory=threading.Event)
+    """終了フラグ"""
+
+    liveness_file: pathlib.Path | None = None
+    """Liveness ファイルパス（start() で設定される）"""
+
+    fragment_buffer: dict[str, _AircraftFragment] = field(default_factory=dict)
+    """フラグメントバッファ（航空機ごと）"""
+
+    fragment_lock: threading.Lock = field(default_factory=threading.Lock)
+    """フラグメントバッファ排他制御用ロック"""
+
+
+_state = _ReceiverState()
+
+
+def reset() -> None:
+    """モジュール状態を初期化する（テスト用）"""
+    global _state
+    _state = _ReceiverState()
 
 
 def _check_and_add_measurement(
@@ -108,11 +130,11 @@ def _try_combine_fragments(
     Returns:
         結合された MeasurementData、または結合できない場合は None
     """
-    with _fragment_lock:
-        if icao not in _fragment_buffer:
+    with _state.fragment_lock:
+        if icao not in _state.fragment_buffer:
             return None
 
-        fragment = _fragment_buffer[icao]
+        fragment = _state.fragment_buffer[icao]
         xid = fragment.xid_data
         acars = fragment.acars_data
 
@@ -149,7 +171,7 @@ def _try_combine_fragments(
         )
 
         # フラグメントをクリア（結合済み）
-        _fragment_buffer[icao] = _AircraftFragment(icao=icao)
+        _state.fragment_buffer[icao] = _AircraftFragment(icao=icao)
 
         logging.debug(
             "VDL2 fragment combined: %s, XID alt=%d, ACARS temp=%.1f",
@@ -166,16 +188,16 @@ def _try_combine_fragments(
 def _cleanup_old_fragments() -> None:
     """古いフラグメントを削除する"""
     current_time = time.time()
-    with _fragment_lock:
+    with _state.fragment_lock:
         expired_keys = []
-        for icao, fragment in _fragment_buffer.items():
+        for icao, fragment in _state.fragment_buffer.items():
             # 最後の更新から一定時間経過したフラグメントを削除
             latest_time = max(fragment.xid_timestamp, fragment.acars_timestamp)
             if current_time - latest_time > amdar.constants.VDL2_FRAGMENT_TIMEOUT_SECONDS * 2:
                 expired_keys.append(icao)
 
         for key in expired_keys:
-            del _fragment_buffer[key]
+            del _state.fragment_buffer[key]
 
 
 def _try_altitude_interpolation_from_buffer(
@@ -286,27 +308,32 @@ def _worker(
     buffer_combined_count = 0
     cleanup_counter = 0
 
-    while not _should_terminate.is_set():
+    while not _state.should_terminate.is_set():
         try:
             msg = socket.recv()
             total_count += 1
             current_time = time.time()
 
+            # JSON のパースは1メッセージにつき1回だけ行う
+            message = amdar.sources.vdl2.parser.parse_json_line(msg)
+            if message is None:
+                continue
+
             # ICAO アドレスを取得
-            icao = amdar.sources.vdl2.parser.get_icao_from_message(msg)
+            icao = amdar.sources.vdl2.parser.get_icao_from_message(message)
 
             # XID 位置データを処理
-            xid_data = amdar.sources.vdl2.parser.parse_xid_location(msg)
+            xid_data = amdar.sources.vdl2.parser.parse_xid_location(message)
             if xid_data and icao:
-                with _fragment_lock:
-                    if icao not in _fragment_buffer:
-                        _fragment_buffer[icao] = _AircraftFragment(icao=icao)
-                    _fragment_buffer[icao].xid_data = xid_data
-                    _fragment_buffer[icao].xid_timestamp = current_time
+                with _state.fragment_lock:
+                    if icao not in _state.fragment_buffer:
+                        _state.fragment_buffer[icao] = _AircraftFragment(icao=icao)
+                    _state.fragment_buffer[icao].xid_data = xid_data
+                    _state.fragment_buffer[icao].xid_timestamp = current_time
                 logging.debug("VDL2 XID received: %s, alt=%d", icao, xid_data.altitude_ft)
 
             # ACARS 気象データを処理
-            acars_data = amdar.sources.vdl2.parser.parse_acars_weather(msg)
+            acars_data = amdar.sources.vdl2.parser.parse_acars_weather(message)
             if acars_data:
                 # 受信時刻を取得（VDL2 データ内のタイムスタンプは無視）
                 received_at = my_lib.time.now()
@@ -320,8 +347,8 @@ def _worker(
                     if _check_and_add_measurement(measurement, data_queue, "直接変換"):
                         weather_count += 1
                         # Liveness ファイルを更新
-                        if _liveness_file is not None:
-                            my_lib.footprint.update(_liveness_file)
+                        if _state.liveness_file is not None:
+                            my_lib.footprint.update(_state.liveness_file)
                         logging.debug(
                             "VDL2 weather data: %s alt=%d temp=%.1f",
                             measurement.callsign,
@@ -340,8 +367,8 @@ def _worker(
                                 buffer_combined_count += 1
                                 weather_count += 1
                                 # Liveness ファイルを更新
-                                if _liveness_file is not None:
-                                    my_lib.footprint.update(_liveness_file)
+                                if _state.liveness_file is not None:
+                                    my_lib.footprint.update(_state.liveness_file)
                                 logging.info(
                                     "VDL2 buffer補完 weather: %s alt=%d temp=%.1f",
                                     altitude_result.callsign,
@@ -352,11 +379,11 @@ def _worker(
 
                     # IntegratedBuffer で補完できなかった場合、内部フラグメントバッファに保存
                     if icao:
-                        with _fragment_lock:
-                            if icao not in _fragment_buffer:
-                                _fragment_buffer[icao] = _AircraftFragment(icao=icao)
-                            _fragment_buffer[icao].acars_data = acars_data
-                            _fragment_buffer[icao].acars_timestamp = current_time
+                        with _state.fragment_lock:
+                            if icao not in _state.fragment_buffer:
+                                _state.fragment_buffer[icao] = _AircraftFragment(icao=icao)
+                            _state.fragment_buffer[icao].acars_data = acars_data
+                            _state.fragment_buffer[icao].acars_timestamp = current_time
 
                         # フラグメント結合を試みる
                         combined = _try_combine_fragments(icao, ref_lat, ref_lon, received_at)
@@ -365,8 +392,8 @@ def _worker(
                             combined_count += 1
                             weather_count += 1
                             # Liveness ファイルを更新
-                            if _liveness_file is not None:
-                                my_lib.footprint.update(_liveness_file)
+                            if _state.liveness_file is not None:
+                                my_lib.footprint.update(_state.liveness_file)
                             logging.info(
                                 "VDL2 combined weather: %s alt=%d temp=%.1f",
                                 combined.callsign,
@@ -430,13 +457,12 @@ def start(
     Returns:
         開始したワーカースレッド
     """
-    global _liveness_file
-    _should_terminate.clear()
-    _liveness_file = liveness_file
+    _state.should_terminate.clear()
+    _state.liveness_file = liveness_file
 
     # フラグメントバッファをクリア
-    with _fragment_lock:
-        _fragment_buffer.clear()
+    with _state.fragment_lock:
+        _state.fragment_buffer.clear()
 
     thread = threading.Thread(
         target=_worker,
@@ -449,4 +475,4 @@ def start(
 
 def term() -> None:
     """受信を終了する"""
-    _should_terminate.set()
+    _state.should_terminate.set()

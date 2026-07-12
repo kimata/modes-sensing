@@ -2,6 +2,8 @@ import { useRef, useLayoutEffect, useEffect, useState } from 'react'
 import { ChartBarIcon, LinkIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 import styles from './GraphDisplay.module.css'
 import { useGraphJobs } from '../hooks/useGraphJobs'
+import { usePermalink } from '../hooks/usePermalink'
+import { formatDateForDisplay } from '../utils/date'
 
 interface GraphDisplayProps {
   dateRange: {
@@ -27,6 +29,7 @@ const graphs: GraphInfo[] = [
   { name: 'heatmap', endpoint: '/modes-sensing/api/graph/heatmap', title: 'ヒートマップ', size: [2400, 1600] },
   { name: 'temperature', endpoint: '/modes-sensing/api/graph/temperature', title: '高度別温度時系列', size: [2400, 1600] },
   { name: 'wind_direction', endpoint: '/modes-sensing/api/graph/wind_direction', title: '風向・風速分布', size: [2400, 1600] },
+  { name: 'vertical_profile', endpoint: '/modes-sensing/api/graph/vertical_profile', title: '鉛直プロファイル', size: [2400, 1600] },
   { name: 'scatter_3d', endpoint: '/modes-sensing/api/graph/scatter_3d', title: '3D散布図', size: [2800, 2800] },
   { name: 'contour_3d', endpoint: '/modes-sensing/api/graph/contour_3d', title: '3D等高線プロット', size: [2800, 2800] }
 ]
@@ -54,8 +57,8 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
   const containerRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const [containerWidths, setContainerWidths] = useState<Record<string, number>>({})
 
-  // 通知用ref
-  const notificationRef = useRef<HTMLDivElement>(null)
+  // パーマリンクコピー機能（共通フック）
+  const { notificationRef, notificationClassName, copyPermalink } = usePermalink()
 
   // コンテナ幅を測定
   const measureContainerWidths = () => {
@@ -80,62 +83,6 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
     window.addEventListener('resize', measureContainerWidths)
     return () => window.removeEventListener('resize', measureContainerWidths)
   }, [])
-
-  // パーマリンクコピー関連
-  const showCopyNotification = (message: string) => {
-    if (!notificationRef.current) return
-    notificationRef.current.textContent = message
-    notificationRef.current.classList.add(styles.show)
-    setTimeout(() => {
-      notificationRef.current?.classList.remove(styles.show)
-    }, 3000)
-  }
-
-  const copyPermalink = (elementId: string) => {
-    const permalink = window.location.origin + window.location.pathname + '#' + elementId
-
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(permalink)
-        .then(() => {
-          showCopyNotification('パーマリンクをコピーしました')
-          window.history.pushState(null, '', '#' + elementId)
-        })
-        .catch(() => fallbackCopyToClipboard(permalink, elementId))
-    } else {
-      fallbackCopyToClipboard(permalink, elementId)
-    }
-  }
-
-  const fallbackCopyToClipboard = (text: string, elementId: string) => {
-    const textArea = document.createElement('textarea')
-    textArea.value = text
-    textArea.style.cssText = 'position:fixed;left:-9999px'
-    document.body.appendChild(textArea)
-    textArea.select()
-
-    try {
-      if (document.execCommand('copy')) {
-        showCopyNotification('パーマリンクをコピーしました')
-        window.history.pushState(null, '', '#' + elementId)
-      } else {
-        showCopyNotification('コピーに失敗しました')
-      }
-    } catch {
-      showCopyNotification('コピーに失敗しました')
-    } finally {
-      document.body.removeChild(textArea)
-    }
-  }
-
-  // 日付表示用フォーマット
-  const formatDateForDisplay = (date: Date): string => {
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    const hours = String(date.getHours()).padStart(2, '0')
-    const minutes = String(date.getMinutes()).padStart(2, '0')
-    return `${year}-${month}-${day} ${hours}:${minutes}`
-  }
 
   // 経過時間をフォーマット
   const formatElapsedTime = (seconds: number | null): string => {
@@ -356,7 +303,7 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ dateRange, limitAltitude, o
           })}
         </div>
       </div>
-      <div ref={notificationRef} className={styles.copyNotification}></div>
+      <div ref={notificationRef} className={notificationClassName}></div>
     </>
   )
 }

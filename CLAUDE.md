@@ -11,7 +11,7 @@
 - Mode S メッセージ (BDS 4,4/4,5) のリアルタイム受信・デコード
 - 気温・風向・風速の計算（真気速度・マッハ数・地速・機首方位から）
 - 機械学習による外れ値検出（sklearn IsolationForest）
-- PostgreSQL/SQLite へのデータ保存
+- PostgreSQL へのデータ保存
 - 8種類のグラフ生成（散布図、ヒートマップ、等高線、温度、風向など）
 - 非同期グラフ生成（マルチプロセス + ジョブキュー）
 - React フロントエンドによるインタラクティブな可視化
@@ -33,8 +33,7 @@ src/
     │   ├── modes/receiver.py   # Mode S 受信・デコード
     │   └── vdl2/receiver.py    # VDL2 受信・デコード
     ├── database/
-    │   ├── postgresql.py       # PostgreSQL データアクセス
-    │   └── sqlite.py           # SQLite データアクセス（開発用）
+    │   └── postgresql.py       # PostgreSQL データアクセス
     └── viewer/api/
         ├── graph.py            # グラフ生成 API
         └── job_manager.py      # 非同期ジョブ管理
@@ -184,18 +183,20 @@ graph.py
 
 ### グラフタイプ
 
-| グラフ       | graph_name     | 説明              |
-| ------------ | -------------- | ----------------- |
-| 2D散布図     | scatter_2d     | 時間-高度-温度    |
-| 3D散布図     | scatter_3d     | 立体データ分布    |
-| ヒートマップ | heatmap        | 連続温度変化      |
-| 2D等高線     | contour_2d     | 等温線            |
-| 3D等高線     | contour_3d     | 3次元等温面       |
-| 密度プロット | density        | 高度-温度分布密度 |
-| 温度プロット | temperature    | 時間-温度推移     |
-| 風向プロット | wind_direction | 高度別風向・風速  |
+| グラフ           | graph_name       | 説明                                     |
+| ---------------- | ---------------- | ---------------------------------------- |
+| 2D散布図         | scatter_2d       | 時間-高度-温度                           |
+| 3D散布図         | scatter_3d       | 立体データ分布                           |
+| ヒートマップ     | heatmap          | 連続温度変化                             |
+| 2D等高線         | contour_2d       | 等温線                                   |
+| 3D等高線         | contour_3d       | 3次元等温面                              |
+| 密度プロット     | density          | 高度-温度分布密度                        |
+| 温度プロット     | temperature      | 時間-温度推移                            |
+| 風向プロット     | wind_direction   | 高度別風向・風速                         |
+| 鉛直プロファイル | vertical_profile | 気温プロファイル+ホドグラフ（末尾3時間） |
 
 ## 重要な注意事項
+
 ### 共通運用ルール
 
 - 変更前に意図と影響範囲を説明し、ユーザー確認を取る
@@ -206,7 +207,6 @@ graph.py
 - Union 型が 3 箇所以上で出現する場合は `TypeAlias` を定義
 - `except Exception` は避け、具体的な例外型を指定する
 - ミラー運用がある場合は primary リポジトリにのみ push する
-
 
 ### プロジェクト設定ファイルの編集禁止
 
@@ -528,7 +528,7 @@ def get_status() -> JobStatusDict:
 本番で使用されなくなったコードは、ファイル先頭の docstring に非推奨マークを追加する：
 
 ```python
-"""SQLite データベースアクセス（開発・テスト用）
+"""旧データアクセスモジュール
 
 DEPRECATED: 本番環境では postgresql.py を使用してください。
 このファイルは開発・テスト用途のみでサポートされます。
@@ -628,7 +628,7 @@ config = amdar.config.load_from_dict(config_dict, pathlib.Path.cwd())
 ```
 
 `load_config()` はスキーマ検証を含み、`base_dir` を現在の作業ディレクトリに設定する。
-`config_dict` を直接使用する必要がある場合（sqlite.py など）のみ、`load_from_dict()` を使用する。
+`config_dict` を直接使用する必要がある場合（テストフィクスチャなど）のみ、`load_from_dict()` を使用する。
 
 ### スキーマファイルパスの管理
 
@@ -1001,7 +1001,7 @@ logging.info("[DEBUG] 詳細情報: value=%s", value)
 
 1. **Protocol 導入の判断**
     - 複数の異なる実装が同じインターフェースを共有する場合のみ導入
-    - 単一実装や deprecated なモジュール（sqlite.py 等）には不要
+    - 単一実装や deprecated なモジュールには不要
 
 2. **TypedDict → dataclass 置き換えの判断**
     - 外部 API レスポンスや JSON パース結果: TypedDict を維持
@@ -1064,6 +1064,21 @@ Response: {"earliest": "...", "latest": "...", "count": 12345}
 GET /modes-sensing/api/aggregate-stats
 
 Response: {"meteorological_data": {...}, ...}
+```
+
+### 受信品質・監視
+
+```
+GET /modes-sensing/api/receiver-quality
+
+Response: {"mode_s": {"last_hour": 12, "last_24h": 345, "last_received": "...", "age_seconds": 60},
+           "vdl2": {...}, "aggregates": {...}}
+```
+
+```
+GET /modes-sensing/api/metrics
+
+Response: Prometheus text format (version 0.0.4) のメトリクス
 ```
 
 ## 外部依存

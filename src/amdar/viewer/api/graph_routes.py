@@ -7,27 +7,40 @@
 from __future__ import annotations
 
 import datetime
+import functools
 import json
 import logging
+import time
 from typing import Any, cast
 
 import flask
 import my_lib.time
+import PIL.Image
+import PIL.ImageDraw
+import PIL.ImageFont
 
+import amdar.config
 from amdar.constants import (
     CACHE_CONTROL_MAX_AGE_RESULT,
-    CACHE_CONTROL_MAX_AGE_STATUS,
+    GRAPH_JOB_MAX_GRAPHS,
+    SSE_MAX_CONNECTION_SECONDS,
+    SSE_MAX_JOB_IDS,
+    SSE_POLL_INTERVAL_SECONDS,
     GraphName,
 )
-from amdar.viewer.api.job_manager import JobManager, JobStatus
+from amdar.viewer.api.job_manager import JobStatus, JobStatusDict, job_manager
 from amdar.viewer.graph import cache
 from amdar.viewer.graph.definitions import GRAPH_DEF_MAP
 from amdar.viewer.graph.service import graph_service
 
-# JobManager もシングルトンなので routes から直接参照してよい
-_job_manager = JobManager()
-
 blueprint = flask.Blueprint("modes-sensing-graph", __name__)
+
+# SSE で「終端」とみなすステータス
+_SSE_TERMINAL_STATUSES = frozenset({"completed", "failed", "timeout", "unknown"})
+
+# エラー画像のデフォルトサイズ（px）
+_ERROR_IMAGE_SIZE = (1200, 800)
+_ERROR_IMAGE_FONT_SIZE = 28
 
 
 def _parse_iso_datetime(date_str: str | None) -> datetime.datetime | None:
@@ -55,8 +68,11 @@ def graph(graph_name: str):
     time_start_str = flask.request.args.get("start", None)
     limit_altitude_str = flask.request.args.get("limit_altitude", "false")
 
-    time_end = _parse_json_datetime(time_end_str, default_time_end)
-    time_start = _parse_json_datetime(time_start_str, default_time_start)
+    try:
+        time_end = _parse_json_datetime(time_end_str, default_time_end)
+        time_start = _parse_json_datetime(time_start_str, default_time_start)
+    except ValueError as e:
+        return flask.jsonify({"error": str(e)}), 400
     limit_altitude = limit_altitude_str.lower() == "true"
 
     request_days = (time_end - time_start).total_seconds() / 86400
@@ -96,44 +112,75 @@ def graph(graph_name: str):
 
 
 def _parse_json_datetime(date_str: str | None, default: datetime.datetime) -> datetime.datetime:
-    """JSON エンコードされた ISO 形式の日時をパース。失敗時はデフォルト。"""
+    """JSON エンコードされた ISO 形式の日時をパース。
+
+    パラメータ未指定時はデフォルト値を返す。パース失敗時は ValueError を送出する
+    （黙ってデフォルトにフォールバックしない）。
+    """
     if not date_str:
         return default
     try:
         parsed = json.loads(date_str)
         return datetime.datetime.fromisoformat(parsed).astimezone(my_lib.time.get_zoneinfo())
-    except (ValueError, TypeError):
-        logging.debug("Failed to parse datetime", exc_info=True)
-        return default
+    except (ValueError, TypeError) as e:
+        logging.debug("Failed to parse datetime: %s", date_str, exc_info=True)
+        msg = f"Invalid datetime parameter: {date_str}"
+        raise ValueError(msg) from e
+
+
+def _get_error_font_path(config: amdar.config.Config | None) -> str | None:
+    """エラー画像描画に使うフォントファイルのパスを返す（無ければ None）。"""
+    if config is None:
+        return None
+    try:
+        font_file = config.font.map.get("jp_bold") or next(iter(config.font.map.values()), None)
+        if font_file is None:
+            return None
+        font_path = config.font.path / font_file
+        if font_path.exists():
+            return str(font_path)
+    except (OSError, TypeError, AttributeError):
+        logging.debug("Failed to resolve error image font", exc_info=True)
+    return None
+
+
+@functools.lru_cache(maxsize=32)
+def _render_error_image(message: str, size: tuple[int, int], font_path: str | None) -> bytes:
+    """Pillow でエラー画像（グレー背景 + メッセージ）を生成する。
+
+    matplotlib はスレッド安全でないため、リクエストスレッドで動く本関数では使わない。
+    生成結果はメッセージ・サイズ・フォントをキーにキャッシュされる。
+    """
+    import io
+
+    img = PIL.Image.new("RGB", size, color=(230, 230, 230))
+    draw = PIL.ImageDraw.Draw(img)
+
+    font: PIL.ImageFont.FreeTypeFont | PIL.ImageFont.ImageFont
+    if font_path is not None:
+        try:
+            font = PIL.ImageFont.truetype(font_path, _ERROR_IMAGE_FONT_SIZE)
+        except OSError:
+            font = PIL.ImageFont.load_default()
+    else:
+        font = PIL.ImageFont.load_default()
+
+    bbox = draw.multiline_textbbox((0, 0), message, font=font, align="center")
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    pos = ((size[0] - text_width) / 2 - bbox[0], (size[1] - text_height) / 2 - bbox[1])
+    draw.multiline_text(pos, message, font=font, fill=(80, 80, 80), align="center")
+
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return buf.getvalue()
 
 
 def _error_response(graph_name: str, error_text: str) -> flask.Response:
     """エラー時に薄い PNG レスポンスを返す（ブラウザに固まらないように）。"""
-    import io
-
-    import matplotlib.pyplot as plt
-
-    from amdar.constants import GRAPH_IMAGE_DPI
-
-    fig, ax = plt.subplots(figsize=(12, 8))
-    ax.text(
-        0.5,
-        0.5,
-        f"Graph generation failed\n{graph_name}\nError: {error_text[:100]}...",
-        ha="center",
-        va="center",
-        transform=ax.transAxes,
-        fontsize=14,
-        bbox={"boxstyle": "round,pad=0.3", "facecolor": "lightcoral", "alpha": 0.7},
-    )
-    ax.axis("off")
-
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png", dpi=GRAPH_IMAGE_DPI, bbox_inches="tight", facecolor="white")
-    buf.seek(0)
-    error_image_bytes = buf.read()
-    buf.close()
-    plt.close(fig)
+    config = flask.current_app.config.get("CONFIG")
+    message = f"Graph generation failed\n{graph_name}\nError: {error_text[:100]}"
+    error_image_bytes = _render_error_image(message, _ERROR_IMAGE_SIZE, _get_error_font_path(config))
 
     res = flask.Response(error_image_bytes, mimetype="image/png")
     # エラー時はキャッシュ無効化
@@ -179,15 +226,28 @@ def create_graph_job():
         if not time_start or not time_end:
             return flask.jsonify({"error": "start and end are required"}), 400
 
+        if time_start >= time_end:
+            return flask.jsonify({"error": "start must be before end"}), 400
+
         graphs = data.get("graphs", [])
-        if not graphs:
+        if not graphs or not isinstance(graphs, list):
             return flask.jsonify({"error": "graphs list is required"}), 400
 
+        # 重複を除去（順序は維持）
+        unique_graphs = list(dict.fromkeys(graphs))
+
+        if len(unique_graphs) > GRAPH_JOB_MAX_GRAPHS:
+            return (
+                flask.jsonify({"error": f"Too many graphs (max: {GRAPH_JOB_MAX_GRAPHS})"}),
+                400,
+            )
+
+        invalid_graphs = [name for name in unique_graphs if name not in GRAPH_DEF_MAP]
+        if invalid_graphs:
+            return flask.jsonify({"error": f"Unknown graph names: {invalid_graphs}"}), 400
+
         jobs = []
-        for graph_name in graphs:
-            if graph_name not in GRAPH_DEF_MAP:
-                logging.warning("Unknown graph name: %s", graph_name)
-                continue
+        for graph_name in unique_graphs:
             typed_name = cast(GraphName, graph_name)
             job_id = graph_service.submit_async(typed_name, time_start, time_end, limit_altitude)
             jobs.append({"job_id": job_id, "graph_name": typed_name})
@@ -202,46 +262,144 @@ def create_graph_job():
 @blueprint.route("/api/graph/job/<job_id>/status", methods=["GET"])
 def get_job_status(job_id: str):
     """単一ジョブのステータス。"""
-    status_dict = _job_manager.get_job_status_dict(job_id)
+    status_dict = job_manager.get_job_status_dict(job_id)
     if not status_dict:
         return flask.jsonify({"error": "Job not found"}), 404
     return flask.jsonify(status_dict)
 
 
-@blueprint.route("/api/graph/jobs/status", methods=["POST"])
+def _collect_jobs_status(job_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """複数ジョブのステータスを取得する。
+
+    不明な job_id も ``{"status": "unknown"}`` として応答に含める。
+    """
+    results: dict[str, dict[str, Any]] = {}
+    for job_id in job_ids:
+        status_dict = job_manager.get_job_status_dict(job_id)
+        if status_dict:
+            results[job_id] = {
+                "status": status_dict["status"],
+                "progress": status_dict["progress"],
+                "graph_name": status_dict["graph_name"],
+                "error": status_dict["error"],
+                "elapsed_seconds": status_dict["elapsed_seconds"],
+                "stage": status_dict["stage"],
+            }
+        else:
+            results[job_id] = {"status": "unknown"}
+    return results
+
+
+@blueprint.route("/api/graph/jobs/status", methods=["GET", "POST"])
 def get_jobs_status_batch():
-    """複数ジョブのステータスを一括取得（ポーリング効率化）。"""
+    """複数ジョブのステータスを一括取得（ポーリング効率化）。
+
+    - GET: ``?job_ids=<カンマ区切り>``
+    - POST: ``{"job_ids": [...]}``（旧形式）
+
+    不明な job_id も ``{"status": "unknown"}`` として応答に含める。
+    """
     try:
-        data = flask.request.get_json()
-        if not data:
-            return flask.jsonify({"error": "Request body is required"}), 400
+        if flask.request.method == "GET":
+            job_ids_param = flask.request.args.get("job_ids", "")
+            job_ids = [job_id for job_id in (s.strip() for s in job_ids_param.split(",")) if job_id]
+            if not job_ids:
+                return flask.jsonify({"error": "job_ids is required"}), 400
+        else:
+            data = flask.request.get_json()
+            if not data:
+                return flask.jsonify({"error": "Request body is required"}), 400
+            job_ids = data.get("job_ids", [])
+            if not isinstance(job_ids, list):
+                return flask.jsonify({"error": "job_ids must be a list"}), 400
 
-        job_ids = data.get("job_ids", [])
-        results: dict[str, dict[str, Any]] = {}
-
-        for job_id in job_ids:
-            status_dict = _job_manager.get_job_status_dict(job_id)
-            if status_dict:
-                results[job_id] = {
-                    "status": status_dict["status"],
-                    "progress": status_dict["progress"],
-                    "graph_name": status_dict["graph_name"],
-                    "error": status_dict["error"],
-                    "elapsed_seconds": status_dict["elapsed_seconds"],
-                    "stage": status_dict["stage"],
-                }
-
-        return flask.jsonify({"jobs": results})
+        return flask.jsonify({"jobs": _collect_jobs_status(job_ids)})
 
     except Exception as e:
         logging.exception("Error getting jobs status")
         return flask.jsonify({"error": str(e)}), 500
 
 
+@blueprint.route("/api/graph/job/events", methods=["GET"])
+def job_events():
+    """ジョブステータスの Server-Sent Events ストリーム。
+
+    ``?job_ids=<カンマ区切り>`` で監視対象を指定する。
+
+    - 接続直後に ``event: status`` で全ジョブのスナップショットを送信
+    - 以降は変化があったときのみ同形式の ``event: status`` を送信
+    - 全ジョブが終端状態（completed/failed/timeout/unknown）になったら
+      ``event: done`` を送ってストリームを閉じる
+    """
+    job_ids_param = flask.request.args.get("job_ids", "")
+    job_ids = [job_id for job_id in (s.strip() for s in job_ids_param.split(",")) if job_id]
+
+    if not job_ids:
+        return flask.jsonify({"error": "job_ids is required"}), 400
+    if len(job_ids) > SSE_MAX_JOB_IDS:
+        return flask.jsonify({"error": f"Too many job_ids (max: {SSE_MAX_JOB_IDS})"}), 400
+
+    def snapshot() -> dict[str, JobStatusDict | dict[str, str]]:
+        return {
+            job_id: (job_manager.get_job_status_dict(job_id) or {"status": "unknown"}) for job_id in job_ids
+        }
+
+    def significant(state: dict[str, JobStatusDict | dict[str, str]]) -> tuple:
+        """変化検知用のキー（elapsed_seconds のような常時変動する値は除外）。"""
+        return tuple(
+            (
+                job_id,
+                status.get("status"),
+                status.get("progress"),
+                status.get("stage"),
+                status.get("error"),
+            )
+            for job_id, status in state.items()
+        )
+
+    def all_terminal(state: dict[str, JobStatusDict | dict[str, str]]) -> bool:
+        return all(status.get("status") in _SSE_TERMINAL_STATUSES for status in state.values())
+
+    def format_status_event(state: dict[str, JobStatusDict | dict[str, str]]) -> str:
+        return f"event: status\ndata: {json.dumps({'jobs': state})}\n\n"
+
+    def generate():
+        deadline = time.time() + SSE_MAX_CONNECTION_SECONDS
+
+        state = snapshot()
+        last_key = significant(state)
+        yield format_status_event(state)
+
+        if all_terminal(state):
+            yield "event: done\ndata: {}\n\n"
+            return
+
+        while time.time() < deadline:
+            time.sleep(SSE_POLL_INTERVAL_SECONDS)
+            state = snapshot()
+            key = significant(state)
+            if key != last_key:
+                last_key = key
+                yield format_status_event(state)
+            if all_terminal(state):
+                yield "event: done\ndata: {}\n\n"
+                return
+
+        logging.info("SSE connection reached max duration, closing")
+
+    res = flask.Response(
+        flask.stream_with_context(generate()),
+        mimetype="text/event-stream",
+    )
+    res.headers["Cache-Control"] = "no-cache"
+    res.headers["X-Accel-Buffering"] = "no"
+    return res
+
+
 @blueprint.route("/api/graph/job/<job_id>/result", methods=["GET"])
 def get_job_result(job_id: str):
     """ジョブ結果（PNG 画像）。"""
-    job = _job_manager.get_job(job_id)
+    job = job_manager.get_job(job_id)
 
     if not job:
         return flask.jsonify({"error": "Job not found"}), 404
@@ -264,12 +422,12 @@ def get_job_result(job_id: str):
         return flask.jsonify({"error": "No result available"}), 500
 
     res = flask.Response(job.result, mimetype="image/png")
-    res.headers["Cache-Control"] = f"private, max-age={CACHE_CONTROL_MAX_AGE_STATUS}"
+    res.headers["Cache-Control"] = f"private, max-age={CACHE_CONTROL_MAX_AGE_RESULT}"
     return res
 
 
 @blueprint.route("/api/graph/jobs/stats", methods=["GET"])
 def get_jobs_stats():
     """ジョブ統計情報（デバッグ用）。"""
-    stats = _job_manager.get_stats()
+    stats = job_manager.get_stats()
     return flask.jsonify(stats)

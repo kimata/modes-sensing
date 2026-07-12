@@ -52,6 +52,44 @@ class TestDataRange:
         logging.info("Data range: %s ～ %s", earliest, latest)
 
 
+class TestOpen:
+    """open() のテスト"""
+
+    def test_open_without_schema(self, config: Config):
+        """apply_schema=False の場合、DDL を実行せずに接続できる"""
+        conn = database_postgresql.open(
+            config.database.host,
+            config.database.port,
+            config.database.name,
+            config.database.user,
+            config.database.password,
+            apply_schema=False,
+        )
+
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            row = cur.fetchone()
+
+        conn.close()
+
+        assert row is not None
+        assert row[0] == 1
+
+    def test_apply_schema_function(self, config: Config):
+        """apply_schema() で明示的にスキーマを適用できる"""
+        conn = database_postgresql.open(
+            config.database.host,
+            config.database.port,
+            config.database.name,
+            config.database.user,
+            config.database.password,
+            apply_schema=False,
+        )
+
+        database_postgresql.apply_schema(conn)
+        conn.close()
+
+
 class TestAltitudeFiltering:
     """高度フィルタリングのテスト"""
 
@@ -97,6 +135,119 @@ class TestAltitudeFiltering:
             len(data_unlimited),
             len(data_limited),
         )
+
+    def test_quality_filter_applied(self, config: Config):
+        """生データフェッチに集約テーブルと同じ品質フィルタが適用される"""
+        end_time = datetime.datetime.now(datetime.UTC)
+        start_time = end_time - datetime.timedelta(days=7)
+
+        conn = database_postgresql.open(
+            config.database.host,
+            config.database.port,
+            config.database.name,
+            config.database.user,
+            config.database.password,
+        )
+
+        data = database_postgresql.fetch_by_time(
+            conn,
+            start_time,
+            end_time,
+            config.filter.area.distance,
+            columns=["time", "altitude", "temperature"],
+        )
+
+        conn.close()
+
+        for record in data:
+            assert record["altitude"] is not None
+            assert 0 <= record["altitude"] <= 13000
+            assert record["temperature"] > -100
+
+
+class TestAggregateTables:
+    """集約テーブル（旧マテリアライズドビュー）のテスト"""
+
+    def test_check_aggregate_tables_exist(self, config: Config):
+        """スキーマ適用後は集約テーブルが存在する"""
+        conn = database_postgresql.open(
+            config.database.host,
+            config.database.port,
+            config.database.name,
+            config.database.user,
+            config.database.password,
+        )
+
+        status = database_postgresql.check_materialized_views_exist(conn)
+        conn.close()
+
+        assert status.halfhourly_altitude_grid is True
+        assert status.threehour_altitude_grid is True
+
+    def test_refresh_returns_result(self, config: Config):
+        """増分更新が結果（経過秒 or エラー時 -1）を返す"""
+        conn = database_postgresql.open(
+            config.database.host,
+            config.database.port,
+            config.database.name,
+            config.database.user,
+            config.database.password,
+        )
+
+        result = database_postgresql.refresh_materialized_views(conn)
+        conn.close()
+
+        assert isinstance(result.halfhourly_altitude_grid, float)
+        assert isinstance(result.threehour_altitude_grid, float)
+        logging.info(
+            "Refresh timings: halfhourly=%.2f, threehour=%.2f",
+            result.halfhourly_altitude_grid,
+            result.threehour_altitude_grid,
+        )
+
+    def test_get_stats(self, config: Config):
+        """集約テーブルの統計情報を取得できる"""
+        conn = database_postgresql.open(
+            config.database.host,
+            config.database.port,
+            config.database.name,
+            config.database.user,
+            config.database.password,
+        )
+
+        stats = database_postgresql.get_materialized_view_stats(conn)
+        conn.close()
+
+        assert stats.halfhourly_altitude_grid.row_count >= 0
+        assert stats.threehour_altitude_grid.row_count >= 0
+
+
+class TestFetchDataRange:
+    """fetch_data_range のテスト"""
+
+    def test_fetch_data_range_cached(self, config: Config):
+        """2回目の呼び出しはキャッシュから返る"""
+        database_postgresql._clear_data_range_cache()
+
+        conn = database_postgresql.open(
+            config.database.host,
+            config.database.port,
+            config.database.name,
+            config.database.user,
+            config.database.password,
+        )
+
+        first = database_postgresql.fetch_data_range(conn)
+        second = database_postgresql.fetch_data_range(conn)
+
+        conn.close()
+        database_postgresql._clear_data_range_cache()
+
+        assert first == second
+        if first.count > 0:
+            assert first.earliest is not None
+            assert first.latest is not None
+            assert first.earliest <= first.latest
 
 
 class TestLastReceivedByMethod:

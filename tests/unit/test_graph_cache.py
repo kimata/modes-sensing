@@ -155,9 +155,35 @@ class TestCachedImage:
             old_time = time.time() - amdar.constants.CACHE_TTL_SECONDS - 1
             os.utime(cache_file, (old_time, old_time))
 
+            # クリーンアップのスロットルをリセット（削除を確実に実行させる）
+            cache._last_cleanup_time = 0.0
+
             result, _ = cache.get_cached_image(cache_dir, "scatter_2d", time_start, time_end, False)
             assert result is None
             assert not cache_file.exists()  # 期限切れは削除される
+
+    @patch("amdar.viewer.graph.cache.get_git_commit_hash", return_value="abc123hash")
+    def test_expired_cleanup_throttled(self, _mock_hash):
+        """クリーンアップ直後は期限切れファイルの削除がスキップされる（ヒットもしない）"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = pathlib.Path(tmpdir)
+            time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.UTC)
+            time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.UTC)
+
+            test_data = b"PNG_IMAGE_DATA"
+            filename = cache.save_to_cache(cache_dir, "scatter_2d", time_start, time_end, False, test_data)
+            assert filename is not None
+            cache_file = cache_dir / filename
+
+            old_time = time.time() - amdar.constants.CACHE_TTL_SECONDS - 1
+            os.utime(cache_file, (old_time, old_time))
+
+            # 直前にクリーンアップが実行された状態にする
+            cache._last_cleanup_time = time.time()
+
+            result, _ = cache.get_cached_image(cache_dir, "scatter_2d", time_start, time_end, False)
+            assert result is None  # 期限切れはヒットしない
+            assert cache_file.exists()  # スロットル中は削除されない
 
     @patch("amdar.viewer.graph.cache.get_git_commit_hash", return_value="abc123hash")
     def test_start_time_tolerance(self, _mock_hash):

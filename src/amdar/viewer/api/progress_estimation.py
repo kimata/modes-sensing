@@ -143,29 +143,14 @@ class GenerationTimeHistory:
 
     生成時間を記録し、次回の推定に使用する。
     履歴はcacheディレクトリにJSONで永続化する。
+    アプリ全体では本モジュールの :data:`generation_time_history` インスタンスを共有する。
     """
 
-    _instance: GenerationTimeHistory | None = None
-    _lock = threading.Lock()
-
-    # インスタンス属性の型宣言
-    _history: dict[str, float]
-    _history_lock: threading.Lock
-    _cache_file: pathlib.Path | None
-    _initialized: bool
-
-    def __new__(cls) -> GenerationTimeHistory:
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    instance = super().__new__(cls)
-                    instance._history = {}
-                    instance._history_lock = threading.Lock()
-                    instance._cache_file = None
-                    instance._initialized = False
-                    cls._instance = instance
-        assert cls._instance is not None  # noqa: S101 (シングルトンパターン)
-        return cls._instance
+    def __init__(self) -> None:
+        self._history: dict[str, float] = {}
+        self._history_lock = threading.Lock()
+        self._cache_file: pathlib.Path | None = None
+        self._initialized = False
 
     def initialize(self, cache_dir: pathlib.Path) -> None:
         """キャッシュディレクトリを設定し、履歴を読み込む"""
@@ -187,28 +172,39 @@ class GenerationTimeHistory:
         return f"{graph_name}|{bucket}|{str(limit_altitude).lower()}"
 
     def _load(self) -> None:
-        """履歴ファイルを読み込む"""
+        """履歴ファイルを読み込む（dict[str, float] 以外は破棄して空で開始）"""
         if self._cache_file is None or not self._cache_file.exists():
             return
 
         try:
             with self._cache_file.open("r", encoding="utf-8") as f:
-                self._history = json.load(f)
-            logging.info("Loaded generation time history: %d entries", len(self._history))
-        except Exception as e:
+                loaded = json.load(f)
+        except (OSError, ValueError) as e:
             logging.warning("Failed to load generation time history: %s", e)
             self._history = {}
+            return
 
-    def _save(self) -> None:
-        """履歴ファイルに保存"""
+        if not isinstance(loaded, dict) or not all(
+            isinstance(key, str) and isinstance(value, int | float) and not isinstance(value, bool)
+            for key, value in loaded.items()
+        ):
+            logging.warning("Generation time history has invalid format, starting empty")
+            self._history = {}
+            return
+
+        self._history = {key: float(value) for key, value in loaded.items()}
+        logging.info("Loaded generation time history: %d entries", len(self._history))
+
+    def _save(self, snapshot: dict[str, float]) -> None:
+        """履歴スナップショットをファイルに保存（ロック外で呼ぶこと）"""
         if self._cache_file is None:
             return
 
         try:
             self._cache_file.parent.mkdir(parents=True, exist_ok=True)
             with self._cache_file.open("w", encoding="utf-8") as f:
-                json.dump(self._history, f, indent=2)
-        except Exception as e:
+                json.dump(snapshot, f, indent=2)
+        except OSError as e:
             logging.warning("Failed to save generation time history: %s", e)
 
     def get_estimated_time(self, graph_name: GraphName, duration_hours: float, limit_altitude: bool) -> float:
@@ -227,17 +223,22 @@ class GenerationTimeHistory:
     def record(
         self, graph_name: GraphName, duration_hours: float, limit_altitude: bool, elapsed: float
     ) -> None:
-        """生成時間を記録"""
+        """生成時間を記録（値が変化したときのみファイルに書き込む）"""
         if elapsed <= 0:
             return
 
         key = self._make_key(graph_name, duration_hours, limit_altitude)
 
+        snapshot: dict[str, float] | None = None
         with self._history_lock:
-            self._history[key] = elapsed
-            self._save()
+            if self._history.get(key) != elapsed:
+                self._history[key] = elapsed
+                snapshot = dict(self._history)
 
-        logging.debug("Recorded generation time: %s = %.2f sec", key, elapsed)
+        if snapshot is not None:
+            # ファイル書き込みはロック外で実行（保持時間を最小化）
+            self._save(snapshot)
+            logging.debug("Recorded generation time: %s = %.2f sec", key, elapsed)
 
 
 # グローバルインスタンス

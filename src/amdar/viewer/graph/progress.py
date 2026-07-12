@@ -12,6 +12,7 @@ from amdar.constants import (
     GRAPH_GEN_TIMEOUT_90DAYS_SECONDS,
     GRAPH_GEN_TIMEOUT_OVER90DAYS_SECONDS,
     GRAPH_JOB_TIMEOUT_BUFFER_SECONDS,
+    GRAPH_QUEUE_WAIT_TIMEOUT_MULTIPLIER,
     GraphName,
 )
 from amdar.viewer.api.job_manager import Job
@@ -35,20 +36,27 @@ def calculate_timeout(time_start: datetime.datetime, time_end: datetime.datetime
 def calculate_polling_timeout(time_start: datetime.datetime, time_end: datetime.datetime) -> int:
     """ポーリング側で「ハング」判定するためのタイムアウト値（秒）。
 
-    実行用タイムアウト + バッファ。
+    実行用タイムアウト + バッファ。起点はワーカーでの実行開始時刻とする
+    （キュー待ち時間は含めない）。
     """
     return calculate_timeout(time_start, time_end) + GRAPH_JOB_TIMEOUT_BUFFER_SECONDS
 
 
-def estimate_progress_and_stage(job: Job) -> tuple[int, str]:
+def calculate_queue_wait_timeout(time_start: datetime.datetime, time_end: datetime.datetime) -> int:
+    """プール混雑時にキュー待ちのまま許容する上限（秒）。"""
+    return calculate_timeout(time_start, time_end) * GRAPH_QUEUE_WAIT_TIMEOUT_MULTIPLIER
+
+
+def estimate_progress_and_stage(job: Job, execution_started_at: float) -> tuple[int, str]:
     """ジョブの推定進捗（0-100）と現在ステージを返す。
 
-    開始からの経過時間と履歴ベースの推定総時間から進捗を線形補間する。
-    """
-    if not job.started_at:
-        return 10, "開始中..."
+    Args:
+        job: 対象ジョブ
+        execution_started_at: ワーカーでの実行開始時刻（time.time() 基準）
 
-    elapsed = time.time() - job.started_at
+    実行開始からの経過時間と履歴ベースの推定総時間から進捗を線形補間する。
+    """
+    elapsed = time.time() - execution_started_at
 
     duration_hours = (job.time_end - job.time_start).total_seconds() / 3600
 

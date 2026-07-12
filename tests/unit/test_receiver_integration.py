@@ -91,8 +91,9 @@ class TestModesReceiverBuffer:
         """共有バッファの初期状態"""
         import amdar.sources.modes.receiver as modes_receiver
 
-        # 初期状態では _shared_buffer は None
-        assert modes_receiver._shared_buffer is None
+        # 初期状態では shared_buffer は None
+        modes_receiver.reset()
+        assert modes_receiver._state.shared_buffer is None
 
     def test_buffer_feed_on_position(self) -> None:
         """ADS-B 位置受信時にバッファにフィードされることを確認"""
@@ -101,8 +102,8 @@ class TestModesReceiverBuffer:
         buffer = IntegratedBuffer()
 
         # 共有バッファを設定
-        original_buffer = modes_receiver._shared_buffer
-        modes_receiver._shared_buffer = buffer
+        original_buffer = modes_receiver._state.shared_buffer
+        modes_receiver._state.shared_buffer = buffer
 
         try:
             # _process_adsb_position を直接呼ぶのは複雑なので、
@@ -123,7 +124,7 @@ class TestModesReceiverBuffer:
             assert stats["aircraft_count"] == 1
             assert stats["total_entries"] == 1
         finally:
-            modes_receiver._shared_buffer = original_buffer
+            modes_receiver._state.shared_buffer = original_buffer
 
 
 class TestVdl2ReceiverStart:

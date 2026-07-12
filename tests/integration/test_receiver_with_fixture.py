@@ -15,11 +15,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+import amdar.sources.modes.receiver as modes_receiver
 from amdar.config import Config, load_from_dict
-from amdar.sources.modes.receiver import (
-    _fragment_list,
-    _process_message,
-)
+from amdar.sources.modes.receiver import _process_message
 
 if TYPE_CHECKING:
     from amdar.database.postgresql import MeasurementData
@@ -62,8 +60,8 @@ class TestReceiverWithFixture:
         self, adsb_messages: list[str], data_queue: queue.Queue, config: Config
     ) -> None:
         """全メッセージを処理してクラッシュしないことを確認"""
-        # フラグメントリストをクリア
-        _fragment_list.clear()
+        # フラグメント状態をクリア
+        modes_receiver.reset()
 
         processed_count = 0
         error_count = 0
@@ -89,8 +87,8 @@ class TestReceiverWithFixture:
         self, adsb_messages: list[str], data_queue: queue.Queue, config: Config
     ) -> None:
         """気象データが抽出できることを確認"""
-        # フラグメントリストをクリア
-        _fragment_list.clear()
+        # フラグメント状態をクリア
+        modes_receiver.reset()
 
         # 全メッセージを処理
         for message in adsb_messages:

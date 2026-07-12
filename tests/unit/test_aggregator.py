@@ -2,7 +2,7 @@
 # ruff: noqa: S101
 """aggregator.py のユニットテスト
 
-IntegratedBuffer と RealtimeAggregator のテストを行います。
+IntegratedBuffer と FileAggregator のテストを行います。
 """
 
 from __future__ import annotations
@@ -12,13 +12,10 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 import amdar.core.geo
-import amdar.sources.modes.receiver
-from amdar.core.types import WindData
 from amdar.sources.aggregator import (
     AltitudeEntry,
     FileAggregator,
     IntegratedBuffer,
-    RealtimeAggregator,
     parse_from_files,
 )
 
@@ -305,271 +302,6 @@ class TestIntegratedBuffer:
         assert stats["aircraft_count"] == 0
 
 
-class TestRealtimeAggregator:
-    """RealtimeAggregator のテスト"""
-
-    def test_process_modes_position(self) -> None:
-        """Mode-S 位置情報の処理"""
-        aggregator = RealtimeAggregator()
-        ts = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-        aggregator.process_modes_position(
-            icao="84C27A",
-            callsign="JAL123",
-            timestamp=ts,
-            altitude_m=10000.0,
-            lat=35.5,
-            lon=139.5,
-        )
-
-        # バッファに追加されている
-        result = aggregator.buffer.get_altitude_at("84C27A", ts)
-        assert result is not None
-
-    def test_process_modes_weather(self) -> None:
-        """Mode-S 気象データの処理"""
-        aggregator = RealtimeAggregator(ref_lat=35.0, ref_lon=139.0)
-        ts = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-        wind = WindData(x=-5.0, y=-8.66, angle=210.0, speed=10.0)
-
-        obs = aggregator.process_modes_weather(
-            icao="84C27A",
-            callsign="JAL123",
-            timestamp=ts,
-            altitude_m=10000.0,
-            lat=35.5,
-            lon=139.5,
-            temperature_c=-20.5,
-            wind=wind,
-            data_source="bds50_60",
-        )
-
-        assert obs is not None
-        assert obs.icao == "84C27A"
-        assert obs.callsign == "JAL123"
-        assert obs.altitude == 10000.0
-        assert obs.temperature == -20.5
-        assert obs.wind == wind
-        assert obs.method == "mode-s"
-        assert obs.data_source == "bds50_60"
-        assert obs.altitude_source == "adsb"
-
-        # キューにも追加されている
-        assert aggregator.output_queue.qsize() == 1
-
-    def test_process_modes_weather_no_weather_data(self) -> None:
-        """気象データがない場合は None"""
-        aggregator = RealtimeAggregator()
-        ts = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-        obs = aggregator.process_modes_weather(
-            icao="84C27A",
-            callsign="JAL123",
-            timestamp=ts,
-            altitude_m=10000.0,
-            temperature_c=None,
-            wind=None,
-        )
-
-        assert obs is None
-
-    def test_process_vdl2_weather_with_altitude(self) -> None:
-        """高度付き VDL2 気象データの処理"""
-        aggregator = RealtimeAggregator(ref_lat=35.0, ref_lon=139.0)
-        ts = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-        obs = aggregator.process_vdl2_weather(
-            icao="84C27A",
-            callsign="JAL123",
-            timestamp=ts,
-            altitude_m=10000.0,
-            temperature_c=-20.5,
-            data_source="acars_wn",
-        )
-
-        assert obs is not None
-        assert obs.altitude == 10000.0
-        assert obs.method == "vdl2"
-        assert obs.altitude_source == "acars"
-
-    def test_process_vdl2_weather_altitude_補完(self) -> None:
-        """VDL2 の高度補完"""
-        aggregator = RealtimeAggregator()
-        ts = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-        # まず ADS-B で位置情報を追加
-        aggregator.process_modes_position(
-            icao="84C27A",
-            callsign="JAL123",
-            timestamp=ts,
-            altitude_m=10000.0,
-            lat=35.5,
-            lon=139.5,
-        )
-
-        # 高度なしの VDL2 データを処理
-        obs = aggregator.process_vdl2_weather(
-            icao="84C27A",
-            callsign=None,
-            timestamp=ts + timedelta(seconds=10),
-            altitude_m=None,  # 高度なし
-            temperature_c=-20.5,
-        )
-
-        assert obs is not None
-        assert obs.altitude == 10000.0  # ADS-B から補完
-        assert obs.altitude_source == "interpolated"  # 10秒の時刻差があるため
-
-    def test_process_vdl2_weather_補完_by_callsign(self) -> None:
-        """コールサインによる VDL2 高度補完"""
-        aggregator = RealtimeAggregator()
-        ts = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-        # ADS-B で ICAO とコールサインのマッピングを登録
-        aggregator.process_modes_position(
-            icao="84C27A",
-            callsign="JAL123",
-            timestamp=ts,
-            altitude_m=10000.0,
-        )
-
-        # ICAO なし、コールサインのみの VDL2
-        obs = aggregator.process_vdl2_weather(
-            icao=None,
-            callsign="JAL123",
-            timestamp=ts + timedelta(seconds=10),
-            altitude_m=None,
-            temperature_c=-20.5,
-        )
-
-        assert obs is not None
-        assert obs.altitude == 10000.0
-
-    def test_process_vdl2_weather_no_altitude_available(self) -> None:
-        """高度補完できない場合は None"""
-        aggregator = RealtimeAggregator()
-        ts = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-        # 高度なし、補完もできない
-        obs = aggregator.process_vdl2_weather(
-            icao="UNKNOWN",
-            callsign=None,
-            timestamp=ts,
-            altitude_m=None,
-            temperature_c=-20.5,
-        )
-
-        assert obs is None
-
-    def test_calculate_distance(self) -> None:
-        """距離計算"""
-        aggregator = RealtimeAggregator(ref_lat=35.0, ref_lon=139.0)
-
-        # 同じ点
-        d = aggregator._calculate_distance(35.0, 139.0)
-        assert d < 0.1
-
-        # 約 111km（緯度1度）
-        d = aggregator._calculate_distance(36.0, 139.0)
-        assert 110 < d < 112
-
-    def test_get_stats(self) -> None:
-        """統計情報の取得"""
-        aggregator = RealtimeAggregator()
-        ts = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-        aggregator.process_modes_weather(
-            icao="84C27A",
-            callsign="JAL123",
-            timestamp=ts,
-            altitude_m=10000.0,
-            temperature_c=-20.5,
-        )
-
-        stats = aggregator.get_stats()
-        assert stats.get("aircraft_count") == 1
-        assert stats.get("output_queue_size") == 1
-
-    def test_clear(self) -> None:
-        """内部状態のクリア"""
-        aggregator = RealtimeAggregator()
-        ts = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-        aggregator.process_modes_position(
-            icao="84C27A",
-            callsign="JAL123",
-            timestamp=ts,
-            altitude_m=10000.0,
-        )
-
-        aggregator.clear()
-
-        result = aggregator.buffer.get_altitude_at("84C27A", ts)
-        assert result is None
-
-
-class TestIntegration:
-    """統合テスト"""
-
-    def test_realistic_scenario(self) -> None:
-        """実際的なシナリオ"""
-        aggregator = RealtimeAggregator(ref_lat=35.682677, ref_lon=139.762230)
-        base_time = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-        # シーケンス: ADS-B 位置 → ADS-B 気象 → VDL2 気象（高度なし）
-        results = []
-
-        # 1. ADS-B 位置のみ（気象データなし）
-        aggregator.process_modes_position(
-            icao="84C27A",
-            callsign="JAL123",
-            timestamp=base_time,
-            altitude_m=10000.0,
-            lat=35.7,
-            lon=139.8,
-        )
-
-        # 2. ADS-B 気象データ
-        obs1 = aggregator.process_modes_weather(
-            icao="84C27A",
-            callsign="JAL123",
-            timestamp=base_time + timedelta(seconds=5),
-            altitude_m=10050.0,
-            lat=35.71,
-            lon=139.81,
-            temperature_c=-25.0,
-            wind=WindData(x=-5.0, y=-8.66, angle=210.0, speed=10.0),
-        )
-        if obs1:
-            results.append(obs1)
-
-        # 3. VDL2 気象データ（高度なし - ADS-B から補完）
-        obs2 = aggregator.process_vdl2_weather(
-            icao="84C27A",
-            callsign=None,
-            timestamp=base_time + timedelta(seconds=20),
-            altitude_m=None,  # 高度なし
-            temperature_c=-24.5,
-            data_source="acars_wn",
-        )
-        if obs2:
-            results.append(obs2)
-
-        # 検証
-        assert len(results) == 2
-
-        # ADS-B 結果
-        assert results[0].method == "mode-s"
-        assert results[0].temperature == -25.0
-
-        # VDL2 結果（高度補完済み）
-        assert results[1].method == "vdl2"
-        assert results[1].temperature == -24.5
-        assert results[1].altitude == 10050.0  # ADS-B から補完
-        assert results[1].altitude_source in ["adsb", "interpolated"]
-
-
 class TestFileAggregator:
     """FileAggregator のテスト"""
 
@@ -579,21 +311,6 @@ class TestFileAggregator:
         assert agg._ref_lat == 35.0
         assert agg._ref_lon == 139.0
         assert agg._max_index_distance == 500
-
-    def test_calc_temperature(self) -> None:
-        """気温計算"""
-        agg = FileAggregator()
-        # TAS=250m/s, Mach=0.8 の場合
-        # 音速 = 250/0.8 = 312.5 m/s
-        # T = 312.5^2 / (1.4 * 287) = 243.1 K = -29.9 ℃
-        temp = agg._calc_temperature(250.0, 0.8)
-        assert temp == pytest.approx(-30.0, abs=1.0)
-
-    def test_calc_temperature_zero_mach(self) -> None:
-        """マッハ数ゼロ"""
-        agg = FileAggregator()
-        temp = agg._calc_temperature(250.0, 0.0)
-        assert temp == -999.0
 
     def test_calculate_distance(self) -> None:
         """距離計算"""
@@ -610,32 +327,77 @@ class TestFileAggregator:
         assert "results_count" in stats
 
 
+class TestMessageIndexNumbering:
+    """順序ベース高度補完の採番統一テスト
+
+    FileAggregator の行カウンタと IntegratedBuffer の内部カウンタが
+    別採番で get_altitude_by_order がほぼ常に失敗していた問題の回帰テスト。
+    """
+
+    def test_explicit_message_index_is_used(self) -> None:
+        """add_adsb_position に明示した message_index がエントリに使われる"""
+        buffer = IntegratedBuffer(window_seconds=60.0)
+        ts = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+        buffer.add_adsb_position(
+            icao="84C27A",
+            callsign=None,
+            timestamp=ts,
+            altitude_m=10000.0,
+            message_index=5000,
+        )
+
+        # 明示したインデックス近傍でのみヒットする
+        assert buffer.get_altitude_by_order("84C27A", message_index=5001, max_distance=10) is not None
+        assert buffer.get_altitude_by_order("84C27A", message_index=1, max_distance=10) is None
+
+    def test_default_uses_internal_counter(self) -> None:
+        """message_index を省略した場合は従来通り内部カウンタを使用"""
+        buffer = IntegratedBuffer(window_seconds=60.0)
+        ts = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+        buffer.add_adsb_position(icao="84C27A", callsign=None, timestamp=ts, altitude_m=10000.0)
+        buffer.add_adsb_position(icao="84C27A", callsign=None, timestamp=ts, altitude_m=11000.0)
+
+        result = buffer.get_altitude_by_order("84C27A", message_index=2, max_distance=0)
+        assert result is not None
+        assert result.altitude_m == 11000.0
+
+    def test_file_aggregator_shares_numbering_space(self) -> None:
+        """FileAggregator の行カウンタとバッファの採番が同一番号空間になる
+
+        修正前はバッファ側が add_adsb_position の呼び出し回数で採番して
+        いたため、行番号ベースの msg_index と乖離していた。
+        """
+        import pathlib
+
+        modes_file = pathlib.Path("tests/fixtures/ads-b.dat")
+        if not modes_file.exists():
+            pytest.skip("Mode-S fixture not found")
+
+        agg = FileAggregator()
+        agg.parse_modes_file(modes_file)
+
+        indices = [
+            entry.message_index for entries in agg._buffer._altitude_by_icao.values() for entry in entries
+        ]
+        if not indices:
+            pytest.skip("No ADS-B positions registered from fixture")
+
+        # 全エントリのインデックスが行カウンタの範囲内（同一番号空間）
+        assert max(indices) <= agg._message_index
+        # 行番号採番なら位置メッセージ以外の行も数えるため、
+        # インデックス最大値は登録件数（旧: 呼び出し回数採番の最大値）より大きくなる
+        assert max(indices) > len(indices)
+
+
 class TestMagneticDeclination:
-    """磁気偏角計算のテスト（リアルタイム/ファイル解析経路の一貫性）"""
+    """磁気偏角計算のテスト"""
 
     def test_gsi_2020_reference_value(self) -> None:
         """基準点 (37N, 138E) で国土地理院 2020 年値（約 +8.26°、西偏正）を返す"""
         declination = amdar.core.geo.calc_magnetic_declination(37.0, 138.0)
         assert declination == pytest.approx(8 + 15.822 / 60, abs=1e-6)
-
-    def test_wind_consistency_between_paths(self) -> None:
-        """receiver と FileAggregator の風計算が同一結果を返す
-
-        磁気偏角の実装が2系統に分かれて食い違っていた問題（風向が約16°
-        ずれる）の回帰テスト。
-        """
-        lat, lon = 35.5, 137.0
-        trackangle, groundspeed_ms, heading, trueair_ms = 270.0, 220.0, 265.0, 230.0
-
-        wind_receiver = amdar.sources.modes.receiver._calc_wind(
-            lat, lon, trackangle, groundspeed_ms, heading, trueair_ms
-        )
-        wind_file = FileAggregator()._calc_wind(lat, lon, trackangle, groundspeed_ms, heading, trueair_ms)
-
-        assert wind_file.x == pytest.approx(wind_receiver.x)
-        assert wind_file.y == pytest.approx(wind_receiver.y)
-        assert wind_file.angle == pytest.approx(wind_receiver.angle)
-        assert wind_file.speed == pytest.approx(wind_receiver.speed)
 
 
 class TestParseFromFiles:

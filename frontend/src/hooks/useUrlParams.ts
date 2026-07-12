@@ -7,6 +7,8 @@
  * デフォルト（7日間、高度制限なし）ではパラメータを付けない
  */
 
+import { formatDateForUrl } from "../utils/date";
+
 // 期間タイプの定義
 export type PeriodType = "1day" | "7days" | "30days" | "180days" | "365days" | "custom";
 
@@ -25,19 +27,6 @@ interface ParsedUrlState {
     start: Date | null;
     end: Date | null;
     limitAltitude: boolean;
-}
-
-/**
- * 日時を URL パラメータ用の文字列に変換（ローカル時間、秒なし）
- * 例: "2026-01-07T12:00"
- */
-export function formatDateForUrl(date: Date): string {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    const hours = String(date.getHours()).padStart(2, "0");
-    const minutes = String(date.getMinutes()).padStart(2, "0");
-    return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
 /**

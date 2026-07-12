@@ -19,12 +19,18 @@ from amdar.sources.vdl2.parser import (
     convert_to_weather_observation,
     get_icao_from_message,
     parse_acars_weather,
+    parse_json_line,
     parse_xid_location,
 )
 
 
 class TestParseWnLine:
-    """WN形式パーサーのテスト"""
+    """WN形式パーサーのテスト
+
+    座標は度+分形式（緯度: DDMM.m、経度: DDDMM.m）。
+    実データ（vdl2_3h_20260106.jsonl）の WN 報告を同一機の ADS-B 航跡と
+    照合し、度+分解釈が正しいことを確認済み（平均誤差 0.7km）。
+    """
 
     def test_parse_wn_pattern1(self) -> None:
         """パターン1（連結形式、P接頭辞付き高度）のパース"""
@@ -33,8 +39,9 @@ class TestParseWnLine:
         result = _parse_wn_line(msg)
 
         assert result is not None
-        assert result.latitude == pytest.approx(35.123, abs=0.001)
-        assert result.longitude == pytest.approx(136.555, abs=0.001)
+        # 35123 → 35度12.3分, 136555 → 136度55.5分
+        assert result.latitude == pytest.approx(35 + 12.3 / 60, abs=0.001)
+        assert result.longitude == pytest.approx(136 + 55.5 / 60, abs=0.001)
         assert result.altitude_ft == 24008
         assert result.temperature_c == -33
         assert result.wind_dir_deg == 260
@@ -47,8 +54,9 @@ class TestParseWnLine:
         result = _parse_wn_line(msg)
 
         assert result is not None
-        assert result.latitude == pytest.approx(34.514, abs=0.001)
-        assert result.longitude == pytest.approx(137.290, abs=0.001)
+        # 34514 → 34度51.4分, 137290 → 137度29.0分
+        assert result.latitude == pytest.approx(34 + 51.4 / 60, abs=0.001)
+        assert result.longitude == pytest.approx(137 + 29.0 / 60, abs=0.001)
         assert result.altitude_ft == 39998
         assert result.temperature_c == -48
         assert result.wind_dir_deg == 258
@@ -67,12 +75,39 @@ class TestParseWnLine:
         result = _parse_wn_line(msg)
 
         assert result is not None
-        assert result.latitude == pytest.approx(35.050, abs=0.001)
-        assert result.longitude == pytest.approx(136.551, abs=0.001)
+        # 35050 → 35度05.0分, 136551 → 136度55.1分
+        assert result.latitude == pytest.approx(35 + 5.0 / 60, abs=0.001)
+        assert result.longitude == pytest.approx(136 + 55.1 / 60, abs=0.001)
         assert result.altitude_ft == 18002
         assert result.temperature_c == -24
         assert result.wind_dir_deg == 291
         assert result.wind_speed_kt == 44
+
+    def test_parse_wn_real_data_verified_against_adsb(self) -> None:
+        """実データの WN 報告が ADS-B 航跡と一致する座標にデコードされる（回帰）
+
+        vdl2_3h_20260106.jsonl 中の NH0929 (ICAO 86D660) の WN 報告。
+        同時間帯の同一機 ADS-B 航跡（modes_3h_20260106.txt）との照合で、
+        度+分解釈 (35.053, 136.783) は航跡上（誤差 0.0km）、
+        旧 /1000 解釈 (35.032, 136.470) は航跡から約 5.4km ずれていた。
+        """
+        msg = "WN35032E13647002064539998-48258111 73710"
+        result = _parse_wn_line(msg)
+
+        assert result is not None
+        assert result.latitude == pytest.approx(35 + 3.2 / 60, abs=0.001)  # 35.053
+        assert result.longitude == pytest.approx(136 + 47.0 / 60, abs=0.001)  # 136.783
+        assert result.altitude_ft == 39998
+        assert result.temperature_c == -48
+        assert result.wind_dir_deg == 258
+        assert result.wind_speed_kt == 111
+
+    def test_parse_wn_invalid_minutes_rejected(self) -> None:
+        """分が 60 以上になる座標は不正としてパースしない"""
+        # 経度分 75.0（>= 60）
+        msg = "WN35109E13775005756140002-49257115 10800"
+        result = _parse_wn_line(msg)
+        assert result is None
 
 
 class TestParsePntafFormat:
@@ -105,6 +140,25 @@ class TestParsePntafFormat:
         msg = "Some other message"
         result = _parse_pntaf_format(msg)
         assert result is None
+
+    def test_parse_pntaf_pattern1_altitude_not_misinterpreted(self) -> None:
+        """パターン1採用時にパターン2の高度解釈が誤適用されない（回帰）
+
+        テキスト全体がパターン1とパターン2の両方にマッチする場合、
+        旧実装（`if pattern2:`）はパターン1の未確定フィールド（410）を
+        FL 高度（41000ft）と誤解釈していた。
+        """
+        # 1行目はパターン1のみ、2行目はパターン2にマッチする
+        msg = "N34571E137256020924410-34258 69 106\r\nN35053E137022023522410M302590750086"
+        result = _parse_pntaf_format(msg)
+
+        assert result is not None
+        # 採用されるのはパターン1（先頭行）なので高度は設定されない
+        assert result.latitude == pytest.approx(34.571, abs=0.001)
+        assert result.altitude_ft is None
+        assert result.temperature_c == -34
+        assert result.wind_dir_deg == 258
+        assert result.wind_speed_kt == 69
 
 
 class TestParseWxFormat:
@@ -165,6 +219,30 @@ class TestParseFlFormat:
         assert result is None
 
 
+class TestParseJsonLine:
+    """JSON 行パーサーのテスト"""
+
+    def test_parse_valid_json(self) -> None:
+        """有効なJSONのパース"""
+        data = {"vdl2": {"avlc": {}}}
+        result = parse_json_line(json.dumps(data))
+        assert result == data
+
+    def test_parse_valid_json_bytes(self) -> None:
+        """bytes のパース"""
+        data = {"vdl2": {}}
+        result = parse_json_line(json.dumps(data).encode())
+        assert result == data
+
+    def test_parse_invalid_json(self) -> None:
+        """無効なJSONは None"""
+        assert parse_json_line("not json") is None
+
+    def test_parse_non_dict_json(self) -> None:
+        """dict でない JSON は None"""
+        assert parse_json_line("[1, 2, 3]") is None
+
+
 class TestParseAcarsWeather:
     """ACARS気象データ統合パーサーのテスト"""
 
@@ -182,14 +260,14 @@ class TestParseAcarsWeather:
                 },
             }
         }
-        json_line = json.dumps(data)
-        result = parse_acars_weather(json_line)
+        result = parse_acars_weather(data)
 
         assert result is not None
         assert result.flight == "JAL123"
         assert result.reg == "JA123A"
-        assert result.latitude == pytest.approx(35.123, abs=0.001)
-        assert result.longitude == pytest.approx(136.555, abs=0.001)
+        # 座標は度+分形式（35123 → 35度12.3分, 136555 → 136度55.5分）
+        assert result.latitude == pytest.approx(35 + 12.3 / 60, abs=0.001)
+        assert result.longitude == pytest.approx(136 + 55.5 / 60, abs=0.001)
         assert result.altitude_ft == 24008
         assert result.temperature_c == -33
         assert result.wind_dir_deg == 260
@@ -208,20 +286,13 @@ class TestParseAcarsWeather:
                 },
             }
         }
-        json_line = json.dumps(data)
-        result = parse_acars_weather(json_line)
-        assert result is None
-
-    def test_parse_acars_invalid_json(self) -> None:
-        """無効なJSONのパース"""
-        result = parse_acars_weather("not json")
+        result = parse_acars_weather(data)
         assert result is None
 
     def test_parse_acars_no_acars(self) -> None:
         """ACARSデータのないメッセージ"""
         data = {"vdl2": {"avlc": {}}}
-        json_line = json.dumps(data)
-        result = parse_acars_weather(json_line)
+        result = parse_acars_weather(data)
         assert result is None
 
 
@@ -249,8 +320,7 @@ class TestParseXidLocation:
                 },
             }
         }
-        json_line = json.dumps(data)
-        result = parse_xid_location(json_line)
+        result = parse_xid_location(data)
 
         assert result is not None
         assert result.icao == "84C27A"
@@ -268,8 +338,7 @@ class TestParseXidLocation:
                 },
             }
         }
-        json_line = json.dumps(data)
-        result = parse_xid_location(json_line)
+        result = parse_xid_location(data)
         assert result is None
 
     def test_parse_xid_no_xid(self) -> None:
@@ -282,8 +351,7 @@ class TestParseXidLocation:
                 },
             }
         }
-        json_line = json.dumps(data)
-        result = parse_xid_location(json_line)
+        result = parse_xid_location(data)
         assert result is None
 
 
@@ -299,15 +367,13 @@ class TestGetIcaoFromMessage:
                 },
             }
         }
-        json_line = json.dumps(data)
-        result = get_icao_from_message(json_line)
+        result = get_icao_from_message(data)
         assert result == "84C27A"
 
     def test_get_icao_no_src(self) -> None:
         """srcがない場合"""
         data = {"vdl2": {"avlc": {}}}
-        json_line = json.dumps(data)
-        result = get_icao_from_message(json_line)
+        result = get_icao_from_message(data)
         assert result is None
 
 

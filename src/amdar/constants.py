@@ -43,6 +43,10 @@ VDL2_STARTUP_GRACE_PERIOD_SECONDS: int = 10 * 60 * 60  # VDL2 用の猶予期間
 # VDL2 フラグメントタイムアウト
 VDL2_FRAGMENT_TIMEOUT_SECONDS: int = 300  # 5分
 
+# Mode-S メッセージフラグメントの保持期限（秒）
+# 古い ADS-B 高度が後続の BDS メッセージと誤ペアリングされるのを防ぐ
+FRAGMENT_TTL_SECONDS: int = 300  # 5分
+
 # ===============================
 # Mode-S receiver 設定
 # ===============================
@@ -65,10 +69,39 @@ JOB_TIMEOUT_SECONDS: int = 20 * 60  # 20分（ジョブタイムアウト）
 # キャッシュ
 CACHE_TTL_SECONDS: int = 30 * 60  # 30分
 ETAG_TIME_ROUND_SECONDS: int = 10 * 60  # 10分
+CACHE_CLEANUP_INTERVAL_SECONDS: int = 60  # 期限切れキャッシュ掃除の最短間隔
 
-# マテリアライズドビュー
+# 集約テーブル（旧マテリアライズドビュー）の定期更新
 MATERIALIZED_VIEW_REFRESH_INTERVAL_SECONDS: int = 30 * 60  # 30分
 MATERIALIZED_VIEW_REFRESH_INITIAL_DELAY_SECONDS: int = 5  # 起動後の初回リフレッシュ遅延
+
+# ===============================
+# 集約テーブル（増分更新）
+# ===============================
+# 集約バケット計算の基準タイムゾーン
+# 既存データ（naive JST で集約されていた旧マテリアライズドビュー）との
+# バケット境界の連続性を保つため JST 固定とする
+AGGREGATE_BUCKET_TIMEZONE: str = "Asia/Tokyo"
+
+# 高度ビンの幅（m）
+AGGREGATE_ALTITUDE_BIN_METERS: int = 250
+
+# バケット幅（秒）
+AGGREGATE_HALFHOURLY_BUCKET_SECONDS: int = 30 * 60  # 30分
+AGGREGATE_THREEHOUR_BUCKET_SECONDS: int = 3 * 60 * 60  # 3時間
+
+# 増分更新ウィンドウ（秒）: 直近この期間分のバケットを削除して再集約する
+AGGREGATE_HALFHOURLY_REFRESH_WINDOW_SECONDS: int = 3 * 60 * 60  # 直近3時間
+AGGREGATE_THREEHOUR_REFRESH_WINDOW_SECONDS: int = 12 * 60 * 60  # 直近12時間
+
+# データ範囲クエリ（COUNT(*) 全件スキャン）のキャッシュ TTL
+DATA_RANGE_CACHE_TTL_SECONDS: int = 10 * 60  # 10分
+
+# 受信品質スナップショット（/api/metrics, /api/receiver-quality）のキャッシュ TTL
+RECEIVER_QUALITY_CACHE_TTL_SECONDS: int = 60  # 1分
+
+# 生データフェッチの上限行数（グラフ用フェッチの安全弁）
+RAW_FETCH_ROW_LIMIT: int = 500_000
 
 # 事前生成
 PREGENERATION_INTERVAL_SECONDS: int = 25 * 60  # 25分
@@ -79,7 +112,26 @@ GRAPH_GEN_TIMEOUT_7DAYS_SECONDS: int = 60  # 7日以内: 60秒
 GRAPH_GEN_TIMEOUT_30DAYS_SECONDS: int = 120  # 30日以内: 120秒
 GRAPH_GEN_TIMEOUT_90DAYS_SECONDS: int = 180  # 90日以内: 180秒
 GRAPH_GEN_TIMEOUT_OVER90DAYS_SECONDS: int = 300  # 90日以上: 300秒
-GRAPH_JOB_TIMEOUT_BUFFER_SECONDS: int = 60  # ジョブタイムアウト用バッファ（キュー待ち考慮）
+GRAPH_JOB_TIMEOUT_BUFFER_SECONDS: int = 60  # ジョブタイムアウト用バッファ（実行開始からの猶予）
+
+# キュー待ち上限（生成タイムアウトの倍率）。プール混雑時に実行開始前のジョブを
+# タイムアウト扱いするまでの猶予に使う
+GRAPH_QUEUE_WAIT_TIMEOUT_MULTIPLIER: int = 3
+
+# 1 リクエストで受け付けるグラフ数の上限（POST /api/graph/job）
+GRAPH_JOB_MAX_GRAPHS: int = 16
+
+# グラフ生成プロセスプール: ワーカー 1 プロセスあたりのタスク数上限
+# （matplotlib のメモリ断片化・リーク対策として定期的にプロセスを再生成する）
+PROCESS_POOL_MAX_TASKS_PER_CHILD: int = 20
+
+# POST /api/refresh-aggregates のレート制限（最終実行からの最短間隔）
+REFRESH_AGGREGATES_MIN_INTERVAL_SECONDS: int = 60
+
+# SSE (GET /api/graph/job/events)
+SSE_MAX_JOB_IDS: int = 32  # 1 接続で監視できるジョブ数の上限
+SSE_MAX_CONNECTION_SECONDS: int = 10 * 60  # 接続保持の上限（10分）
+SSE_POLL_INTERVAL_SECONDS: float = 0.5  # 変化チェックの間隔
 
 # VDL2 liveness チェックタイムアウト
 VDL2_LIVENESS_TIMEOUT_SECONDS: int = 8 * 60 * 60  # 8時間
@@ -110,6 +162,10 @@ GRAPH_ALTITUDE_LIMIT: int = 2000  # limit_altitude=True 時の上限高度
 # 画像解像度
 GRAPH_IMAGE_DPI: float = 200.0
 
+# 鉛直プロファイルグラフが使用する末尾ウィンドウ（時間）
+# 要求期間 [start, end] のうち末尾この時間分のデータのみを描画に使う
+VERTICAL_PROFILE_WINDOW_HOURS: int = 3
+
 # グラフ名の型定義
 GraphName = Literal[
     "scatter_2d",
@@ -120,6 +176,7 @@ GraphName = Literal[
     "heatmap",
     "temperature",
     "wind_direction",
+    "vertical_profile",
 ]
 
 
@@ -173,7 +230,7 @@ def get_db_schema_path(schema_name: str) -> pathlib.Path:
     リポジトリルート/schema/ ディレクトリからスキーマファイルを取得する。
 
     Args:
-        schema_name: スキーマファイル名（例: "postgres.schema", "sqlite.schema"）
+        schema_name: スキーマファイル名（例: "postgres.schema"）
 
     Returns:
         スキーマファイルの絶対パス

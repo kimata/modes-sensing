@@ -10,7 +10,7 @@ import json
 import pathlib
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import amdar.sources.modes.receiver
@@ -76,6 +76,11 @@ def _parse_wn_line(msg_text: str) -> ParsedWeatherData | None:
     WN + 緯度(5桁) + E/W + 経度(5-6桁) + 時刻(6桁)
         + (P?)高度(5桁) + 温度符号(M/P/-) + 温度(2桁)
         + 風向(3桁) + 風速(2-3桁) + ...
+
+    座標は度+分形式（緯度: DDMM.m、経度: DDDMM.m / DDDMM）。
+    NOTE: 実データ（tests/fixtures/vdl2_3h_20260106.jsonl）の WN 報告を同時間帯の
+    同一機 ADS-B 航跡と照合した結果、度+分解釈の平均誤差 0.7km に対し
+    小数(/1000)解釈は平均誤差 10km 超であり、度+分が正しいことを確認済み。
     """
     # WN行を探す
     lines = msg_text.split("\r\n")
@@ -117,19 +122,22 @@ def _parse_wn_line(msg_text: str) -> ParsedWeatherData | None:
     if not pattern:
         return None
 
-    # 緯度の解析 (35050 → 35.050度)
+    # 緯度の解析 (35050 → 35度 05.0分 → 35.083度)
     lat_raw = pattern.group(1)
-    lat = int(lat_raw[:2]) + int(lat_raw[2:]) / 1000
+    lat_minutes = int(lat_raw[2:]) / 10
+    if lat_minutes >= 60:
+        return None
+    lat = int(lat_raw[:2]) + lat_minutes / 60
 
     # 経度の解析
+    # 5桁: 13655 → 136度 55分 → 136.917度
+    # 6桁: 136551 → 136度 55.1分 → 136.918度
     lon_dir = pattern.group(2)
     lon_raw = pattern.group(3)
-    if len(lon_raw) == 5:
-        # 13655 → 136度 55分 → 136.917度
-        lon = int(lon_raw[:3]) + int(lon_raw[3:]) / 60
-    else:
-        # 136551 → 136.551度 (小数表記)
-        lon = int(lon_raw[:3]) + int(lon_raw[3:]) / 1000
+    lon_minutes = float(int(lon_raw[3:])) if len(lon_raw) == 5 else int(lon_raw[3:]) / 10
+    if lon_minutes >= 60:
+        return None
+    lon = int(lon_raw[:3]) + lon_minutes / 60
     if lon_dir == "W":
         lon = -lon
 
@@ -201,9 +209,12 @@ def _parse_pntaf_format(msg_text: str) -> ParsedWeatherData | None:
     if lon_dir == "W":
         lon = -lon
 
-    # 高度の解析（パターン2の場合はFL形式）
+    # 高度の解析（パターン2でマッチした場合のみFL形式）
+    # NOTE: `if pattern2:` だと両パターンにマッチするテキストで
+    # パターン1の未確定フィールドを FL 高度と誤解釈するため、
+    # 採用したパターンがパターン2であることを確認する
     altitude = None
-    if pattern2:
+    if pattern is pattern2:
         fl_value = int(pattern.group(6))
         if 100 <= fl_value <= 500:  # FL100-FL500 (10000-50000ft)
             altitude = fl_value * 100
@@ -311,20 +322,38 @@ def _parse_fl_format(msg_text: str) -> ParsedWeatherData | None:
     )
 
 
-def parse_acars_weather(json_line: str | bytes) -> AcarsWeatherData | None:
-    """dumpvdl2 の JSON から ACARS 気象データを抽出する
+def parse_json_line(json_line: str | bytes) -> dict[str, Any] | None:
+    """dumpvdl2 の JSON 行をパースする
+
+    1メッセージにつき JSON パースを1回で済ませるため、
+    パース結果の dict を各抽出関数（parse_acars_weather 等）に渡します。
 
     Args:
         json_line: dumpvdl2 から受信した JSON 行
 
     Returns:
-        抽出した気象データ、または None
+        パース結果の dict、または不正な JSON の場合 None
     """
     try:
         data = json.loads(json_line)
     except json.JSONDecodeError:
         return None
 
+    if not isinstance(data, dict):
+        return None
+
+    return data
+
+
+def parse_acars_weather(data: dict[str, Any]) -> AcarsWeatherData | None:
+    """dumpvdl2 のメッセージから ACARS 気象データを抽出する
+
+    Args:
+        data: parse_json_line() でパース済みのメッセージ
+
+    Returns:
+        抽出した気象データ、または None
+    """
     vdl2 = data.get("vdl2", {})
     avlc = vdl2.get("avlc", {})
     acars = avlc.get("acars", {})
@@ -506,23 +535,18 @@ def convert_to_weather_observation(
     )
 
 
-def parse_xid_location(json_line: str | bytes) -> XidLocationData | None:
-    """dumpvdl2 の JSON から XID 位置・高度データを抽出する
+def parse_xid_location(data: dict[str, Any]) -> XidLocationData | None:
+    """dumpvdl2 のメッセージから XID 位置・高度データを抽出する
 
     XID メッセージには ac_location フィールドがあり、
     航空機の現在位置と高度が含まれることがある。
 
     Args:
-        json_line: dumpvdl2 から受信した JSON 行
+        data: parse_json_line() でパース済みのメッセージ
 
     Returns:
         抽出した位置・高度データ、または None
     """
-    try:
-        data = json.loads(json_line)
-    except json.JSONDecodeError:
-        return None
-
     vdl2 = data.get("vdl2", {})
     avlc = vdl2.get("avlc", {})
 
@@ -576,20 +600,15 @@ def parse_xid_location(json_line: str | bytes) -> XidLocationData | None:
     )
 
 
-def get_icao_from_message(json_line: str | bytes) -> str | None:
-    """dumpvdl2 の JSON から航空機アドレス（ICAO）を抽出する
+def get_icao_from_message(data: dict[str, Any]) -> str | None:
+    """dumpvdl2 のメッセージから航空機アドレス（ICAO）を抽出する
 
     Args:
-        json_line: dumpvdl2 から受信した JSON 行
+        data: parse_json_line() でパース済みのメッセージ
 
     Returns:
         ICAO アドレス、または None
     """
-    try:
-        data = json.loads(json_line)
-    except json.JSONDecodeError:
-        return None
-
     vdl2 = data.get("vdl2", {})
     avlc = vdl2.get("avlc", {})
     src = avlc.get("src", {})
@@ -620,7 +639,7 @@ def to_weather_record(acars: AcarsWeatherData) -> amdar.sources.modes.receiver.W
         return None
 
     return amdar.sources.modes.receiver.WeatherRecord(
-        icao=get_icao_from_message(json.dumps({"dummy": True})) or "",  # VDL2 では ICAO 不明の場合あり
+        icao="",  # AcarsWeatherData には ICAO が含まれないため空文字
         callsign=acars.flight if acars.flight else None,
         altitude_ft=float(acars.altitude_ft),
         latitude=acars.latitude,
@@ -649,12 +668,16 @@ def parse_weather_records_from_file(
 
     with file_path.open("rb") as f:
         for line in f:
-            acars = parse_acars_weather(line)
+            data = parse_json_line(line)
+            if data is None:
+                continue
+
+            acars = parse_acars_weather(data)
             if acars is None:
                 continue
 
             # ICAO を取得
-            icao = get_icao_from_message(line) or ""
+            icao = get_icao_from_message(data) or ""
 
             # 高度が必須
             if acars.altitude_ft is None:
