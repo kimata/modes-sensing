@@ -1,3 +1,4 @@
+
 ARG PYTHON_VERSION=3.13
 FROM python:${PYTHON_VERSION}-bookworm AS build
 
@@ -17,10 +18,12 @@ ADD https://astral.sh/uv/install.sh /uv-installer.sh
 RUN sh /uv-installer.sh && rm /uv-installer.sh
 
 # NOTE: システムにインストール (time-machine を API 経由で使いたいので、dev グループもインストール)
+# NOTE: .git は uv-dynamic-versioning がバージョン取得に必要
 RUN --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=.python-version,target=.python-version \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=README.md,target=README.md \
+    --mount=type=bind,source=.git,target=.git \
     --mount=type=cache,target=/root/.cache/uv \
     uv export --frozen --format requirements-txt > requirements.txt \
     && uv pip install -r requirements.txt
@@ -33,17 +36,15 @@ ENV IMAGE_BUILD_DATE=${IMAGE_BUILD_DATE}
 
 ENV TZ=Asia/Tokyo
 
-# gitpython がインストールされていない環境でもエラーを抑制
 ENV GIT_PYTHON_REFRESH=quiet
+
+ENV PYTHONPATH=/opt/modes-sensing/src
 
 COPY --from=build /usr/local/lib/python${PYTHON_VERSION}/site-packages /usr/local/lib/python${PYTHON_VERSION}/site-packages
 
 WORKDIR /opt/modes-sensing
 
 COPY . .
-
-# amdar パッケージのインポートを可能にする
-ENV PYTHONPATH=/opt/modes-sensing/src
 
 EXPOSE 5000
 
