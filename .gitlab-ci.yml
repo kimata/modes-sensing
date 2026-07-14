@@ -4,6 +4,7 @@ variables:
     UV_LINK_MODE: copy
     UV_CACHE_DIR: .uv-cache
     PYRIGHT_PYTHON_FORCE_VERSION: latest
+    UV_HTTP_TIMEOUT: "120"
 
     UV_EXTRA_INDEX_URL: "http://proxy:3141/simple/"
     UV_INSECURE_HOST: "proxy"
@@ -29,12 +30,12 @@ generate-tag:
             dotenv: tag.env
         expire_in: 1 hour
 
-build-frontend:
+build-react:
     stage: build
 
     needs: []
 
-    image: node:22.15@sha256:e558507eb799e3a76fcdaaee5e48dce1a00aebc85892128a9fca59f63bd49511
+    image: node:24.17@sha256:733e1c06ada118ed9f6133a31aa1290be6929664026fb28821500437c61f2c6f
 
     before_script: []
 
@@ -59,7 +60,7 @@ build-image:
 
     needs:
         - generate-tag
-        - build-frontend
+        - build-react
 
     variables:
         BUILDER: builder-${CI_PROJECT_NAME}
@@ -72,23 +73,21 @@ build-image:
         - git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.green-rabbit.net/kimata/font.git private_font
         - mv private_font/* font
 
-        - |
-            docker buildx create \
-                --name ${BUILDER} \
-                --use \
-                --config /etc/buildkitd.toml
-
+        - docker buildx create --driver docker-container --name ${BUILDER} --use --config /etc/buildkitd.toml
         - docker buildx use ${BUILDER}
         - docker buildx inspect --bootstrap
         - >
-            docker buildx build --provenance=false --progress=plain --platform linux/amd64
+            docker buildx build
+            --provenance=false
+            --progress=plain
+            --platform linux/amd64
             --cache-from type=registry,ref=${CI_REGISTRY_IMAGE}:cache
             --cache-from type=registry,ref=${CI_REGISTRY_IMAGE}:latest
-            --cache-to type=inline --cache-to type=registry,ref=${CI_REGISTRY_IMAGE}:cache,mode=max
+            --cache-to type=inline
+            --cache-to type=registry,ref=${CI_REGISTRY_IMAGE}:cache,mode=max
             --build-arg IMAGE_BUILD_DATE=$(date --iso-8601=seconds)
-            --tag ${CI_REGISTRY_IMAGE}:${TAG} --push .
-    # after_script:
-    #     - docker buildx rm ${BUILDER} || true
+            --tag ${CI_REGISTRY_IMAGE}:${TAG}
+            --push .
 
 test-typecheck:
     stage: test
@@ -122,7 +121,9 @@ test-pytest:
         - uv sync --locked --no-editable
 
     script:
-        - uv run pytest --numprocesses=auto --junit-xml=reports/junit-report.xml tests/unit
+        - uv run pytest tests/unit
+
+    coverage: '/TOTAL.*\s+(\d+%)/'
 
     cache:
         - key:
@@ -135,213 +136,35 @@ test-pytest:
 
     artifacts:
         when: always
+        paths:
+            - reports/**
         reports:
             junit: reports/junit-report.xml
-
-test-playwright:
-    stage: test
-
-    needs:
-        - build-frontend
-
-    before_script:
-        - uv sync --locked --no-editable
-
-    script:
-        - git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.green-rabbit.net/kimata/sense-config.git
-        - mv sense-config/sense-modes.yaml config.yaml
-        - git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.green-rabbit.net/kimata/font.git private_font
-        - mv private_font/* font
-
-        # Flaskを起動（エラー出力も記録、明示的にポート指定）
-        - uv run amdar-webui -p 5000 > flask_log.txt 2>&1 &
-        - "sleep 10"
-
-        - uv run playwright install --with-deps chromium
-
-        - >
-            APP_URL="http://127.0.0.1:5000/modes-sensing/"
-        - >
-            echo "APP_URL: ${APP_URL}"
-        - >
-            timeout 60 bash -c "until curl --fail --connect-timeout 10 --max-time 15 \"${APP_URL}\" > /dev/null 2>&1;
-            do echo 'Retrying in 5 seconds...'; sleep 5; done" || ACCESS_FAILED=1
-
-        - |
-            if [ "$ACCESS_FAILED" = "1" ]; then
-                echo "Failed to access App"
-                exit 1
-            fi
-
-        # E2Eテストは単一サーバーに対して実行するため、並列数を制限
-        - >
-            uv run pytest tests/e2e/test_webui.py --no-cov -n 4
-            --junit-xml=reports/playwright-junit.xml
-
-    cache:
-        - key:
-              files:
-                  - uv.lock
-          fallback_keys:
-              - uv-cache-${CI_PROJECT_ID}
-          paths:
-              - ${UV_CACHE_DIR}
-
-    artifacts:
-        when: always
-        paths:
-            - flask_log.txt
-        reports:
-            junit: reports/playwright-junit.xml
-
-test-docker:
-    stage: test
-    needs:
-        - generate-tag
-        - build-image
-
-    script:
-        # クリーンアップ: 古いコンテナを停止
-        - >
-            for id in $(docker ps --filter "label=job=${CI_PROJECT_NAME}-${CI_JOB_NAME}" --format "{{.ID}}"); do
-                started_at=$(docker inspect --format '{{.State.StartedAt}}' "$id")
-                started_epoch=$(date --date="$started_at" +%s)
-                now_epoch=$(date +%s)
-                diff=$(( now_epoch - started_epoch ))
-
-                if [ "$diff" -ge 600 ]; then
-                    echo "Stopping container $id (running for $diff seconds)"
-                    docker stop -t 10 "$id" || true
-                fi
-            done
-
-        - >
-            docker run --tty
-            --name ${CI_JOB_NAME}-${CI_JOB_ID} --label job=${CI_PROJECT_NAME}-${CI_JOB_NAME}
-            ${CI_REGISTRY_IMAGE}:${TAG}
-            python -m amdar -n 1
-
-test-playwright-docker:
-    stage: test
-
-    # 同一ジョブの並行実行を防止してリソース競合を回避
-    resource_group: ${CI_JOB_NAME}
-
-    needs:
-        - generate-tag
-        - build-image
-        - job: test-docker # 同時に実行するとリソース不足になるので、順次実行されるようにする
-          artifacts: false
-        - job: test-playwright # 同時に実行するとリソース不足になるので、順次実行されるようにする
-          artifacts: false
-
-    script:
-        # クリーンアップ: 古いコンテナを停止
-        - >
-            for id in $(docker ps --filter "label=job=${CI_PROJECT_NAME}-${CI_JOB_NAME}" --format "{{.ID}}"); do
-                started_at=$(docker inspect --format '{{.State.StartedAt}}' "$id")
-                started_epoch=$(date --date="$started_at" +%s)
-                now_epoch=$(date +%s)
-                diff=$(( now_epoch - started_epoch ))
-
-                if [ "$diff" -ge 600 ]; then
-                    echo "Stopping container $id (running for $diff seconds)"
-                    docker stop -t 10 "$id" || true
-                fi
-            done
-
-        - DOCKER_NETWORK=${CI_PROJECT_NAME}-${CI_JOB_NAME}-${CI_JOB_ID}-network
-
-        # 専用ネットワーク作成（プロジェクト固有）
-        - docker network create ${DOCKER_NETWORK}
-
-        # テスト用に一時的なポート公開でコンテナ起動
-        - >
-            docker run --rm --detach=true
-            --name ${CI_JOB_NAME}-${CI_JOB_ID} --label job=${CI_PROJECT_NAME}-${CI_JOB_NAME}
-            --network ${DOCKER_NETWORK} --publish :5000
-            ${CI_REGISTRY_IMAGE}:${TAG}
-            python -m amdar.cli.webui
-
-        - echo "Container started, checking status..."
-        - docker ps -a --filter name=${CI_JOB_NAME}-${CI_JOB_ID}
-
-        - uv run playwright install --with-deps chromium
-
-        # アプリケーションの起動を待つ（公開ポート経由）
-        - >
-            APP_HOST=$(docker network inspect bridge --format="{{range .IPAM.Config}}{{.Gateway}}{{end}}")
-        - >
-            APP_PORT=$(docker port ${CI_JOB_NAME}-${CI_JOB_ID} 5000 | cut -d: -f2)
-        - >
-            echo "Testing at http://${APP_HOST}:${APP_PORT}/modes-sensing/"
-        - >
-            timeout 90 bash -c "until curl -f --connect-timeout 5 --max-time 10
-            http://${APP_HOST}:${APP_PORT}/modes-sensing/ > /dev/null 2>&1;
-            do echo 'Waiting for app to start...'; sleep 3; done" || ACCESS_FAILED=1
-
-        - |
-            if [ "$ACCESS_FAILED" = "1" ]; then
-                echo "Failed to access App"
-                docker logs ${CI_JOB_NAME}-${CI_JOB_ID} > flask_log.txt
-                docker stop ${CI_JOB_NAME}-${CI_JOB_ID} || true
-                docker network rm ${DOCKER_NETWORK} || true
-                exit 1
-            fi
-
-        # Playwrightテストを実行（ホストからポート経由で接続）
-        # E2Eテストは単一サーバーに対して実行するため、並列数を制限
-        # NOTE: Docker環境では並列数を2に制限（4だとProcessPoolManagerが飽和し、
-        #       画像再生成テストで180秒タイムアウトを超過するため）
-        - >
-            uv run pytest tests/e2e/test_webui.py --no-cov --numprocesses=2
-            --junit-xml=reports/playwright-docker-junit.xml
-            --host ${APP_HOST} --port ${APP_PORT}
-
-        # ログ取得とクリーンアップ
-        - docker logs ${CI_JOB_NAME}-${CI_JOB_ID} > flask_log.txt
-        - docker stop ${CI_JOB_NAME}-${CI_JOB_ID} || true
-        - docker network rm ${DOCKER_NETWORK} || true
-
-    cache:
-        - key:
-              files:
-                  - uv.lock
-          fallback_keys:
-              - uv-cache-${CI_PROJECT_ID}
-          paths:
-              - ${UV_CACHE_DIR}
-        - key: playwright-${CI_PROJECT_ID}
-          paths:
-              - .cache/ms-playwright/
-
-    artifacts:
-        when: always
-        paths:
-            - flask_log.txt
-        reports:
-            junit: reports/playwright-docker-junit.xml
+            coverage_report:
+                coverage_format: cobertura
+                path: reports/coverage.xml
 
 tag-latest:
     stage: tag-latest
 
     needs:
         - generate-tag
-        - build-image
         - job: test-typecheck
           artifacts: false
         - job: test-pytest
           artifacts: false
-        - job: test-docker
-          artifacts: false
         - job: test-playwright
+          artifacts: false
+        - job: test-docker
           artifacts: false
         - job: test-playwright-docker
           artifacts: false
 
     script:
-        - 'echo "Tagging multi-arch image ${CI_REGISTRY_IMAGE}:${TAG} as latest"'
-        - docker buildx imagetools create -t ${CI_REGISTRY_IMAGE}:latest ${CI_REGISTRY_IMAGE}:${TAG}
+        - 'echo "Tagging ${CI_REGISTRY_IMAGE}:${TAG} as latest"'
+        - docker pull ${CI_REGISTRY_IMAGE}:${TAG}
+        - docker tag ${CI_REGISTRY_IMAGE}:${TAG} ${CI_REGISTRY_IMAGE}:latest
+        - docker push ${CI_REGISTRY_IMAGE}:latest
 
     rules:
         - if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
@@ -353,14 +176,13 @@ deploy:
 
     needs:
         - generate-tag
-        - build-image
         - job: test-typecheck
           artifacts: false
         - job: test-pytest
           artifacts: false
-        - job: test-docker
-          artifacts: false
         - job: test-playwright
+          artifacts: false
+        - job: test-docker
           artifacts: false
         - job: test-playwright-docker
           artifacts: false
@@ -375,11 +197,10 @@ deploy:
         - 'echo "Deploying image: $IMAGE"'
 
         - kubectl config get-contexts
-        - kubectl config use-context kimata/modes-sensing:pod-rollout
 
+        - kubectl config use-context kimata/modes-sensing:pod-rollout
         - kubectl -n sensor set image deployment/modes-sensing-collector modes-sensing-collector=${IMAGE}
         - kubectl -n sensor set image deployment/modes-sensing-webui modes-sensing-webui=${IMAGE}
-
         - kubectl -n sensor rollout status deployment/modes-sensing-collector --timeout=300s
         - kubectl -n sensor rollout status deployment/modes-sensing-webui --timeout=300s
 
@@ -396,16 +217,31 @@ deploy:
 renovate:
     stage: renovate
     dependencies: []
+    resource_group: renovate
     image:
         name: gitlab.green-rabbit.net:5050/kimata/local-renovate:260104_3da7b77b
 
     before_script: []
 
+    variables:
+        RENOVATE_CACHE_DIR: .renovate-cache
+        LOG_LEVEL: info
+
     script:
         - renovate --platform gitlab --token ${RENOVATE_TOKEN} --endpoint ${CI_SERVER_URL}/api/v4 ${CI_PROJECT_PATH}
+
+    cache:
+        key: renovate-${CI_PROJECT_ID}
+        paths:
+            - ${RENOVATE_CACHE_DIR}
+
     rules:
         - if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
           when: never
         - if: $CI_PIPELINE_SOURCE == "schedule"
         - changes:
               - renovate.json
+
+# プロジェクト固有ジョブ（py-project は触らない）
+include:
+    - local: .gitlab/ci-local.yml

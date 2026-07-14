@@ -1,0 +1,189 @@
+# modes-sensing 固有の CI ジョブ（py-project のテンプレート管理外）
+#
+# 共通骨格（generate-tag / build-react / build-image / test-typecheck /
+# test-pytest / tag-latest / deploy / renovate）は py-project の
+# gitlab-ci-gen (docker 系統テンプレート) が .gitlab-ci.yml に生成する。
+
+test-playwright:
+    stage: test
+
+    needs:
+        - build-react
+
+    before_script:
+        - uv sync --locked --no-editable
+
+    script:
+        - git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.green-rabbit.net/kimata/sense-config.git
+        - mv sense-config/sense-modes.yaml config.yaml
+        - git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.green-rabbit.net/kimata/font.git private_font
+        - mv private_font/* font
+
+        # Flaskを起動（エラー出力も記録、明示的にポート指定）
+        - uv run amdar-webui -p 5000 > flask_log.txt 2>&1 &
+        - "sleep 10"
+
+        - uv run playwright install --with-deps chromium
+
+        - >
+            APP_URL="http://127.0.0.1:5000/modes-sensing/"
+        - >
+            echo "APP_URL: ${APP_URL}"
+        - >
+            timeout 60 bash -c "until curl --fail --connect-timeout 10 --max-time 15 \"${APP_URL}\" > /dev/null 2>&1;
+            do echo 'Retrying in 5 seconds...'; sleep 5; done" || ACCESS_FAILED=1
+
+        - |
+            if [ "$ACCESS_FAILED" = "1" ]; then
+                echo "Failed to access App"
+                exit 1
+            fi
+
+        # E2Eテストは単一サーバーに対して実行するため、並列数を制限
+        - >
+            uv run pytest tests/e2e/test_webui.py --no-cov -n 4
+            --junit-xml=reports/playwright-junit.xml
+
+    cache:
+        - key:
+              files:
+                  - uv.lock
+          fallback_keys:
+              - uv-cache-${CI_PROJECT_ID}
+          paths:
+              - ${UV_CACHE_DIR}
+
+    artifacts:
+        when: always
+        paths:
+            - flask_log.txt
+        reports:
+            junit: reports/playwright-junit.xml
+
+test-docker:
+    stage: test
+    needs:
+        - generate-tag
+        - build-image
+
+    script:
+        # クリーンアップ: 古いコンテナを停止
+        - >
+            for id in $(docker ps --filter "label=job=${CI_PROJECT_NAME}-${CI_JOB_NAME}" --format "{{.ID}}"); do
+                started_at=$(docker inspect --format '{{.State.StartedAt}}' "$id")
+                started_epoch=$(date --date="$started_at" +%s)
+                now_epoch=$(date +%s)
+                diff=$(( now_epoch - started_epoch ))
+
+                if [ "$diff" -ge 600 ]; then
+                    echo "Stopping container $id (running for $diff seconds)"
+                    docker stop -t 10 "$id" || true
+                fi
+            done
+
+        - >
+            docker run --tty
+            --name ${CI_JOB_NAME}-${CI_JOB_ID} --label job=${CI_PROJECT_NAME}-${CI_JOB_NAME}
+            ${CI_REGISTRY_IMAGE}:${TAG}
+            python -m amdar -n 1
+
+test-playwright-docker:
+    stage: test
+
+    # 同一ジョブの並行実行を防止してリソース競合を回避
+    resource_group: ${CI_JOB_NAME}
+
+    needs:
+        - generate-tag
+        - build-image
+        - job: test-docker # 同時に実行するとリソース不足になるので、順次実行されるようにする
+          artifacts: false
+        - job: test-playwright # 同時に実行するとリソース不足になるので、順次実行されるようにする
+          artifacts: false
+
+    script:
+        # クリーンアップ: 古いコンテナを停止
+        - >
+            for id in $(docker ps --filter "label=job=${CI_PROJECT_NAME}-${CI_JOB_NAME}" --format "{{.ID}}"); do
+                started_at=$(docker inspect --format '{{.State.StartedAt}}' "$id")
+                started_epoch=$(date --date="$started_at" +%s)
+                now_epoch=$(date +%s)
+                diff=$(( now_epoch - started_epoch ))
+
+                if [ "$diff" -ge 600 ]; then
+                    echo "Stopping container $id (running for $diff seconds)"
+                    docker stop -t 10 "$id" || true
+                fi
+            done
+
+        - DOCKER_NETWORK=${CI_PROJECT_NAME}-${CI_JOB_NAME}-${CI_JOB_ID}-network
+
+        # 専用ネットワーク作成（プロジェクト固有）
+        - docker network create ${DOCKER_NETWORK}
+
+        # テスト用に一時的なポート公開でコンテナ起動
+        - >
+            docker run --rm --detach=true
+            --name ${CI_JOB_NAME}-${CI_JOB_ID} --label job=${CI_PROJECT_NAME}-${CI_JOB_NAME}
+            --network ${DOCKER_NETWORK} --publish :5000
+            ${CI_REGISTRY_IMAGE}:${TAG}
+            python -m amdar.cli.webui
+
+        - echo "Container started, checking status..."
+        - docker ps -a --filter name=${CI_JOB_NAME}-${CI_JOB_ID}
+
+        - uv run playwright install --with-deps chromium
+
+        # アプリケーションの起動を待つ（公開ポート経由）
+        - >
+            APP_HOST=$(docker network inspect bridge --format="{{range .IPAM.Config}}{{.Gateway}}{{end}}")
+        - >
+            APP_PORT=$(docker port ${CI_JOB_NAME}-${CI_JOB_ID} 5000 | cut -d: -f2)
+        - >
+            echo "Testing at http://${APP_HOST}:${APP_PORT}/modes-sensing/"
+        - >
+            timeout 90 bash -c "until curl -f --connect-timeout 5 --max-time 10
+            http://${APP_HOST}:${APP_PORT}/modes-sensing/ > /dev/null 2>&1;
+            do echo 'Waiting for app to start...'; sleep 3; done" || ACCESS_FAILED=1
+
+        - |
+            if [ "$ACCESS_FAILED" = "1" ]; then
+                echo "Failed to access App"
+                docker logs ${CI_JOB_NAME}-${CI_JOB_ID} > flask_log.txt
+                docker stop ${CI_JOB_NAME}-${CI_JOB_ID} || true
+                docker network rm ${DOCKER_NETWORK} || true
+                exit 1
+            fi
+
+        # Playwrightテストを実行（ホストからポート経由で接続）
+        # E2Eテストは単一サーバーに対して実行するため、並列数を制限
+        # NOTE: Docker環境では並列数を2に制限（4だとProcessPoolManagerが飽和し、
+        #       画像再生成テストで180秒タイムアウトを超過するため）
+        - >
+            uv run pytest tests/e2e/test_webui.py --no-cov --numprocesses=2
+            --junit-xml=reports/playwright-docker-junit.xml
+            --host ${APP_HOST} --port ${APP_PORT}
+
+        # ログ取得とクリーンアップ
+        - docker logs ${CI_JOB_NAME}-${CI_JOB_ID} > flask_log.txt
+        - docker stop ${CI_JOB_NAME}-${CI_JOB_ID} || true
+        - docker network rm ${DOCKER_NETWORK} || true
+
+    cache:
+        - key:
+              files:
+                  - uv.lock
+          fallback_keys:
+              - uv-cache-${CI_PROJECT_ID}
+          paths:
+              - ${UV_CACHE_DIR}
+        - key: playwright-${CI_PROJECT_ID}
+          paths:
+              - .cache/ms-playwright/
+
+    artifacts:
+        when: always
+        paths:
+            - flask_log.txt
+        reports:
+            junit: reports/playwright-docker-junit.xml
