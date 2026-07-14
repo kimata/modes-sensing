@@ -29,9 +29,9 @@ class TestHealthzModule:
         """_get_timeout_for_now 関数が定義されていること"""
         assert hasattr(healthz, "_get_timeout_for_now")
 
-    def test_has_notify_error(self):
-        """_notify_error 関数が定義されていること"""
-        assert hasattr(healthz, "_notify_error")
+    def test_has_failure_handler(self):
+        """_failure_handler 関数が定義されていること"""
+        assert hasattr(healthz, "_failure_handler")
 
 
 class TestHealthzIntegration:
@@ -81,7 +81,7 @@ class TestGracePeriod:
         with (
             unittest.mock.patch("my_lib.healthz.check_liveness_all_with_ports", return_value=["vdl2"]),
             unittest.mock.patch("my_lib.container_util.get_uptime", return_value=3600.0),  # 1時間
-            unittest.mock.patch.object(healthz, "_notify_error") as mock_notify,
+            unittest.mock.patch("my_lib.notify.slack.error") as mock_notify,
             unittest.mock.patch("sys.exit"),
             unittest.mock.patch(
                 "docopt.docopt",
@@ -99,7 +99,7 @@ class TestGracePeriod:
         with (
             unittest.mock.patch("my_lib.healthz.check_liveness_all_with_ports", return_value=["vdl2"]),
             unittest.mock.patch("my_lib.container_util.get_uptime", return_value=11 * 60 * 60),  # 11時間
-            unittest.mock.patch.object(healthz, "_notify_error") as mock_notify,
+            unittest.mock.patch("my_lib.notify.slack.error") as mock_notify,
             unittest.mock.patch("sys.exit"),
             unittest.mock.patch(
                 "docopt.docopt",
@@ -112,7 +112,7 @@ class TestGracePeriod:
             mock_notify.assert_called_once()
             # 通知メッセージに vdl2 が含まれていることを確認
             call_args = mock_notify.call_args
-            assert "vdl2" in call_args[0][1]
+            assert "vdl2" in call_args[0][2]
 
     def test_modes_failure_uses_default_grace_period(self, config: Any):
         """modes が失敗した場合はデフォルトの grace period を使用"""
@@ -120,7 +120,7 @@ class TestGracePeriod:
         with (
             unittest.mock.patch("my_lib.healthz.check_liveness_all_with_ports", return_value=["modes"]),
             unittest.mock.patch("my_lib.container_util.get_uptime", return_value=300.0),  # 5分
-            unittest.mock.patch.object(healthz, "_notify_error") as mock_notify,
+            unittest.mock.patch("my_lib.notify.slack.error") as mock_notify,
             unittest.mock.patch("sys.exit"),
             unittest.mock.patch(
                 "docopt.docopt",
@@ -132,7 +132,7 @@ class TestGracePeriod:
             healthz.main()
             mock_notify.assert_called_once()
             call_args = mock_notify.call_args
-            assert "modes" in call_args[0][1]
+            assert "modes" in call_args[0][2]
 
     def test_modes_failure_within_default_grace_period_no_notification(self, config: Any):
         """modes がデフォルト grace period 内に失敗しても通知しない"""
@@ -140,7 +140,7 @@ class TestGracePeriod:
         with (
             unittest.mock.patch("my_lib.healthz.check_liveness_all_with_ports", return_value=["modes"]),
             unittest.mock.patch("my_lib.container_util.get_uptime", return_value=60.0),  # 1分
-            unittest.mock.patch.object(healthz, "_notify_error") as mock_notify,
+            unittest.mock.patch("my_lib.notify.slack.error") as mock_notify,
             unittest.mock.patch("sys.exit"),
             unittest.mock.patch(
                 "docopt.docopt",
