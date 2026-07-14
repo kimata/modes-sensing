@@ -15,35 +15,12 @@ from __future__ import annotations
 
 import logging
 import os
-import signal
-import sys
-from dataclasses import dataclass
-from types import FrameType
-from typing import NoReturn
 
 import flask
 import flask_cors
-import my_lib.logger
-import my_lib.proc_util
+import my_lib.webapp.runner
 
 import amdar.config
-
-
-@dataclass
-class _SignalHandlerState:
-    """シグナルハンドラーの再入防止状態"""
-
-    entered: bool = False
-
-
-def _term() -> NoReturn:
-    # 子プロセスを終了
-    my_lib.proc_util.kill_child()
-
-    # プロセス終了
-    logging.info("Graceful shutdown completed")
-    sys.exit(0)
-
 
 URL_PREFIX = "/modes-sensing"
 
@@ -94,7 +71,7 @@ def create_app(config: amdar.config.Config, use_reloader: bool = False) -> flask
 
     # リローダー使用時、バックグラウンド初期化は再起動後の子プロセス
     # （WERKZEUG_RUN_MAIN=true）でのみ行う（親プロセスとの二重初期化を防止）
-    if use_reloader and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+    if not my_lib.webapp.runner.should_init(use_reloader):
         logging.info("Skipping background initialization in reloader parent process")
         return app
 
@@ -115,92 +92,29 @@ def create_app(config: amdar.config.Config, use_reloader: bool = False) -> flask
     return app
 
 
-def main() -> None:
-    """CLI エントリポイント"""
-    import atexit
-    import contextlib
-
-    import docopt
-
-    if __doc__ is None:
-        raise RuntimeError("__doc__ is not set")
-
-    args = docopt.docopt(__doc__)
-
-    config_file = args["-c"]
-    port = args["-p"]
-    debug_mode = args["-D"]
-
-    my_lib.logger.init("modes-sensing", level=logging.DEBUG if debug_mode else logging.INFO)
-
-    config = amdar.config.load_config(config_file)
-
-    # Flaskアプリケーションを実行
+def _use_reloader(args: dict) -> bool:
     # テスト環境（TEST=true）ではリローダーを無効にする
     # リローダーはマルチプロセス処理（非同期グラフ生成）と相互作用の問題を起こすため
     is_test_mode = os.environ.get("TEST", "").lower() == "true"
-    use_reloader = not is_test_mode and debug_mode
-
     if is_test_mode:
         logging.info("Test mode detected, disabling Flask reloader for multiprocessing compatibility")
+    return not is_test_mode and bool(args["-D"])
 
-    app = create_app(config, use_reloader=use_reloader)
 
-    # プロセスグループリーダーとして実行（リローダープロセスの適切な管理のため）
-    with contextlib.suppress(PermissionError):
-        os.setpgrp()
+SPEC = my_lib.webapp.runner.WebAppSpec(
+    logger_name="modes-sensing",
+    config_loader=lambda config_file, args: amdar.config.load_config(config_file),
+    app_factory=lambda config, ctx: create_app(config, use_reloader=ctx.use_reloader),
+    use_reloader=_use_reloader,
+)
 
-    # 異常終了時のクリーンアップ処理を登録
-    def cleanup_on_exit():
-        try:
-            current_pid = os.getpid()
-            pgid = os.getpgid(current_pid)
-            if current_pid == pgid:
-                # プロセスグループ内の他のプロセスを終了
-                os.killpg(pgid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            pass
 
-    atexit.register(cleanup_on_exit)
+def main() -> None:
+    """CLI エントリポイント"""
+    if __doc__ is None:
+        raise RuntimeError("__doc__ is not set")
 
-    # Enhanced signal handler for process group management
-    _sig_handler_state = _SignalHandlerState()
-
-    def enhanced_sig_handler(num: int, frame: FrameType | None) -> None:
-        if _sig_handler_state.entered:
-            return  # 再入を防止
-        _sig_handler_state.entered = True
-
-        logging.warning("receive signal %d", num)
-
-        if num in (signal.SIGTERM, signal.SIGINT):
-            # シグナルを無視に設定してからプロセスグループを終了
-            # （自プロセスへのシグナルによる再入を防止）
-            signal.signal(signal.SIGTERM, signal.SIG_IGN)
-            signal.signal(signal.SIGINT, signal.SIG_IGN)
-
-            # Flask reloader の子プロセスも含めて終了する
-            try:
-                # 現在のプロセスがプロセスグループリーダーの場合、全体を終了
-                current_pid = os.getpid()
-                pgid = os.getpgid(current_pid)
-                if current_pid == pgid:
-                    logging.info("Terminating process group %d", pgid)
-                    os.killpg(pgid, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                # プロセスグループ操作に失敗した場合は通常の終了処理
-                pass
-
-            _term()
-
-    signal.signal(signal.SIGTERM, enhanced_sig_handler)
-    signal.signal(signal.SIGINT, enhanced_sig_handler)
-
-    try:
-        app.run(host="0.0.0.0", port=port, threaded=True, use_reloader=use_reloader, debug=debug_mode)  # noqa: S104
-    except KeyboardInterrupt:
-        logging.info("Received KeyboardInterrupt, shutting down...")
-        enhanced_sig_handler(signal.SIGINT, None)
+    my_lib.webapp.runner.run(SPEC, __doc__)
 
 
 if __name__ == "__main__":

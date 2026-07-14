@@ -6,8 +6,6 @@ cli/webui.py のテスト
 
 import unittest.mock
 
-import pytest
-
 import amdar.cli.webui as webui
 
 
@@ -74,16 +72,23 @@ class TestCreateApp:
         mock_pregen.assert_not_called()
 
 
-class TestTerm:
-    """_term 関数のテスト"""
+class TestSpec:
+    """WebAppSpec 定義のテスト
 
-    def test_term_kills_child_and_exits(self):
-        """_term が子プロセスを終了してシステム終了する"""
-        with (
-            unittest.mock.patch("my_lib.proc_util.kill_child") as mock_kill,
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            webui._term()
+    graceful shutdown・シグナル処理は my_lib.webapp.runner 側でテストされる。
+    """
 
-        mock_kill.assert_called_once()
-        assert exc_info.value.code == 0
+    def test_logger_name(self):
+        """ロガー名が modes-sensing である"""
+        assert webui.SPEC.logger_name == "modes-sensing"
+
+    def test_reloader_disabled_in_test_mode(self, monkeypatch):
+        """TEST=true ではリローダーを使わない"""
+        monkeypatch.setenv("TEST", "true")
+        assert webui._use_reloader({"-D": True}) is False
+
+    def test_reloader_follows_debug_flag(self, monkeypatch):
+        """通常時は -D 指定時のみリローダーを使う"""
+        monkeypatch.delenv("TEST", raising=False)
+        assert webui._use_reloader({"-D": True}) is True
+        assert webui._use_reloader({"-D": False}) is False
