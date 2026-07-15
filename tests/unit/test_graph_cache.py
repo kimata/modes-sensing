@@ -208,6 +208,35 @@ class TestCachedImage:
             assert result2 is None
 
     @patch("amdar.viewer.graph.cache.get_git_commit_hash", return_value="abc123hash")
+    def test_min_remaining_ttl(self, _mock_hash):
+        """残り TTL が min_remaining_ttl 以下のキャッシュはヒット扱いしない。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = pathlib.Path(tmpdir)
+            time_start = datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.UTC)
+            time_end = datetime.datetime(2025, 1, 7, 0, 0, 0, tzinfo=datetime.UTC)
+
+            test_data = b"PNG_IMAGE_DATA"
+            filename = cache.save_to_cache(cache_dir, "scatter_2d", time_start, time_end, False, test_data)
+            assert filename is not None
+            cache_file = cache_dir / filename
+
+            # 残り TTL が 100 秒になるよう mtime を調整（未期限切れ）
+            remaining = 100
+            aged = time.time() - (amdar.constants.CACHE_TTL_SECONDS - remaining)
+            os.utime(cache_file, (aged, aged))
+
+            # 下限 0（既定）: 残り 100 秒でもヒット
+            result, _ = cache.get_cached_image(cache_dir, "scatter_2d", time_start, time_end, False)
+            assert result == test_data
+
+            # 下限 200 秒: 残り 100 秒 <= 200 なのでヒットしない（ファイルは残る）
+            result2, _ = cache.get_cached_image(
+                cache_dir, "scatter_2d", time_start, time_end, False, min_remaining_ttl=200
+            )
+            assert result2 is None
+            assert cache_file.exists()
+
+    @patch("amdar.viewer.graph.cache.get_git_commit_hash", return_value="abc123hash")
     def test_save_creates_directory(self, _mock_hash):
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = pathlib.Path(tmpdir) / "subdir"

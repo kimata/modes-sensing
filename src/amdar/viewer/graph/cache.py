@@ -168,61 +168,24 @@ def cleanup_expired_cache(cache_dir: pathlib.Path) -> int:
     return deleted_count
 
 
-def find_matching_cache(
-    cache_dir: pathlib.Path,
-    graph_name: GraphName,
-    time_start: datetime.datetime,
-    time_end: datetime.datetime,
-    limit_altitude: bool,
-) -> CacheFileInfo | None:
-    """条件に合うキャッシュファイルを検索する。"""
-    if not cache_dir.exists():
-        return None
-
-    git_commit = get_git_commit_hash()
-    request_period = int((time_end - time_start).total_seconds())
-    request_start_ts = int(time_start.timestamp())
-    current_time = time.time()
-
-    for cache_file in cache_dir.glob("*.png"):
-        info = parse_cache_filename(cache_file)
-        if info is None:
-            continue
-        if info.graph_name != graph_name:
-            continue
-        if info.period_seconds != request_period:
-            continue
-        if info.limit_altitude != limit_altitude:
-            continue
-        if info.git_commit != git_commit:
-            continue
-        if current_time - info.created_at > CACHE_TTL_SECONDS:
-            continue
-
-        start_time_diff = abs(info.start_ts - request_start_ts)
-        if start_time_diff <= CACHE_START_TIME_TOLERANCE_SECONDS:
-            logging.info(
-                "[CACHE] HIT: %s (start_diff: %d sec, age: %.0f sec)",
-                cache_file.name,
-                start_time_diff,
-                current_time - info.created_at,
-            )
-            return info
-
-    return None
-
-
 def get_cached_image(
     cache_dir: pathlib.Path,
     graph_name: GraphName,
     time_start: datetime.datetime,
     time_end: datetime.datetime,
     limit_altitude: bool,
+    min_remaining_ttl: float = 0.0,
 ) -> tuple[bytes | None, str | None]:
     """キャッシュから画像を取得する。
 
     1 回の走査でキャッシュ検索を行う。期限切れファイルの削除は
     前回実行から :data:`CACHE_CLEANUP_INTERVAL_SECONDS` 以内ならスキップする。
+
+    Args:
+        min_remaining_ttl: ヒットとみなす残り TTL の下限（秒）。残り TTL が
+            この値以下のファイルはヒット扱いしない。事前生成が期限切れ間近の
+            キャッシュを自分自身で再ヒットして空振りするのを防ぐために使う。
+            デフォルト 0.0 では TTL 内なら常にヒット（従来の挙動）。
 
     Returns:
         (画像データ, キャッシュファイル名)。ヒットしなければ (None, None)。
@@ -267,6 +230,8 @@ def get_cached_image(
         if info.limit_altitude != limit_altitude:
             continue
         if info.git_commit != git_commit:
+            continue
+        if CACHE_TTL_SECONDS - (current_time - info.created_at) <= min_remaining_ttl:
             continue
         if abs(info.start_ts - request_start_ts) <= CACHE_START_TIME_TOLERANCE_SECONDS:
             matched = info

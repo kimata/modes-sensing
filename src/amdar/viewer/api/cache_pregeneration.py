@@ -30,12 +30,10 @@ import my_lib.time
 import amdar.config
 import amdar.database.postgresql
 from amdar.constants import (
-    CACHE_TTL_SECONDS,
     DEFAULT_PREGENERATION_DAYS,
     PREGENERATION_INTERVAL_SECONDS,
     GraphName,
 )
-from amdar.viewer.graph import cache
 from amdar.viewer.graph.service import graph_service
 
 # 事前生成対象のグラフ（デフォルト表示で使う全種）
@@ -201,57 +199,27 @@ class CachePregenerator:
         limit_altitude: bool,
     ) -> int:
         """対象グラフを生成し、成功件数を返す。"""
-        cache_dir = graph_service.cache_dir
-
         generated = 0
         for graph_name in _PREGENERATION_GRAPHS:
             if self._stop_requested:
                 break
             try:
-                if self._cache_still_fresh(cache_dir, graph_name, time_start, time_end, limit_altitude):
-                    generated += 1
-                    continue
-
-                logging.info("[PREGEN] Generating %s...", graph_name)
-                graph_service.generate_sync(graph_name, time_start, time_end, limit_altitude)
+                # 残り TTL が次回事前生成までの間隔を割るキャッシュはヒット扱いせず、
+                # 実際に再生成・保存させる。これを指定しないと、期限切れ間近の
+                # 自分自身のキャッシュに許容差ヒットして空振り（再配信のみ）となり、
+                # キャッシュを新鮮に保てない。
+                graph_service.generate_sync(
+                    graph_name,
+                    time_start,
+                    time_end,
+                    limit_altitude,
+                    min_cache_ttl_remaining=PREGENERATION_INTERVAL_SECONDS,
+                )
                 generated += 1
             except Exception:
                 logging.exception("[PREGEN] Failed to generate %s", graph_name)
 
         return generated
-
-    def _cache_still_fresh(
-        self,
-        cache_dir,
-        graph_name: GraphName,
-        time_start: datetime.datetime,
-        time_end: datetime.datetime,
-        limit_altitude: bool,
-    ) -> bool:
-        """次回事前生成までキャッシュが TTL 内に収まるか。"""
-        cache_info = cache.find_matching_cache(cache_dir, graph_name, time_start, time_end, limit_altitude)
-        if cache_info is None:
-            return False
-
-        current_time = time.time()
-        cache_age = current_time - cache_info.created_at
-        ttl_remaining = CACHE_TTL_SECONDS - cache_age
-
-        if ttl_remaining > PREGENERATION_INTERVAL_SECONDS:
-            logging.debug(
-                "[PREGEN] Cache valid for %s: %s (TTL remaining: %.0f sec)",
-                graph_name,
-                cache_info.path.name,
-                ttl_remaining,
-            )
-            return True
-
-        logging.info(
-            "[PREGEN] Cache expiring soon for %s (TTL remaining: %.0f sec), regenerating",
-            graph_name,
-            ttl_remaining,
-        )
-        return False
 
 
 # モジュールレベルの共有インスタンス

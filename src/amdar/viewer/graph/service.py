@@ -106,11 +106,18 @@ class GraphService:
         time_start: datetime.datetime,
         time_end: datetime.datetime,
         limit_altitude: bool = False,
+        min_cache_ttl_remaining: float = 0.0,
     ) -> bytes:
         """グラフを同期生成する（キャッシュヒット時は即返却）。
 
         プロセスプール経由で生成するため、matplotlib は必ずサブプロセスで動く。
         本メソッドはブロッキング呼び出しなので、HTTP リクエストから直接は呼ばない。
+
+        Args:
+            min_cache_ttl_remaining: ヒットとみなすキャッシュの残り TTL 下限（秒）。
+                残り TTL がこの値以下のキャッシュは無視して再生成・保存する。
+                事前生成が期限切れ間近のキャッシュを再ヒットして空振りするのを防ぐ。
+                デフォルト 0.0 では TTL 内なら常にヒット（通常のリクエスト向け）。
 
         Returns:
             PNG バイト列。データなし時の代替画像でも空にはならない。
@@ -119,7 +126,12 @@ class GraphService:
         assert self._config is not None and self._cache_dir is not None  # noqa: S101
 
         cached, cache_filename = cache.get_cached_image(
-            self._cache_dir, graph_name, time_start, time_end, limit_altitude
+            self._cache_dir,
+            graph_name,
+            time_start,
+            time_end,
+            limit_altitude,
+            min_remaining_ttl=min_cache_ttl_remaining,
         )
         if cached:
             logging.info(
