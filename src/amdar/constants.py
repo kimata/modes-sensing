@@ -54,6 +54,9 @@ MODES_RECEIVER_MAX_RETRIES: int = 10  # 最大再接続回数
 MODES_RECEIVER_BASE_DELAY: float = 2.0  # 再接続遅延の初期値（秒）
 MODES_RECEIVER_MAX_DELAY: float = 60.0  # 再接続遅延の最大値（秒）
 MODES_RECEIVER_SOCKET_TIMEOUT: float = 30.0  # ソケットタイムアウト（秒）
+# 無音（接続は健全だがデータが来ない）が続いたときに警告ログを出す間隔（秒）
+# 深夜は航空機が居らず 30 秒以上の無音が常態なので、無音は接続失敗として扱わない
+MODES_RECEIVER_SILENCE_WARN_INTERVAL_SECONDS: int = 600
 
 # ===============================
 # Database 再接続設定

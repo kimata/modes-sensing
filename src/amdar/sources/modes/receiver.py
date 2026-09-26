@@ -13,9 +13,12 @@ Options:
 
 from __future__ import annotations
 
+import enum
 import logging
+import os
 import pathlib
 import queue
+import signal
 import socket
 import threading
 import time
@@ -95,8 +98,30 @@ class _ReceiverState:
     last_footprint_update: float = 0.0
     """Liveness ファイルの最終更新時刻（time.time()）"""
 
+    last_received_at: float = 0.0
+    """最後に 1 行受信した時刻（time.time()、無音期間の計測用。ワーカー開始時刻で初期化）"""
+
+    silence_warned_at: float = 0.0
+    """無音についてログを出した最終時刻（time.time()、0 は未出力）"""
+
+    fatal_error: bool = False
+    """受信ワーカーが継続不能になり、プロセス停止を要求したか"""
+
 
 _state = _ReceiverState()
+
+
+class _ConnectionOutcome(enum.Enum):
+    """1 回の TCP 接続がどのように終わったか"""
+
+    RECEIVED = "received"
+    """1 行以上受信した（その後の切断・タイムアウトは問わない）"""
+
+    SILENT_TIMEOUT = "silent_timeout"
+    """1 行も受信せずにソケットタイムアウトした（接続は健全だがデータが無い）"""
+
+    CLOSED_WITHOUT_DATA = "closed_without_data"
+    """1 行も受信せずにリモートが切断した、または受信エラーが発生した"""
 
 
 def reset() -> None:
@@ -687,7 +712,7 @@ def _wait_with_interrupt(delay: float) -> None:
     _state.should_terminate.wait(delay)
 
 
-def _update_liveness_throttled() -> None:
+def _update_liveness_throttled(now: float) -> None:
     """Liveness ファイルをスロットル付きで更新する
 
     受信1行ごとのファイル書き込みを避けるため、
@@ -696,7 +721,6 @@ def _update_liveness_throttled() -> None:
     if _state.liveness_file is None:
         return
 
-    now = time.time()
     if now - _state.last_footprint_update < _FOOTPRINT_UPDATE_INTERVAL_SECONDS:
         return
 
@@ -704,39 +728,76 @@ def _update_liveness_throttled() -> None:
     my_lib.footprint.update(_state.liveness_file)
 
 
+def _mark_data_received() -> None:
+    """1 行受信したことを記録する（無音期間の計測・Liveness 更新）"""
+    now = time.time()
+    silent_for = now - _state.last_received_at
+    if silent_for >= amdar.constants.MODES_RECEIVER_SOCKET_TIMEOUT:
+        logging.info("Mode S データの受信を再開しました（%.0f 秒ぶり）", silent_for)
+        _state.silence_warned_at = 0.0
+
+    _state.last_received_at = now
+    _update_liveness_throttled(now)
+
+
+def _log_silence() -> None:
+    """無音（接続は成功しているがデータが来ない）をスロットル付きでログ出力する
+
+    最初の 1 回は INFO、以降は MODES_RECEIVER_SILENCE_WARN_INTERVAL_SECONDS ごとに WARNING、
+    それ以外は DEBUG に落として、深夜の常態的な無音でログを埋め尽くさないようにします。
+    """
+    now = time.time()
+    silent_for = now - _state.last_received_at
+
+    if _state.silence_warned_at == 0.0:
+        logging.info("Mode S データを %.0f 秒間受信していません。接続を張り直します", silent_for)
+        _state.silence_warned_at = now
+    elif now - _state.silence_warned_at >= amdar.constants.MODES_RECEIVER_SILENCE_WARN_INTERVAL_SECONDS:
+        logging.warning(
+            "Mode S データを %.0f 分間受信していません（接続自体は成功しています）", silent_for / 60
+        )
+        _state.silence_warned_at = now
+    else:
+        logging.debug("Mode S データの無音が継続中（%.0f 秒）", silent_for)
+
+
 def _process_socket_messages(
     sock: socket.socket,
     data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
     area_config: Area,
-) -> bool:
+) -> _ConnectionOutcome:
     """ソケットからメッセージを受信して処理する
 
     Returns:
-        1行以上データを受信した場合 True
+        この接続の終わり方
     """
     received = False
     try:
         for line in _receive_lines(sock):
             received = True
+            _mark_data_received()
 
             if _state.should_terminate.is_set():
                 break
 
             try:
                 _process_message(line, data_queue, area_config)
-
-                # データ受信時にLivenessファイル更新（スロットル付き）
-                _update_liveness_throttled()
-
             except Exception:
                 logging.exception("メッセージ処理に失敗しました")
+        else:
+            # recv() が b"" を返した = リモートが接続を閉じた
+            if not _state.should_terminate.is_set():
+                logging.warning("リモートホストによって接続が閉じられました")
 
     except TimeoutError:
-        logging.warning("ソケットタイムアウトが発生しました")
+        if not received:
+            _log_silence()
+            return _ConnectionOutcome.SILENT_TIMEOUT
+        logging.debug("データ受信後にソケットタイムアウトが発生しました。接続を張り直します")
     except (OSError, ConnectionError) as e:
         logging.warning("受信中に接続エラーが発生しました: %s", e)
 
-    return received
+    return _ConnectionOutcome.RECEIVED if received else _ConnectionOutcome.CLOSED_WITHOUT_DATA
 
 
 def _handle_connection(
@@ -744,24 +805,36 @@ def _handle_connection(
     port: int,
     data_queue: multiprocessing.Queue[MeteorologicalData] | queue.Queue[MeteorologicalData],
     area_config: Area,
-) -> bool:
+) -> _ConnectionOutcome:
     """TCP接続を確立しメッセージを処理する
 
     Returns:
-        この接続で1行以上データを受信した場合True
+        この接続の終わり方
 
     """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(amdar.constants.MODES_RECEIVER_SOCKET_TIMEOUT)
         sock.connect((host, port))
-        logging.info("%s:%d に接続しました", host, port)
+        logging.debug("%s:%d に接続しました", host, port)
 
-        received = _process_socket_messages(sock, data_queue, area_config)
+        return _process_socket_messages(sock, data_queue, area_config)
 
-        if not _state.should_terminate.is_set():
-            logging.warning("リモートホストによって接続が閉じられました")
 
-        return received
+def _request_process_termination(reason: str) -> None:
+    """受信ワーカーが継続不能になったとき、プロセス全体の停止を要求する
+
+    ワーカースレッドだけが止まると、プロセスは生きているのに Mode S データが
+    取り込まれない状態が続き、liveness probe が失敗するまで（夜間は最大 4 時間）復旧しません。
+    自プロセスへ SIGTERM を送って通常の停止処理に合流させ、コンテナの再起動に委ねます。
+    """
+    _state.fatal_error = True
+    logging.error("受信ワーカーが継続不能のためプロセスの停止を要求します: %s", reason)
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
+def has_fatal_error() -> bool:
+    """受信ワーカーが継続不能になりプロセス停止を要求したかを返す"""
+    return _state.fatal_error
 
 
 def _worker(
@@ -772,47 +845,55 @@ def _worker(
 ) -> None:
     """再接続機能付きワーカー
 
-    TCP接続が切断された場合、指数バックオフで再接続を試みます。
-    データを1行も受信できずに終了した接続（即クローズ・タイムアウト含む）は
-    失敗としてカウントし、最大リトライ回数に達した場合のみワーカーを終了します。
+    接続が終わるたびに再接続します。失敗として数えるのは接続エラーと、
+    データを 1 行も受信せずにリモートが切断した場合のみです。
+    ソケットタイムアウト（接続は成功しているがデータが来ない無音）は
+    深夜に航空機が居ないだけの正常な状態なので失敗とは数えず、即座に接続を張り直します。
+    連続失敗が最大リトライ回数を超えた場合はプロセスの停止を要求します。
     """
     logging.info("受信ワーカーを開始します")
     _state.should_terminate.clear()
+    _state.last_received_at = time.time()
+    _state.silence_warned_at = 0.0
     retry_count = 0
 
     while not _state.should_terminate.is_set():
         error: Exception | None = None
-        received = False
+        outcome = _ConnectionOutcome.CLOSED_WITHOUT_DATA
 
         try:
-            received = _handle_connection(host, port, data_queue, area_config)
+            outcome = _handle_connection(host, port, data_queue, area_config)
         except (OSError, ConnectionError) as e:
             # NOTE: connect 時のタイムアウト（TimeoutError）もここで捕捉される
             error = e
         except Exception:
             logging.exception("受信ワーカーで予期しないエラーが発生しました")
+            _request_process_termination("予期しないエラー")
             break
 
         if _state.should_terminate.is_set():
             break
 
-        if received:
-            # データを受信できた接続のみ成功として扱う
+        if outcome is not _ConnectionOutcome.CLOSED_WITHOUT_DATA:
+            # データを受信できた、または無音（接続自体は健全）→ 失敗とは数えない
             retry_count = 0
             continue
 
         retry_count += 1
         if retry_count > amdar.constants.MODES_RECEIVER_MAX_RETRIES:
             max_retries = amdar.constants.MODES_RECEIVER_MAX_RETRIES
-            error_message = f"最大再接続回数（{max_retries}回）に達しました。処理を終了します"
+            error_message = (
+                f"最大再接続回数（{max_retries}回）に達しました。プロセスを停止して再起動に委ねます"
+            )
             logging.error(error_message)
             if _state.slack_config is not None:
-                last_error = str(error) if error is not None else "データを受信できませんでした"
+                last_error = str(error) if error is not None else "データを受信せずに切断されました"
                 my_lib.notify.slack.error(
                     _state.slack_config,
                     "Mode-S受信エラー",
                     f"{error_message}\n接続先: {host}:{port}\n最後のエラー: {last_error}",
                 )
+            _request_process_termination(error_message)
             break
 
         delay = _calculate_retry_delay(retry_count)
@@ -820,7 +901,7 @@ def _worker(
             "接続に失敗しました（%d/%d回目）: %s。%.1f秒後に再試行します...",
             retry_count,
             amdar.constants.MODES_RECEIVER_MAX_RETRIES,
-            error if error is not None else "受信データなし",
+            error if error is not None else "データを受信せずに切断されました",
             delay,
         )
         _wait_with_interrupt(delay)

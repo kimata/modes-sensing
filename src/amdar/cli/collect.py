@@ -21,6 +21,7 @@ import multiprocessing
 import pathlib
 import queue
 import signal
+import sys
 import threading
 from typing import TYPE_CHECKING
 
@@ -199,6 +200,12 @@ def execute(
         stop_event.set()
         modes_receiver.term()
         vdl2_receiver.term()
+
+    if modes_receiver.has_fatal_error():
+        # 受信ワーカーが自ら SIGTERM を送って停止した場合は異常終了として扱い、
+        # コンテナランタイムに再起動させる（exit 0 だと "Completed" 扱いになる）
+        logging.error("Mode-S 受信ワーカーの致命的エラーにより異常終了します")
+        sys.exit(1)
 
 
 def main() -> None:
